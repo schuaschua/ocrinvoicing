@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+"""Test double for curl in ci/tests: logs the URL to $FAKE_CURL_LOG (one per line);
+fails when FAKE_CURL_LOG is not set. Answers like `curl -o FILE -w '%{http_code}'`:
+the first $FAKE_CURL_FAILURES calls get 503, later ones 200 with
+{"status": "ok", "version": $FAKE_CURL_VERSION}."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+if "FAKE_CURL_LOG" not in os.environ:
+    print("FAKE-TOOL-CALLED: curl " + " ".join(args), file=sys.stderr)
+    sys.exit(97)
+log = Path(os.environ["FAKE_CURL_LOG"])
+calls = len(log.read_text().splitlines()) if log.exists() else 0
+with log.open("a", encoding="utf-8") as out:
+    out.write(args[-1] + "\n")
+failing = calls < int(os.environ.get("FAKE_CURL_FAILURES", "0"))
+body = {"status": "ok", "version": os.environ.get("FAKE_CURL_VERSION", "")}
+Path(args[args.index("-o") + 1]).write_text("" if failing else json.dumps(body), encoding="utf-8")
+print("503" if failing else "200", end="")

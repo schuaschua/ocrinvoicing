@@ -10,11 +10,13 @@ web/         supplier/ and staff/: Vite + React + TypeScript single-page apps, e
 shared/      quality-thresholds.json and the client-side photo quality check (quality/)
 infra/       Terraform and operator scripts (terraform.md)
   bootstrap/   operator scripts for AD-17 steps 1, 3, 4b and 5 and the Azure DevOps setup; see infra/bootstrap/README.md
-  modules/     naming (P-16 names, P-17 tags) and env-foundation
+  modules/     naming (P-16 names, P-17 tags), env-foundation and env-app
   shared/      foundation: PostgreSQL, Document Intelligence F0, ACS Email (both environments)
-  dev/, prod/  foundation: identities, storage, Key Vault, monitoring, budget per environment
+  dev/, prod/  foundation: identities, storage, Key Vault, monitoring, budget per environment;
+               app: the four Flex Function apps, their plans, settings and runtime roles
   scripts/     check_tags.py (P-17 tag gate) and its tests
-ci/          checks.sh (the PR checks, runnable locally) and the deploy-stage scripts; tests/ for the pipelines
+ci/          checks.sh (the PR checks, runnable locally) and the deploy-stage scripts (code-deploy.sh builds
+             one zip per Function app; --build-only builds without publishing); tests/ for the pipelines
 pipelines/   Azure DevOps YAML: pr.yml, deploy.yml, weekly-scan.yml and templates/
 docs/        architecture, standards, governance and costing
 ```
@@ -22,7 +24,7 @@ docs/        architecture, standards, governance and costing
 ## Infrastructure at a glance
 
 - One subscription, region `southeastasia`, resource groups `babaloo-sea-lng-rg-21` (shared), `-rg-01` (dev) and `-rg-11` (prod).
-- Terraform state in `babaloosealngst21` (Entra auth only) in the bootstrap-only group `babaloo-sea-lng-rg-22`, together with the deploy identities; one container per stack owner, key `foundation.tfstate`.
+- Terraform state in `babaloosealngst21` (Entra auth only) in the bootstrap-only group `babaloo-sea-lng-rg-22`, together with the deploy identities; one container per stack owner, keys `foundation.tfstate` and (dev, prod) `app.tfstate`.
 - Apply order and operator steps: `infra/bootstrap/README.md`.
 
 ## Checks (offline, no Azure access needed)

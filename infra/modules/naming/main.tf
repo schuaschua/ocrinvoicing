@@ -38,6 +38,19 @@ locals {
     if var.environment != "shared"
   }
 
+  # The four Flex apps (AD-1), numbered like their identities: one plan (asp) and one
+  # function app (func) each, plus the blob container that holds its deployment
+  # package. Container names are per app, not per environment (one account each).
+  apps = {
+    for index, app in local.app_identity_order :
+    app => {
+      plan                 = format("%s-asp-%02d", local.prefix, var.number_base + index)
+      function_app         = format("%s-func-%02d", local.prefix, var.number_base + index)
+      deployment_container = "deploy-${replace(app, "_", "-")}"
+    }
+    if var.environment != "shared"
+  }
+
   tags = {
     owner              = var.owner
     costCentre         = var.cost_centre

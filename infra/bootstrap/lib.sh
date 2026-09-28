@@ -59,18 +59,21 @@ deploy_identity_name() {
   esac
 }
 
-# Runtime identities per environment, in naming-module order.
-app_identity_name() {
-  local env="$1" app="$2" offset
-  case "$app" in
-    supplier-api) offset=0 ;;
-    staff-api) offset=1 ;;
-    pipeline) offset=2 ;;
-    accounts-sim) offset=3 ;;
-    *) die "unknown app '$app'" ;;
+# Position of each app in naming-module order (identities, plans and function apps).
+app_offset() {
+  case "$1" in
+    supplier-api) echo 0 ;;
+    staff-api) echo 1 ;;
+    pipeline) echo 2 ;;
+    accounts-sim) echo 3 ;;
+    *) die "unknown app '$1'" ;;
   esac
-  resource_name id "$(($(env_base "$env") + offset))"
 }
+
+# Runtime identities per environment, in naming-module order.
+app_identity_name() { resource_name id "$(($(env_base "$1") + $(app_offset "$2")))"; }
+# Flex Function apps (AD-1), numbered like their identities (naming module app_names).
+function_app_name() { resource_name func "$(($(env_base "$1") + $(app_offset "$2")))"; }
 
 key_vault_name() { resource_name kv "$(env_base "$1")"; }
 env_storage_name() { storage_name st "$(env_base "$1")"; }

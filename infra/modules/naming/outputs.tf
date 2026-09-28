@@ -8,6 +8,11 @@ output "identity_names" {
   value       = local.identities
 }
 
+output "app_names" {
+  description = "Per Flex app (supplier_api, staff_api, pipeline, accounts_sim): plan, function app and deployment container names. Empty for shared."
+  value       = local.apps
+}
+
 output "tags" {
   description = "The five P-17 tags, to pass unchanged to every taggable resource."
   value       = local.tags

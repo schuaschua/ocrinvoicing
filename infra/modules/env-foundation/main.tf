@@ -5,8 +5,12 @@
 
 locals {
   containers = ["images", "corrections"]
-  queues     = ["q-quality", "q-extract", "q-validate", "q-post"]
-  tables     = ["supplierlinks", "uploadkeys", "supplierreminders"]
+  # The Functions host's own containers (AzureWebJobsStorage: keys, leases, timer
+  # state). A platform requirement beyond the AD-17 table (overnight decision, spine
+  # update pending); created here so <env>/app can scope roles to exactly these two.
+  host_containers = ["azure-webjobs-hosts", "azure-webjobs-secrets"]
+  queues          = ["q-quality", "q-extract", "q-validate", "q-post"]
+  tables          = ["supplierlinks", "uploadkeys", "supplierreminders"]
 
   # 7-day soft delete for blobs and containers (AD-15).
   blob_properties = {
@@ -79,7 +83,7 @@ module "storage" {
   blob_properties                = local.blob_properties
   storage_management_policy_rule = local.lifecycle_rules
 
-  containers = { for name in local.containers : name => { name = name } }
+  containers = { for name in concat(local.containers, local.host_containers) : name => { name = name } }
   queues     = { for name in local.queues : name => { name = name } }
   tables     = { for name in local.tables : name => { name = name } }
 

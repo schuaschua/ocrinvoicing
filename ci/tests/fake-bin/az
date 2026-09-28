@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
 # Test double for az in ci/tests. Logs each call (one line) to $FAKE_AZ_LOG when set.
-# Only `az account get-access-token` answers, and only when FAKE_AZ_TOKEN is set; any
-# other call prints FAKE-TOOL-CALLED and fails (a check stage must never call az).
+# Only `az account get-access-token` (when FAKE_AZ_TOKEN is set) and
+# `az functionapp deployment source config-zip` and `az functionapp show` (prints
+# <name>.azurewebsites.net) answer when FAKE_AZ_DEPLOY is set;
+# any other call prints FAKE-TOOL-CALLED and fails (a check stage must never call az).
 if [[ -n "${FAKE_AZ_LOG:-}" ]]; then printf '%s\n' "$*" >>"$FAKE_AZ_LOG"; fi
 if [[ -n "${FAKE_AZ_TOKEN:-}" && "$1 $2" == "account get-access-token" ]]; then
   printf '%s\n' "$FAKE_AZ_TOKEN"
+  exit 0
+fi
+# FAKE_AZ_FAIL_NAME makes the config-zip publish to that app name fail.
+if [[ -n "${FAKE_AZ_DEPLOY:-}" && "$1 $2 $3 $4" == "functionapp deployment source config-zip" ]]; then
+  [[ -n "${FAKE_AZ_FAIL_NAME:-}" && " $* " == *" --name $FAKE_AZ_FAIL_NAME "* ]] && exit 1
+  exit 0
+fi
+if [[ -n "${FAKE_AZ_DEPLOY:-}" && "$1 $2" == "functionapp show" ]]; then
+  while (($#)); do
+    [[ "$1" == --name ]] && printf '%s.azurewebsites.net\n' "$2"
+    shift
+  done
   exit 0
 fi
 echo "FAKE-TOOL-CALLED: az $*" >&2

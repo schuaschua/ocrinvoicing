@@ -16,3 +16,12 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-2-ci-cd-pipeline-in-azure-devops.md`
   summary: Add a fixture test proving the web 60% Vitest coverage floor fails the `test` check.
   evidence: Only a source-text check pins `WEB_COVERAGE_MIN=60`; no web app has Vitest until Story 1.4.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-3-python-functions-api-skeleton.md`
+  summary: Isolate Functions host keys per app (per-app host storage or Key Vault secret storage) instead of the shared `azure-webjobs-secrets` container.
+  evidence: Every app identity holds Blob Data Owner on the shared host containers, so a compromised app could read or overwrite another app's master key. Accepted for the PoC overnight.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-3-python-functions-api-skeleton.md`
+  summary: Update the spine AD-17 runtime-role table with Storage Blob Data Owner on `azure-webjobs-hosts`/`azure-webjobs-secrets` for every app, and per-secret Key Vault roles.
+  evidence: Implemented in `infra/modules/env-app` as a platform requirement; the spine still lists only the original roles.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-3-python-functions-api-skeleton.md`
+  summary: Share one manifest of required app settings between `infra/modules/env-app` and the pydantic settings classes, and test both against it.
+  evidence: Both sides hard-code their own key lists today; a drift would only show at start-up in Azure.

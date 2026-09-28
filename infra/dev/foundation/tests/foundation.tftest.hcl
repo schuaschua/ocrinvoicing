@@ -87,6 +87,10 @@ run "dev_foundation" {
     error_message = "the dev resource group must be babaloo-sea-lng-rg-01 (P-16)."
   }
   assert {
+    condition     = output.resource_group_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01"
+    error_message = "the resource group id must be an output, for dev/app (terraform.md rule 8)."
+  }
+  assert {
     condition = azurerm_resource_group.this.tags == tomap({
       owner              = "test-owner"
       costCentre         = "test-cc"

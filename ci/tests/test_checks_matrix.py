@@ -46,12 +46,17 @@ def _checks(root: Path, subcommand: str) -> subprocess.CompletedProcess[str]:
 
 
 def _backend(root: Path) -> Path:
-    """The real backend project (pinned dev tools, lock file) with its package, no tests."""
+    """The real backend project (pinned tools, lock file) with only its package markers
+    (the __init__.py files), no other code and no tests, so each case adds its own."""
     backend = root / "backend"
     backend.mkdir()
     for name in ("pyproject.toml", "uv.lock"):
         shutil.copy2(REPO_ROOT / "backend" / name, backend / name)
-    shutil.copytree(REPO_ROOT / "backend" / "src", backend / "src", ignore=shutil.ignore_patterns("__pycache__"))
+    source = REPO_ROOT / "backend" / "src"
+    for marker in source.rglob("__init__.py"):
+        target = backend / "src" / marker.relative_to(source)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(marker, target)
     (backend / "tests").mkdir()
     return backend
 
@@ -102,7 +107,9 @@ def test_story_1_2_passing_tests_below_80_percent_coverage_fail_with_the_measure
     output = result.stdout + result.stderr
     assert result.returncode == 1, output
     assert "1 passed" in output
-    assert "Required test coverage of 80% not reached. Total coverage: 25.00%" in output
+    # 4 of 13 statements and branches: the helper's 1 covered line plus invoicing/__init__.py's
+    # __version__ (read by pyproject's dynamic version since Story 1.3).
+    assert "Required test coverage of 80% not reached. Total coverage: 30.77%" in output
     assert "FAILED: pytest with coverage >= 80% (backend)" in result.stderr
 
 

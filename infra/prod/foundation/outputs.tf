@@ -3,6 +3,11 @@ output "resource_group_name" {
   value       = azurerm_resource_group.this.name
 }
 
+output "resource_group_id" {
+  description = "Resource id of the environment's resource group (parent of the <env>/app resources)."
+  value       = azurerm_resource_group.this.id
+}
+
 output "identities" {
   description = "Runtime identities keyed by app (name, resource id, principal id, client id)."
   value       = module.foundation.identities

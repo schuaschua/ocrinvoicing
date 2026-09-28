@@ -1,5 +1,7 @@
 # AD-17 step 9: code deploy for one environment (Story 1.2 places it; Story 1.3
-# implements ci/code-deploy.sh). A no-op until infra/<env>/app exists.
+# implements ci/code-deploy.sh): one zip per Function app, SPA included once the web
+# app is scaffolded, published with one deploy as the environment's deploy identity.
+# A no-op while infra/<env>/app does not exist.
 parameters:
   - name: id
     type: string

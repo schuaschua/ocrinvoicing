@@ -77,6 +77,10 @@ run "storage_retention_and_messaging" {
     error_message = "containers must be images and corrections (AD-15)."
   }
   assert {
+    condition     = local.host_containers == ["azure-webjobs-hosts", "azure-webjobs-secrets"] && output.storage_account.host_containers == local.host_containers
+    error_message = "the Functions host containers must exist for <env>/app to scope roles to (platform requirement)."
+  }
+  assert {
     condition     = local.queues == ["q-quality", "q-extract", "q-validate", "q-post"]
     error_message = "queues must be the four AD-2 stage queues."
   }
@@ -85,7 +89,7 @@ run "storage_retention_and_messaging" {
     error_message = "tables must be supplierlinks, uploadkeys and supplierreminders."
   }
   assert {
-    condition     = keys(module.storage.containers) == ["corrections", "images"] && length(module.storage.queues) == 4 && length(module.storage.tables) == 3
+    condition     = keys(module.storage.containers) == ["azure-webjobs-hosts", "azure-webjobs-secrets", "corrections", "images"] && length(module.storage.queues) == 4 && length(module.storage.tables) == 3
     error_message = "the storage module must create every container, queue and table."
   }
   assert {

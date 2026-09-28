@@ -79,3 +79,36 @@ run "empty_tag_value_fails" {
 
   expect_failures = [var.cost_centre]
 }
+
+run "app_names" {
+  command = plan
+
+  variables {
+    environment = "dev"
+    number_base = 1
+  }
+
+  assert {
+    condition = output.app_names == {
+      supplier_api = { plan = "babaloo-sea-lng-asp-01", function_app = "babaloo-sea-lng-func-01", deployment_container = "deploy-supplier-api" }
+      staff_api    = { plan = "babaloo-sea-lng-asp-02", function_app = "babaloo-sea-lng-func-02", deployment_container = "deploy-staff-api" }
+      pipeline     = { plan = "babaloo-sea-lng-asp-03", function_app = "babaloo-sea-lng-func-03", deployment_container = "deploy-pipeline" }
+      accounts_sim = { plan = "babaloo-sea-lng-asp-04", function_app = "babaloo-sea-lng-func-04", deployment_container = "deploy-accounts-sim" }
+    }
+    error_message = "dev Flex apps must be asp/func-01..04 in AD-1 order, each with its deployment container."
+  }
+}
+
+run "no_apps_in_shared" {
+  command = plan
+
+  variables {
+    environment = "shared"
+    number_base = 21
+  }
+
+  assert {
+    condition     = output.app_names == {}
+    error_message = "shared has no Function apps (AD-1: four per environment)."
+  }
+}

@@ -16,8 +16,10 @@ output "storage_account" {
     name        = var.names.storage_account
     resource_id = module.storage.resource_id
     containers  = local.containers
-    queues      = local.queues
-    tables      = local.tables
+    # Functions host containers (platform requirement beyond AD-17).
+    host_containers = local.host_containers
+    queues          = local.queues
+    tables          = local.tables
   }
 }
 

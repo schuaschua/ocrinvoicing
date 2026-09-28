@@ -4,14 +4,25 @@ app's user-assigned managed identity. Blob name: `ports/blobs.py`."""
 import logging
 from collections.abc import Awaitable
 from typing import Any, Protocol, Self
+from uuid import UUID
 
-from azure.core.exceptions import AzureError, ResourceExistsError
+from azure.core.exceptions import (
+    AzureError,
+    ResourceExistsError,
+    ResourceNotFoundError,
+)
 from azure.identity.aio import ManagedIdentityCredential
 from azure.storage.blob import ContentSettings
 from azure.storage.blob.aio import ContainerClient
 
+from invoicing.adapters.logging import log_event
 from invoicing.adapters.storage_errors import raise_unavailable
-from invoicing.ports.blobs import IMAGES_CONTAINER, image_blob_name
+from invoicing.ports.blobs import (
+    IMAGES_CONTAINER,
+    ImageNotFoundError,
+    StoredImage,
+    image_blob_name,
+)
 from invoicing.ports.intake import IntakeBlobMetadata
 
 _logger = logging.getLogger("invoicing.images")
@@ -21,6 +32,8 @@ class _ContainerClient(Protocol):
     # Not `async def`: the SDK's tracing decorator types it as returning an Awaitable.
     def upload_blob(self, name: str, data: bytes, **kwargs: Any) -> Awaitable[Any]: ...
 
+    def download_blob(self, blob: str, **kwargs: Any) -> Awaitable[Any]: ...
+
     async def close(self) -> None: ...
 
 
@@ -29,7 +42,8 @@ class _Closeable(Protocol):
 
 
 class BlobImageStore:
-    """Writes upload originals to `images`; never overwrites one."""
+    """Writes upload originals to `images`, never overwriting one, and reads them
+    back (`ImageStore`, `ImageReader`)."""
 
     def __init__(
         self, container: _ContainerClient, credential: _Closeable | None = None
@@ -69,6 +83,31 @@ class BlobImageStore:
         except AzureError as error:
             raise_unavailable(_logger, "images.unavailable", error)
         return True
+
+    async def get(self, invoice_id: UUID) -> StoredImage:
+        try:
+            downloader = await self._container.download_blob(
+                image_blob_name(invoice_id)
+            )
+            data = await downloader.readall()
+            metadata = dict(downloader.properties.metadata or {})
+        except ResourceNotFoundError as error:
+            # Only this code means the blob is missing; a missing container is a fault.
+            if getattr(error, "error_code", None) == "BlobNotFound":
+                log_event(
+                    _logger,
+                    "images.not_found",
+                    level=logging.WARNING,
+                    invoice_id=invoice_id,
+                    code="IMAGE_NOT_FOUND",
+                )
+                raise ImageNotFoundError("the upload original does not exist") from None
+            raise_unavailable(_logger, "images.unavailable", error)
+        except AzureError as error:
+            raise_unavailable(_logger, "images.unavailable", error)
+        return StoredImage(
+            data=bytes(data), metadata=IntakeBlobMetadata.from_blob_metadata(metadata)
+        )
 
     async def close(self) -> None:
         """Release the HTTP session and the credential."""

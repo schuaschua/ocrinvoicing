@@ -47,8 +47,8 @@ development_status:
   1-9-on-device-photo-quality-check-with-send-anyway: review
   epic-1-retrospective: optional
 
-  epic-2: backlog
-  2-1-server-quality-check-creates-the-invoice-record: backlog
+  epic-2: in-progress
+  2-1-server-quality-check-creates-the-invoice-record: review
   2-2-the-pipeline-never-loses-an-invoice: backlog
   2-3-invoice-fields-are-extracted-by-document-intelligence: backlog
   2-4-simulated-po-and-goods-received-data: backlog

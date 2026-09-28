@@ -8,7 +8,9 @@
 # (terraform.md rule 36 exception).
 #
 # Contract for backend/migrations/env.py (Story 1.3): take the connection from the
-# libpq variables PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE and PGSSLMODE.
+# libpq variables PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE and PGSSLMODE; the
+# roles to grant to come as `-x pipeline_role=<login> -x staff_api_role=<login>`
+# (Story 2.1).
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -53,11 +55,13 @@ if ((check_only)); then
 fi
 
 # Names come from the bootstrap naming helpers, so they cannot drift from the logins
-# that database-step5.sh created.
+# that database-step5.sh created. The app logins are the roles the migrations grant to
+# (AD-11), passed as `-x` arguments (backend/migrations/env.py), never hard-coded.
 # shellcheck disable=SC2016  # expanded by the inner bash
-names="$(bash -c 'source "$1/infra/bootstrap/lib.sh" && printf "%s %s %s" \
-  "$(postgres_fqdn)" "$(deploy_identity_name "$2")" "$(env_database_name "$2")"' bash "$REPO_ROOT" "$env")"
-read -r pg_host pg_user pg_database <<<"$names"
+names="$(bash -c 'source "$1/infra/bootstrap/lib.sh" && printf "%s %s %s %s %s" \
+  "$(postgres_fqdn)" "$(deploy_identity_name "$2")" "$(env_database_name "$2")" \
+  "$(app_identity_name "$2" pipeline)" "$(app_identity_name "$2" staff-api)"' bash "$REPO_ROOT" "$env")"
+read -r pg_host pg_user pg_database pipeline_role staff_api_role <<<"$names"
 
 token="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 [[ -n "$token" ]] || die "no Entra token for PostgreSQL"
@@ -68,4 +72,5 @@ fi
 export PGHOST="$pg_host" PGPORT=5432 PGUSER="$pg_user" PGDATABASE="$pg_database" PGSSLMODE=require
 export PGPASSWORD="$token"
 log "alembic upgrade head on $PGDATABASE as $PGUSER"
-uv run --directory "$REPO_ROOT/backend" --locked --no-dev alembic upgrade head
+uv run --directory "$REPO_ROOT/backend" --locked --no-dev alembic \
+  -x "pipeline_role=$pipeline_role" -x "staff_api_role=$staff_api_role" upgrade head

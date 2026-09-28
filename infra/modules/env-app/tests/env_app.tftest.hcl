@@ -86,21 +86,25 @@ variables {
   }
   identities = {
     supplier_api = {
+      name         = "babaloo-sea-lng-id-01"
       resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-01"
       principal_id = "10000000-0000-0000-0000-000000000001"
       client_id    = "20000000-0000-0000-0000-000000000001"
     }
     staff_api = {
+      name         = "babaloo-sea-lng-id-02"
       resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-02"
       principal_id = "10000000-0000-0000-0000-000000000002"
       client_id    = "20000000-0000-0000-0000-000000000002"
     }
     pipeline = {
+      name         = "babaloo-sea-lng-id-03"
       resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-03"
       principal_id = "10000000-0000-0000-0000-000000000003"
       client_id    = "20000000-0000-0000-0000-000000000003"
     }
     accounts_sim = {
+      name         = "babaloo-sea-lng-id-04"
       resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-04"
       principal_id = "10000000-0000-0000-0000-000000000004"
       client_id    = "20000000-0000-0000-0000-000000000004"
@@ -109,6 +113,10 @@ variables {
   storage_account = {
     name        = "babaloosealngst01"
     resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01"
+  }
+  database = {
+    name = "invoicing_dev"
+    fqdn = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
   }
   key_vault = {
     resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
@@ -222,7 +230,7 @@ run "app_settings_hold_no_secrets" {
     condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
       supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
       staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI"])
-      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI"])
+      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER"])
       accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
     }
     error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
@@ -241,6 +249,28 @@ run "app_settings_hold_no_secrets" {
       ]
     ]))
     error_message = "app settings must hold no keys, SAS tokens, passwords or secrets."
+  }
+}
+
+# Story 2.1: the pipeline signs in to its environment's database as its own identity,
+# with an Entra token (AD-11); no other app gets database settings.
+run "pipeline_database_settings" {
+  command = plan
+
+  assert {
+    condition = (
+      local.app_settings["pipeline"].POSTGRES_HOST == "babaloo-sea-lng-psql-21.postgres.database.azure.com" &&
+      local.app_settings["pipeline"].POSTGRES_DATABASE == "invoicing_dev" &&
+      local.app_settings["pipeline"].POSTGRES_USER == "babaloo-sea-lng-id-03"
+    )
+    error_message = "the pipeline must connect to its environment's database as its own identity's login."
+  }
+  assert {
+    condition = alltrue([
+      for app in ["supplier_api", "staff_api", "accounts_sim"] :
+      length([for key in keys(local.app_settings[app]) : key if startswith(key, "POSTGRES_")]) == 0
+    ])
+    error_message = "only the pipeline gets database settings in Story 2.1 (supplier-api has no login, AD-11)."
   }
 }
 
@@ -350,6 +380,7 @@ run "all_four_identities_are_required" {
   variables {
     identities = {
       supplier_api = {
+        name         = "babaloo-sea-lng-id-01"
         resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-01"
         principal_id = "10000000-0000-0000-0000-000000000001"
         client_id    = "20000000-0000-0000-0000-000000000001"

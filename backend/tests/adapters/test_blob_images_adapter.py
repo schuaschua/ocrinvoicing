@@ -24,7 +24,12 @@ from invoicing.adapters.blob_images import BlobImageStore
 from invoicing.adapters.logging import event_fields
 from invoicing.domain.errors import ServiceUnavailableError
 from invoicing.domain.upload import UploadContentType
-from invoicing.ports.blobs import ImageStore
+from invoicing.ports.blobs import (
+    ImageNotFoundError,
+    ImageReader,
+    ImageStore,
+    StoredImage,
+)
 from invoicing.ports.intake import DeviceCheck, IntakeBlobMetadata, IntakeSource
 
 INVOICE_ID = UUID("0192f0c1-7a2b-7c3d-8e4f-0123456789ab")
@@ -214,3 +219,130 @@ def test_story_1_8_the_wire_request_is_a_conditional_put_of_the_exact_bytes() ->
 def test_story_1_8_the_services_already_exists_answer_means_not_written() -> None:
     written, _ = _sdk_put(409)
     assert written is False
+
+
+# --- Story 2.1: reading an original back for the quality stage -------------------------
+
+
+class FakeDownloader:
+    def __init__(self, data: bytes, metadata: dict[str, str]) -> None:
+        self._data = data
+        self.properties = type("Properties", (), {"metadata": metadata})()
+
+    async def readall(self) -> bytes:
+        return self._data
+
+
+class ReadingContainer(FakeContainer):
+    def __init__(
+        self,
+        downloader: FakeDownloader | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        super().__init__()
+        self.downloader = downloader
+        self.read_error = error
+        self.downloads: list[str] = []
+
+    async def download_blob(self, blob: str, **kwargs: Any) -> Any:
+        self.downloads.append(blob)
+        if self.read_error is not None:
+            raise self.read_error
+        return self.downloader
+
+
+def _get(container: ReadingContainer) -> StoredImage:
+    reader: ImageReader = BlobImageStore(container)
+    return asyncio.run(reader.get(INVOICE_ID))
+
+
+def _not_found(error_code: str) -> ResourceNotFoundError:
+    error = ResourceNotFoundError(error_code)
+    error.status_code = 404
+    error.error_code = error_code  # type: ignore[attr-defined]  # set by the SDK
+    return error
+
+
+def test_story_2_1_get_returns_the_original_bytes_and_their_metadata() -> None:
+    # Blob storage may return metadata keys in another case.
+    stored = {k.upper(): v for k, v in METADATA.to_blob_metadata().items()}
+    container = ReadingContainer(FakeDownloader(DATA, stored))
+    image = _get(container)
+    assert container.downloads == [str(INVOICE_ID)]
+    assert image == StoredImage(data=DATA, metadata=METADATA)
+
+
+def test_story_2_1_a_missing_blob_raises_not_found_logged_by_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        caplog.at_level(logging.DEBUG, logger="invoicing"),
+        pytest.raises(ImageNotFoundError) as raised,
+    ):
+        _get(ReadingContainer(error=_not_found("BlobNotFound")))
+    assert raised.value.__cause__ is None and raised.value.__suppress_context__
+    (record,) = [r for r in caplog.records if r.name.startswith("invoicing")]
+    assert record.getMessage().startswith("images.not_found ")
+    assert event_fields(record) == {
+        "invoice_id": str(INVOICE_ID),
+        "code": "IMAGE_NOT_FOUND",
+    }
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (_not_found("ContainerNotFound"), "RESOURCE_NOT_FOUND"),
+        (ServiceRequestError("connection reset"), "TRANSIENT"),
+        (ClientAuthenticationError("no role"), "AUTH_FAILED"),
+    ],
+)
+def test_story_2_1_a_read_failure_is_service_unavailable(
+    error: Exception, code: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with (
+        caplog.at_level(logging.DEBUG, logger="invoicing"),
+        pytest.raises(ServiceUnavailableError),
+    ):
+        _get(ReadingContainer(error=error))
+    assert [
+        event_fields(r).get("code")
+        for r in caplog.records
+        if r.getMessage().startswith("images.unavailable ")
+    ] == [code]
+
+
+def test_story_2_1_metadata_that_is_not_intake_metadata_is_refused() -> None:
+    with pytest.raises(ValueError, match="not IntakeBlobMetadata"):
+        _get(ReadingContainer(FakeDownloader(DATA, {"invoice_id": str(INVOICE_ID)})))
+
+
+def test_story_2_1_the_wire_404_blob_not_found_is_not_found() -> None:
+    transport = FakeTransport(
+        [
+            (
+                404,
+                b"",
+                {"x-ms-error-code": "BlobNotFound", "Content-Type": "application/xml"},
+            )
+        ]
+    )
+    container = ContainerClient(
+        account_url="https://babaloosealngst01.blob.core.windows.net",
+        container_name="images",
+        credential=AzureNamedKeyCredential("babaloosealngst01", "a2V5"),
+        transport=transport,
+        retry_total=0,
+    )
+
+    async def get() -> StoredImage:
+        async with container:
+            return await BlobImageStore(container).get(INVOICE_ID)
+
+    with pytest.raises(ImageNotFoundError):
+        asyncio.run(get())
+    (request,) = transport.requests
+    assert request.method == "GET"
+    assert request.url.startswith(
+        f"https://babaloosealngst01.blob.core.windows.net/images/{INVOICE_ID}"
+    )

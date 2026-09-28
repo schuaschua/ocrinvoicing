@@ -19,6 +19,7 @@ module "app" {
   app_names         = local.app_names
   identities = {
     for app, identity in local.foundation.identities : app => {
+      name         = identity.name
       resource_id  = identity.resource_id
       principal_id = identity.principal_id
       client_id    = identity.client_id
@@ -27,6 +28,10 @@ module "app" {
   storage_account = {
     name        = local.foundation.storage_account.name
     resource_id = local.foundation.storage_account.resource_id
+  }
+  database = {
+    name = local.foundation.database.name
+    fqdn = local.foundation.database.fqdn
   }
   key_vault = {
     resource_id = local.foundation.key_vault.resource_id

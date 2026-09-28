@@ -9,18 +9,27 @@ requires-python = "==3.13.*"
 # table. aiohttp is the async transport azure-core needs for the aio queue client.
 # azure-data-tables (Story 1.7) reads the supplier link registry (AD-6);
 # azure-storage-blob (Story 1.8) writes upload originals to `images` (AD-6).
+# Story 2.1: SQLAlchemy Core, psycopg (binary: the Flex image ships no libpq) and
+# Alembic follow the spine's Stack table; Pillow, ImageHash and pypdf are the quality
+# stage's readability check, phash (AD-9) and PDF page count (AD-6).
 dependencies = [
     "aiohttp==3.14.3",
+    "alembic==1.20.0",
     "azure-functions==2.3.0",
     "azure-data-tables==12.7.0",
     "azure-identity==1.25.3",
     "azure-monitor-opentelemetry==1.8.10",
     "azure-storage-blob==12.30.3",
     "azure-storage-queue==12.17.0",
+    "imagehash==4.3.2",
     "opentelemetry-api==1.44.0",
     "opentelemetry-sdk==1.44.0",
+    "pillow==12.3.0",
+    "psycopg[binary]==3.3.6",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
+    "pypdf==6.19.0",
+    "sqlalchemy==2.1.1",
 ]
 
 [dependency-groups]
@@ -83,6 +92,9 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "app(name): the app whose settings the app_settings fixture sets (tests/conftest.py)",
+]
 
 # Backend coverage floor (Story 1.2, coding-style.md rule 25). ci/checks.sh passes
 # the same value; never lower it to make a check pass.

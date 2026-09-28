@@ -40,3 +40,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-9-on-device-photo-quality-check-with-send-anyway.md`
   summary: Update spine AD-6/CAP-3 for the device-only edge cut-off check, the 1024 px analysis copy and the `X-Device-Check` header.
   evidence: Implemented in Story 1.9; the spine describes blur and darkness only.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-1-server-quality-check-creates-the-invoice-record.md`
+  summary: Story 2.2 poison trigger routes `PROCESSING_FAILED` for quality messages that fail permanently (bad metadata, missing blob), using `route_to_admin(..., metadata)`, and adds lease/claim reclaim.
+  evidence: 2.1 re-raises these for host retries; `route_to_admin(metadata=...)` exists but has no caller; no stage claims yet.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-1-server-quality-check-creates-the-invoice-record.md`
+  summary: Assert the dev/prod app stacks' database wiring (`POSTGRES_HOST/DATABASE/USER`) at root level via an app-settings output.
+  evidence: Only the module test checks the mapping.

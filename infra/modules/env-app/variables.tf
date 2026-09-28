@@ -33,8 +33,9 @@ variable "app_names" {
 }
 
 variable "identities" {
-  description = "The four runtime identities from <env>/foundation, keyed by app (resource id, principal id, client id)."
+  description = "The four runtime identities from <env>/foundation, keyed by app (name, resource id, principal id, client id). The name is also the identity's PostgreSQL login (AD-11)."
   type = map(object({
+    name         = string
     resource_id  = string
     principal_id = string
     client_id    = string
@@ -51,6 +52,14 @@ variable "storage_account" {
   type = object({
     name        = string
     resource_id = string
+  })
+}
+
+variable "database" {
+  description = "This environment's database on the shared PostgreSQL server, from <env>/foundation (name and server FQDN)."
+  type = object({
+    name = string
+    fqdn = string
   })
 }
 

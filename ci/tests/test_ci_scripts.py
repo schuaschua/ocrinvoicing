@@ -204,9 +204,15 @@ def test_story_1_2_no_migrations_yet_passes_without_azure(args: list[str], work_
         assert "output: hasWork=false" in result.stdout
 
 
-@pytest.mark.parametrize(("env", "login"), [("dev", "babaloo-sea-lng-id-22"), ("prod", "babaloo-sea-lng-id-23")])
+@pytest.mark.parametrize(
+    ("env", "login", "pipeline_role", "staff_api_role"),
+    [
+        ("dev", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-03", "babaloo-sea-lng-id-02"),
+        ("prod", "babaloo-sea-lng-id-23", "babaloo-sea-lng-id-13", "babaloo-sea-lng-id-12"),
+    ],
+)
 def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token(
-    env: str, login: str, work_dir: Path
+    env: str, login: str, pipeline_role: str, staff_api_role: str, work_dir: Path
 ) -> None:
     migrations = work_dir / "migrations"
     migrations.mkdir()
@@ -221,8 +227,10 @@ def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token
     )
     assert result.returncode == 0, result.stdout + result.stderr
     (call,) = [json.loads(line) for line in (work_dir / "uv.jsonl").read_text().splitlines()]
+    # Story 2.1: the roles the migrations grant to are the environment's app logins (AD-11).
     assert call["args"] == [
-        "run", "--directory", str(REPO_ROOT / "backend"), "--locked", "--no-dev", "alembic", "upgrade", "head",
+        "run", "--directory", str(REPO_ROOT / "backend"), "--locked", "--no-dev", "alembic",
+        "-x", f"pipeline_role={pipeline_role}", "-x", f"staff_api_role={staff_api_role}", "upgrade", "head",
     ]
     assert call["env"] == {
         "PGHOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",
@@ -335,6 +343,13 @@ def test_story_1_3_code_deploy_builds_one_flat_zip_per_app_publishes_it_and_chec
         assert {"function_app.py", "host.json", "requirements.txt", "invoicing/__init__.py"} <= names
         # Story 1.4: http.py reads the security headers from here.
         assert "shared/security-headers.json" in names
+        # Story 2.1: the quality stage reads the page's thresholds file (AD-6).
+        assert ("shared/quality-thresholds.json" in names) == (app == "pipeline")
+        if app == "pipeline":
+            with zipfile.ZipFile(build / f"{app}.zip") as archive:
+                assert archive.read("shared/quality-thresholds.json") == (
+                    REPO_ROOT / "shared" / "quality-thresholds.json"
+                ).read_bytes()
         assert f"invoicing/apps/{module}/function_app.py" in names
         with zipfile.ZipFile(build / f"{app}.zip") as archive:
             assert archive.read("function_app.py") == (PACKAGE_SRC / "apps" / module / "function_app.py").read_bytes()

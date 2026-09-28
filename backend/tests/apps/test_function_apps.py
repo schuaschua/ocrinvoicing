@@ -37,6 +37,9 @@ REQUIRED = {
         "AZURE_CLIENT_ID",
         "STORAGE_ACCOUNT_NAME",
         "KEY_VAULT_URI",
+        "POSTGRES_HOST",
+        "POSTGRES_DATABASE",
+        "POSTGRES_USER",
     ],
     "accounts_sim": ["APP_ENVIRONMENT", "AZURE_CLIENT_ID"],
 }
@@ -77,13 +80,44 @@ def test_story_1_3_health_returns_200_with_the_package_version(
     assert UUID(response.headers[CORRELATION_HEADER]).version == 7
 
 
-@pytest.mark.parametrize("app", ["pipeline", "accounts_sim"])
-def test_story_1_3_non_http_apps_start_with_no_routes(
-    app: str, app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
+def test_story_1_3_accounts_sim_starts_with_no_routes(
+    app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
 ) -> None:
-    module = load_app(app)
-    # AD-1: pipeline never has HTTP routes; accounts-sim's XML route comes later.
-    assert _functions(module) == {}
+    # accounts-sim's XML route comes later.
+    assert _functions(load_app("accounts_sim")) == {}
+
+
+@pytest.mark.app("pipeline")
+def test_story_1_3_pipeline_never_has_http_routes(
+    app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
+) -> None:
+    # AD-1: queue and timer triggers only.
+    for fn in _functions(load_app("pipeline")).values():
+        types = {b.get_dict_repr()["type"] for b in fn.get_bindings()}
+        assert "httpTrigger" not in types
+        assert types <= {"queueTrigger", "timerTrigger"}
+
+
+@pytest.mark.app("pipeline")
+def test_story_2_1_pipeline_runs_the_quality_stage_on_q_quality(
+    app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
+) -> None:
+    module = load_app("pipeline")
+    (trigger,) = [
+        b.get_dict_repr() for b in _functions(module)["quality"].get_bindings()
+    ]
+    assert trigger["type"] == "queueTrigger"
+    assert trigger["queueName"] == "q-quality"
+    # The host storage connection: identity-based, the environment's account.
+    assert trigger["connection"] == "AzureWebJobsStorage"
+    # The thresholds come from the one shared file (AD-6).
+    assert module.thresholds.min_variance > 0
+    # The engine signs in as the configured login; creating it opened no connection.
+    assert module.engine.url.username == app_settings["POSTGRES_USER"]
+    assert module.engine.url.host == app_settings["POSTGRES_HOST"]
+    assert module.engine.url.database == app_settings["POSTGRES_DATABASE"]
+    assert module.engine.url.password is None
+    assert module.engine.url.query["sslmode"] == "require"
 
 
 @pytest.mark.parametrize(
@@ -130,6 +164,10 @@ BAD_VALUES = {
     "AZURE_CLIENT_ID": "not-a-client-id",
     "STORAGE_ACCOUNT_NAME": "Bad_Account-Name",
     "KEY_VAULT_URI": "http://plain-http-vault.example",
+    # Story 2.1: a host, database or login that could smuggle in libpq options.
+    "POSTGRES_HOST": "db.example host=evil",
+    "POSTGRES_DATABASE": "invoicing dev",
+    "POSTGRES_USER": "pipeline password=x",
 }
 
 
@@ -316,6 +354,7 @@ def test_story_1_5_app_configures_azure_monitor_with_its_identity_and_sampling(
     assert options["resource"].attributes["service.name"] == SERVICE_NAMES[app]  # type: ignore[attr-defined]  # a Resource
 
 
+@pytest.mark.app("pipeline")
 def test_story_1_5_without_an_authentication_string_the_app_identity_signs_in(
     app_settings: dict[str, str],
     load_app: Callable[[str], ModuleType],
@@ -386,6 +425,7 @@ def test_story_1_5_only_signed_in_apps_honour_the_callers_correlation_id(
         "ClientId=;Authorization=AAD",
     ],
 )
+@pytest.mark.app("pipeline")
 def test_story_1_5_a_malformed_authentication_string_stops_the_app_naming_it(
     value: str,
     app_settings: dict[str, str],

@@ -1,6 +1,6 @@
 """API error codes and the domain error base (spine Consistency Conventions: Errors).
 
-AD-4 reason codes live in `domain/reasons.py` (a later story); these are the codes
+AD-4 reason codes live in `domain/reasons.py` (Story 2.1); these are the codes
 an API returns in its `{code, message, correlation_id}` body.
 """
 

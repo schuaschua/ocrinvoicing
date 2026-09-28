@@ -23,6 +23,10 @@ class FakeResponse(AsyncHttpResponse):
     async def load_body(self) -> None:
         return None
 
+    async def read(self) -> bytes:
+        # A download's error path reads the body before raising (Story 2.1).
+        return self._body
+
     def stream_download(self, pipeline: Any, **kwargs: Any) -> Any:
         raise NotImplementedError
 

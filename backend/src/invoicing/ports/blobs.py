@@ -1,6 +1,7 @@
 """The `images` container (AD-6, AD-15): each upload's original bytes, never
 re-encoded, at `images/<invoice_id>` with its `IntakeBlobMetadata`."""
 
+from dataclasses import dataclass
 from typing import Protocol
 from uuid import UUID
 
@@ -14,8 +15,31 @@ def image_blob_name(invoice_id: UUID) -> str:
     return str(invoice_id)
 
 
+class ImageNotFoundError(LookupError):
+    """`images/<invoice_id>` does not exist. The message names no value."""
+
+
+@dataclass(frozen=True)
+class StoredImage:
+    """An upload original and the metadata its intake writer stored with it (AD-5)."""
+
+    data: bytes
+    metadata: IntakeBlobMetadata
+
+
+class ImageReader(Protocol):
+    """Reads upload originals (the quality stage, Story 2.1)."""
+
+    async def get(self, invoice_id: UUID) -> StoredImage:
+        """The bytes and metadata of `images/<invoice_id>`. Raises
+        `ImageNotFoundError` when there is no such blob, ValueError when its metadata
+        is not `IntakeBlobMetadata`, and `ServiceUnavailableError` when storage can't
+        answer."""
+        ...
+
+
 class ImageStore(Protocol):
-    """Writes upload originals. Reading them arrives with the quality stage (2.1)."""
+    """Writes upload originals."""
 
     async def put_if_absent(self, data: bytes, metadata: IntakeBlobMetadata) -> bool:
         """Store `data` at `images/<metadata.invoice_id>` unless a blob is already

@@ -561,7 +561,10 @@ def test_story_1_8_a_storage_outage_is_a_retryable_503(
 def test_story_1_8_upload_works_with_no_database_settings(
     call: Call, app_settings: dict[str, str]
 ) -> None:
+    # supplier-api has no database setting to point anywhere: nothing to be down.
     assert not [name for name in app_settings if "DATABASE" in name or "PG" in name]
+    # Not even the pipeline's settings are in its environment (Story 2.1).
+    assert not [name for name in os.environ if name.startswith("POSTGRES_")]
     _ok(call())
 
 

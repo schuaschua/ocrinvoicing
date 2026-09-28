@@ -50,7 +50,15 @@ locals {
   app_specific_settings = {
     supplier_api = { STORAGE_ACCOUNT_NAME = var.storage_account.name }
     staff_api    = { STORAGE_ACCOUNT_NAME = var.storage_account.name, KEY_VAULT_URI = var.key_vault.uri }
-    pipeline     = { STORAGE_ACCOUNT_NAME = var.storage_account.name, KEY_VAULT_URI = var.key_vault.uri }
+    # Story 2.1: the database and the login the pipeline signs in as with an Entra
+    # token (its identity's name, AD-11); no password setting exists.
+    pipeline = {
+      STORAGE_ACCOUNT_NAME = var.storage_account.name
+      KEY_VAULT_URI        = var.key_vault.uri
+      POSTGRES_HOST        = var.database.fqdn
+      POSTGRES_DATABASE    = var.database.name
+      POSTGRES_USER        = var.identities["pipeline"].name
+    }
     accounts_sim = {}
   }
 

@@ -266,6 +266,8 @@ def test_story_1_7_the_link_resolves_with_no_database_settings(
 ) -> None:
     # supplier-api has no database setting to point anywhere: nothing to be down.
     assert not [name for name in app_settings if "DATABASE" in name or "PG" in name]
+    # Not even the pipeline's settings are in its environment (Story 2.1).
+    assert not [name for name in os.environ if name.startswith("POSTGRES_")]
     response = supplier_api(FakeRegistry())(_token(VALID))
     assert response.status_code == 200
 

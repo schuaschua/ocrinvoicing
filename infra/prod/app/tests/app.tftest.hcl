@@ -124,6 +124,10 @@ override_data {
         resource_id                  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-11"
         custom_metrics_opted_in_type = "WithDimensions"
       }
+      database = {
+        name = "invoicing_prod"
+        fqdn = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
+      }
       application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
     }
   }

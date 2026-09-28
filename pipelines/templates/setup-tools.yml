@@ -1,0 +1,23 @@
+# Pinned tool setup for every job (Story 1.2). Versions must match ci/lib.sh;
+# ci/tests/test_pipelines.py checks that they do.
+parameters:
+  - name: tools # any of: terraform, gitleaks, uv (downloaded with a pinned SHA-256)
+    type: object
+    default: []
+  - name: node
+    type: boolean
+    default: false
+
+steps:
+  - task: UsePythonVersion@0
+    displayName: Python 3.13
+    inputs:
+      versionSpec: '3.13'
+  - ${{ if eq(parameters.node, true) }}:
+      - task: NodeTool@0
+        displayName: Node 22
+        inputs:
+          versionSpec: '22.x'
+  - ${{ if ne(length(parameters.tools), 0) }}:
+      - bash: ci/install-tools.sh ${{ join(' ', parameters.tools) }}
+        displayName: Install ${{ join(', ', parameters.tools) }}

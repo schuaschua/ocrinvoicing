@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Test double: "downloads" $FAKE_CURL_CONTENT (default GOOD) to --output; logs the URL.
+out="" url=""
+while (($#)); do
+  case "$1" in
+    --output) out="$2"; shift ;;
+    http*) url="$1" ;;
+  esac
+  shift
+done
+printf '%s\n' "$url" >>"${FAKE_CURL_LOG:-/dev/null}"
+printf '%s' "${FAKE_CURL_CONTENT:-GOOD}" >"$out"

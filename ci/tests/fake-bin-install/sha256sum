@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Test double for `sha256sum --check --status`: a pinned 64-hex hash "matches" only a
+# file whose content is GOOD, so a test can serve a good or a tampered download.
+read -r hash file
+[[ "$hash" =~ ^[0-9a-f]{64}$ ]] || exit 1
+[[ "$(cat "$file")" == GOOD ]]

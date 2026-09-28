@@ -1,0 +1,82 @@
+# PR build (Story 1.2). Azure Repos ignores the `pr:` trigger below: the branch
+# policy on `main` (infra/bootstrap/ado-setup.sh) queues this pipeline for every pull
+# request and blocks the merge when any job fails. Each job runs one ci/checks.sh
+# subcommand, so every check also runs locally.
+trigger: none
+pr:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: lint
+    displayName: Lint and format
+    steps:
+      - template: templates/setup-tools.yml
+        parameters:
+          tools: [uv]
+          node: true
+      - bash: ci/checks.sh lint
+        displayName: ci/checks.sh lint
+
+  - job: test
+    displayName: Tests and coverage
+    steps:
+      - template: templates/setup-tools.yml
+        parameters:
+          tools: [uv, terraform, gitleaks] # ci/tests runs checks.sh against fixtures
+          node: true
+      - bash: ci/checks.sh test
+        displayName: ci/checks.sh test
+      - task: PublishTestResults@2
+        displayName: Publish test results
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: .work/ci/test-results/*.xml
+          failTaskOnMissingResultsFile: false
+      - task: PublishCodeCoverageResults@2
+        displayName: Publish coverage
+        condition: succeededOrFailed()
+        inputs:
+          summaryFileLocation: .work/ci/coverage/**/*.xml
+
+  - job: audit
+    displayName: Dependency audit
+    steps:
+      - template: templates/setup-tools.yml
+        parameters:
+          tools: [uv]
+          node: true
+      - bash: ci/checks.sh audit
+        displayName: ci/checks.sh audit
+
+  - job: secrets
+    displayName: Secret scan (gitleaks)
+    steps:
+      - checkout: self
+        fetchDepth: 0 # the whole history, not just the merge commit
+      - template: templates/setup-tools.yml
+        parameters:
+          tools: [gitleaks]
+      - bash: ci/checks.sh secrets
+        displayName: ci/checks.sh secrets
+
+  - job: terraform
+    displayName: Terraform fmt, validate and test
+    steps:
+      - template: templates/setup-tools.yml
+        parameters:
+          tools: [terraform, uv]
+      - bash: ci/checks.sh terraform
+        displayName: ci/checks.sh terraform
+      - task: PublishTestResults@2
+        displayName: Publish test results
+        condition: succeededOrFailed()
+        inputs:
+          testResultsFormat: JUnit
+          testResultsFiles: .work/ci/test-results/*.xml
+          failTaskOnMissingResultsFile: false

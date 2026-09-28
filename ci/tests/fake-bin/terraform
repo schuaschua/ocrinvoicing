@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Test double for `terraform` used by ci/tests (never touches Azure).
+
+Records each call (one JSON array per line) to $FAKE_TF_LOG.
+  plan      writes <chdir>/tfplan and exits $FAKE_TF_PLAN_EXIT (default 2: changes)
+  show      prints the file named by $FAKE_TF_PLAN_JSON
+  others    succeed silently
+"""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+with open(os.environ["FAKE_TF_LOG"], "a", encoding="utf-8") as log:
+    log.write(json.dumps(args) + "\n")
+
+chdir = Path(".")
+if args and args[0].startswith("-chdir="):
+    chdir = Path(args[0].removeprefix("-chdir="))
+    args = args[1:]
+command = args[0] if args else ""
+
+if command == "plan":
+    (chdir / "tfplan").write_text("fake saved plan\n", encoding="utf-8")
+    sys.exit(int(os.environ.get("FAKE_TF_PLAN_EXIT", "2")))
+if command == "show":
+    print(Path(os.environ["FAKE_TF_PLAN_JSON"]).read_text(encoding="utf-8"))
+sys.exit(0)

@@ -1,0 +1,27 @@
+# Weekly dependency scan (Story 1.2; replaces Dependabot, AD-17). Runs on `main`
+# every Monday even when nothing changed, and fails on any pip-audit or npm audit
+# finding.
+trigger: none
+pr: none
+
+schedules:
+  - cron: '0 1 * * 1' # Mondays 01:00 UTC (09:00 Singapore)
+    displayName: Weekly dependency scan
+    branches:
+      include:
+        - main
+    always: true
+
+pool:
+  vmImage: ubuntu-latest
+
+jobs:
+  - job: audit
+    displayName: Dependency audit
+    steps:
+      - template: templates/setup-tools.yml
+        parameters:
+          tools: [uv]
+          node: true
+      - bash: ci/checks.sh audit
+        displayName: ci/checks.sh audit

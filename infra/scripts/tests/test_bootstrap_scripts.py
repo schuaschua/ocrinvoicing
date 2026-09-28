@@ -34,6 +34,7 @@ FAKE_INPUTS = {
     "ADO_ORG": "test-org",
     "ADO_ORG_ID": "44444444-4444-4444-4444-444444444444",
     "ADO_PROJECT": "test-project",
+    "ADO_APPROVER": "dj@example.test",
     "ALERT_EMAIL": "alerts@example.test",
     "ENVIRONMENT": "dev",
     "DJ_USER_UPN": "dj@example.test",

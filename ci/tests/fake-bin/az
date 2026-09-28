@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Test double for az in ci/tests. Logs each call (one line) to $FAKE_AZ_LOG when set.
+# Only `az account get-access-token` answers, and only when FAKE_AZ_TOKEN is set; any
+# other call prints FAKE-TOOL-CALLED and fails (a check stage must never call az).
+if [[ -n "${FAKE_AZ_LOG:-}" ]]; then printf '%s\n' "$*" >>"$FAKE_AZ_LOG"; fi
+if [[ -n "${FAKE_AZ_TOKEN:-}" && "$1 $2" == "account get-access-token" ]]; then
+  printf '%s\n' "$FAKE_AZ_TOKEN"
+  exit 0
+fi
+echo "FAKE-TOOL-CALLED: az $*" >&2
+exit 97

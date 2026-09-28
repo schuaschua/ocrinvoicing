@@ -6,9 +6,68 @@ requires-python = "==3.13.*"
 # Runtime dependencies are added by Story 1.3, pinned to the spine's Stack table.
 dependencies = []
 
+[dependency-groups]
+# Check tools for ci/checks.sh (Story 1.2), pinned exactly so CI is reproducible.
+dev = [
+    "mypy==2.3.1",
+    "pip-audit==2.10.1",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.16.9",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/invoicing"]
+
+# coding-style.md section 1: ruff defaults plus I, B, UP and S.
+[tool.ruff]
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "UP", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest's assert statements are the test mechanism, not a runtime check (S101).
+"tests/**" = ["S101"]
+
+# coding-style.md section 1: mypy default everywhere, strict for the domain package.
+[tool.mypy]
+python_version = "3.13"
+files = ["src"]
+mypy_path = "src"
+explicit_package_bases = true
+warn_unused_configs = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+# The per-module equivalent of --strict (the flag itself is global-only).
+module = ["invoicing.domain", "invoicing.domain.*"]
+check_untyped_defs = true
+disallow_any_generics = true
+disallow_incomplete_defs = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_decorators = true
+disallow_untyped_defs = true
+no_implicit_reexport = true
+strict_equality = true
+warn_return_any = true
+warn_unused_ignores = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# Backend coverage floor (Story 1.2, coding-style.md rule 25). ci/checks.sh passes
+# the same value; never lower it to make a check pass.
+[tool.coverage.run]
+source = ["invoicing"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true

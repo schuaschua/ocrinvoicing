@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Test double for `unzip -o -q ZIP MEMBER -d DIR`: creates DIR/MEMBER.
+dir="" args=()
+while (($#)); do
+  case "$1" in
+    -d) dir="$2"; shift ;;
+    -o | -q) ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+: >"$dir/${args[1]}"

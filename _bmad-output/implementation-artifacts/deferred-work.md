@@ -13,3 +13,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-1-repository-and-terraform-foundation.md`
   summary: Run `check_tags.py` against real `terraform show -json` output of all three roots in the pipeline.
   evidence: Only synthetic fixtures today; pipeline wiring is Story 1.2.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-ci-cd-pipeline-in-azure-devops.md`
+  summary: Add a fixture test proving the web 60% Vitest coverage floor fails the `test` check.
+  evidence: Only a source-text check pins `WEB_COVERAGE_MIN=60`; no web app has Vitest until Story 1.4.

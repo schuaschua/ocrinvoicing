@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+#
+# Story 1.2 quality gate. The PR build (pipelines/pr.yml) and the weekly scan
+# (pipelines/weekly-scan.yml) run these subcommands; run them locally the same way.
+# Each check prints "==> <tool>" and, on failure, "FAILED: <tool>"; the script exits 1
+# when any check failed.
+
+# shellcheck source-path=SCRIPTDIR source=lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# Test seam only: ci/tests point CHECKS_ROOT at a throwaway fixture tree under .work/.
+if [[ -n "${CHECKS_ROOT:-}" ]]; then
+  REPO_ROOT="$(cd "$CHECKS_ROOT" && pwd)"
+  CI_WORK="$REPO_ROOT/.work/ci"
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: ci/checks.sh <lint|test|audit|secrets|terraform|all>
+
+  lint       ruff format/check and mypy on backend/; ESLint, Prettier and tsc per
+             scaffolded web app; shellcheck on ci/ and infra/bootstrap/
+  test       pytest with coverage (backend, floor 80%), Vitest with coverage per web
+             app (floor 60%), pytest ci/tests. A part with no test files yet is skipped.
+  audit      pip-audit on backend/uv.lock, npm audit --omit=dev per web app
+  secrets    gitleaks on the git history and uncommitted changes
+  terraform  terraform fmt -check, validate and test per root and module;
+             pytest infra/scripts/tests
+  all        every check above
+
+Reports go to .work/ci/ (JUnit in test-results/, Cobertura in coverage/).
+Tools needed: uv, terraform, gitleaks, shellcheck, node/npm (for scaffolded web apps).
+EOF
+}
+
+FAILED=""
+
+# check NAME CMD... - run one tool; record a failure instead of stopping.
+check() {
+  local name="$1"
+  shift
+  printf '\n==> %s\n' "$name"
+  local status=0
+  "$@" || status=$?
+  if ((status != 0)); then
+    printf 'FAILED: %s (exit %s)\n' "$name" "$status" >&2
+    FAILED="$FAILED
+  $name"
+  fi
+}
+
+skip() { printf '\n==> %s\nskipped: %s\n' "$1" "$2"; }
+
+# fail MESSAGE - a check that always fails (used for a broken contract).
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  return 1
+}
+
+# has_files DIR FIND-TESTS... - true when DIR holds a matching file (installed and generated folders ignored).
+has_files() {
+  local dir="$1"
+  shift
+  [[ -d "$dir" ]] || return 1
+  [[ -n "$(find "$dir" \( -name node_modules -o -name .venv -o -name dist -o -name coverage \) -prune \
+    -o -type f \( "$@" \) -print -quit)" ]]
+}
+
+backend_has_python() { has_files "$REPO_ROOT/backend/src" -name '*.py'; }
+# Code under test: any module beyond the package markers (__init__.py) the skeleton ships.
+backend_has_code() { has_files "$REPO_ROOT/backend/src" -name '*.py' ! -name '__init__.py'; }
+backend_has_tests() { has_files "$REPO_ROOT/backend/tests" -name 'test_*.py' -o -name '*_test.py'; }
+web_has_tests() {
+  has_files "$1" -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.spec.ts' -o -name '*.spec.tsx'
+}
+
+web_apps() {
+  local dir
+  for dir in "$REPO_ROOT"/web/*/; do
+    [[ -f "$dir/package.json" ]] && printf '%s\n' "${dir%/}"
+  done
+  return 0
+}
+
+# A web app is scaffolded (Story 1.4) once its package.json defines scripts.
+web_scaffolded() {
+  python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("scripts") else 1)' "$1/package.json"
+}
+
+web_has_script() {
+  python3 -c 'import json, sys; sys.exit(0 if sys.argv[2] in json.load(open(sys.argv[1])).get("scripts", {}) else 1)' \
+    "$1/package.json" "$2"
+}
+
+# Roots hold a backend block; modules do not.
+terraform_roots() {
+  local file
+  for file in "$REPO_ROOT"/infra/*/*/versions.tf; do
+    case "$file" in */infra/modules/*) continue ;; esac
+    grep -q 'backend "' "$file" && dirname "$file"
+  done
+  return 0
+}
+
+terraform_modules() {
+  local file
+  for file in "$REPO_ROOT"/infra/modules/*/versions.tf; do
+    [[ -f "$file" ]] && dirname "$file"
+  done
+  return 0
+}
+
+rel() { printf '%s' "${1#"$REPO_ROOT"/}"; }
+
+# vitest_in APP ARGS... - Vitest from the app's own devDependencies (never downloaded).
+vitest_in() {
+  local app="$1"
+  shift
+  (cd "$app" && npm exec --no -- vitest run "$@")
+}
+
+uv_backend() { uv run --directory "$REPO_ROOT/backend" --locked "$@"; }
+
+# pytest outside the backend project (ci/tests, infra/scripts/tests), pinned.
+pytest_tools() {
+  local pins=(--with "pytest==$PYTEST_VERSION" --with "pyyaml==$PYYAML_VERSION") pin
+  for pin in $PYTEST_DEPENDENCY_PINS; do pins+=(--with "$pin"); done
+  uv run --no-project --python "$PYTHON_VERSION" "${pins[@]}" pytest -p no:cacheprovider "$@"
+}
+
+# ---------------------------------------------------------------------------
+
+run_lint() {
+  if backend_has_python; then
+    check "ruff format (backend)" uv_backend ruff format --check
+    check "ruff check (backend)" uv_backend ruff check
+    check "mypy (backend)" uv_backend mypy
+  else
+    skip "backend lint" "no Python code in backend/src yet"
+  fi
+
+  local app name script
+  for app in $(web_apps); do
+    name="$(rel "$app")"
+    if ! web_scaffolded "$app"; then
+      skip "$name lint" "not scaffolded yet (no scripts in package.json)"
+      continue
+    fi
+    check "npm ci ($name)" npm ci --prefix "$app" --no-audit --no-fund
+    for script in lint format:check typecheck; do
+      if web_has_script "$app" "$script"; then
+        check "npm run $script ($name)" npm run --prefix "$app" "$script"
+      else
+        check "npm run $script ($name)" fail "$name/package.json has no \"$script\" script (ESLint, Prettier and tsc are required, coding-style.md section 1)"
+      fi
+    done
+  done
+
+  local scripts=() file
+  for file in "$REPO_ROOT"/ci/*.sh "$REPO_ROOT"/infra/bootstrap/*.sh; do
+    [[ -f "$file" ]] && scripts+=("$file")
+  done
+  if ((${#scripts[@]})); then
+    check "shellcheck" shellcheck --external-sources "${scripts[@]}"
+  else
+    skip "shellcheck" "no shell scripts"
+  fi
+}
+
+run_test() {
+  mkdir -p "$CI_WORK/test-results" "$CI_WORK/coverage"
+  # A floor can't be dodged by deleting tests: once there is code, tests are required.
+  if ! backend_has_code; then
+    skip "pytest (backend)" "no tests yet (no backend code yet)"
+  elif ! backend_has_tests; then
+    check "pytest (backend)" fail "backend/src has code but backend/tests has no test files; the ${BACKEND_COVERAGE_MIN}% coverage floor applies"
+  else
+    check "pytest with coverage >= ${BACKEND_COVERAGE_MIN}% (backend)" uv_backend pytest \
+      --cov --cov-branch --cov-report=term --cov-report="xml:$CI_WORK/coverage/backend.xml" \
+      --cov-fail-under="$BACKEND_COVERAGE_MIN" --junitxml="$CI_WORK/test-results/backend.xml"
+  fi
+
+  local app name
+  for app in $(web_apps); do
+    name="$(rel "$app")"
+    if ! web_scaffolded "$app"; then
+      skip "vitest ($name)" "no tests yet (not scaffolded yet)"
+      continue
+    fi
+    if ! web_has_tests "$app"; then
+      check "vitest ($name)" fail "$name is scaffolded but has no test files; the ${WEB_COVERAGE_MIN}% coverage floor applies"
+      continue
+    fi
+    check "npm ci ($name)" npm ci --prefix "$app" --no-audit --no-fund
+    # The floor is passed here so a web app's own config cannot lower it.
+    check "vitest with coverage >= ${WEB_COVERAGE_MIN}% ($name)" \
+      vitest_in "$app" \
+      --coverage.enabled=true --coverage.provider=v8 \
+      --coverage.reporter=text-summary --coverage.reporter=cobertura \
+      --coverage.reportsDirectory="$CI_WORK/coverage/${name//\//-}" \
+      --coverage.thresholds.lines="$WEB_COVERAGE_MIN" --coverage.thresholds.statements="$WEB_COVERAGE_MIN" \
+      --coverage.thresholds.functions="$WEB_COVERAGE_MIN" --coverage.thresholds.branches="$WEB_COVERAGE_MIN" \
+      --reporter=default --reporter=junit --outputFile.junit="$CI_WORK/test-results/${name//\//-}.xml"
+  done
+
+  if [[ -d "$REPO_ROOT/ci/tests" ]]; then
+    check "pytest (ci/tests)" pytest_tools "$REPO_ROOT/ci/tests" -q --junitxml="$CI_WORK/test-results/ci.xml"
+  else
+    skip "pytest (ci/tests)" "no ci/tests"
+  fi
+}
+
+run_audit() {
+  mkdir -p "$CI_WORK"
+  local requirements="$CI_WORK/requirements-audit.txt" failed_before="$FAILED"
+  rm -f "$requirements" # never audit a stale file from an earlier run
+  check "uv export (backend)" uv export --directory "$REPO_ROOT/backend" --locked --all-groups \
+    --no-emit-project --format requirements-txt --quiet -o "$requirements"
+  if [[ "$FAILED" != "$failed_before" ]]; then
+    log "pip-audit (backend) not run: uv export failed"
+  elif grep -q '==' "$requirements"; then
+    check "pip-audit (backend)" uv_backend pip-audit --disable-pip --require-hashes \
+      --progress-spinner off -r "$requirements"
+  else
+    skip "pip-audit (backend)" "uv export produced no pinned dependencies"
+  fi
+
+  local app
+  for app in $(web_apps); do
+    if [[ -f "$app/package-lock.json" ]]; then
+      check "npm audit --omit=dev ($(rel "$app"))" npm audit --prefix "$app" --omit=dev
+    else
+      check "npm audit --omit=dev ($(rel "$app"))" fail "$(rel "$app")/package-lock.json is missing"
+    fi
+  done
+}
+
+run_secrets() {
+  local config="$REPO_ROOT/.gitleaks.toml"
+  check "gitleaks (git history)" gitleaks git --no-banner --redact --config "$config" "$REPO_ROOT"
+  check "gitleaks (uncommitted changes)" gitleaks git --no-banner --redact --config "$config" --pre-commit "$REPO_ROOT"
+  check "gitleaks (staged changes)" gitleaks git --no-banner --redact --config "$config" --pre-commit --staged "$REPO_ROOT"
+}
+
+run_terraform() {
+  check "terraform fmt -check" terraform fmt -check -recursive "$REPO_ROOT/infra"
+  local dir name
+  for dir in $(terraform_roots); do
+    name="$(rel "$dir")"
+    check "terraform init ($name)" terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
+    check "terraform validate ($name)" terraform -chdir="$dir" validate
+    check "terraform test ($name)" terraform -chdir="$dir" test
+  done
+  for dir in $(terraform_modules); do
+    name="$(rel "$dir")"
+    check "terraform init ($name)" terraform -chdir="$dir" init -backend=false -input=false
+    check "terraform validate ($name)" terraform -chdir="$dir" validate
+    check "terraform test ($name)" terraform -chdir="$dir" test
+  done
+  mkdir -p "$CI_WORK/test-results"
+  if [[ -d "$REPO_ROOT/infra/scripts/tests" ]]; then
+    check "pytest (infra/scripts/tests)" pytest_tools "$REPO_ROOT/infra/scripts/tests" -q \
+      --junitxml="$CI_WORK/test-results/infra-scripts.xml"
+  else
+    skip "pytest (infra/scripts/tests)" "no infra/scripts/tests"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+
+(($# == 1)) || {
+  usage >&2
+  exit 2
+}
+case "$1" in
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  lint) run_lint ;;
+  test) run_test ;;
+  audit) run_audit ;;
+  secrets) run_secrets ;;
+  terraform) run_terraform ;;
+  all)
+    run_lint
+    run_test
+    run_audit
+    run_secrets
+    run_terraform
+    ;;
+  *)
+    usage >&2
+    die "unknown subcommand: $1"
+    ;;
+esac
+
+if [[ -n "$FAILED" ]]; then
+  printf '\nFailed checks:%s\n' "$FAILED" >&2
+  exit 1
+fi
+printf '\nAll checks passed (%s).\n' "$1"

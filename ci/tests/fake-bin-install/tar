@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Test double for `tar -xzf ARCHIVE -C DIR [--strip-components=N] MEMBER...`: creates
+# DIR/<basename of MEMBER> for each member.
+dir="" members=()
+while (($#)); do
+  case "$1" in
+    -C) dir="$2"; shift ;;
+    -xzf) shift ;;
+    --strip-components=*) ;;
+    *) members+=("$1") ;;
+  esac
+  shift
+done
+for member in "${members[@]}"; do : >"$dir/$(basename "$member")"; done

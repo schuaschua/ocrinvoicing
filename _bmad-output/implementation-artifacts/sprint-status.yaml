@@ -37,7 +37,7 @@ story_location: _bmad-output/implementation-artifacts
 development_status:
   epic-1: in-progress
   1-1-repository-and-terraform-foundation: review
-  1-2-ci-cd-pipeline-in-azure-devops: backlog
+  1-2-ci-cd-pipeline-in-azure-devops: review
   1-3-python-functions-api-skeleton: backlog
   1-4-react-web-app-skeletons: backlog
   1-5-monitoring-and-alerts: backlog

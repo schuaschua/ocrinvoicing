@@ -11,12 +11,18 @@ Other knobs:
   FAKE_AZ_STAFF_ROLES      how many of the 5 staff-api app roles already exist
   FAKE_AZ_FED_STALE=1      existing federated credentials have an old issuer/subject
   FAKE_AZ_DUPLICATE_APPS=1 a display-name lookup returns two app registrations
-Files passed as @path are copied into $FAKE_AZ_LOG.files (JSON lines) before the
+  FAKE_AZ_SC_BINDING       what an existing ADO service connection is bound to
+                           (default WorkloadIdentityFederation|<the fake identity clientId>)
+  FAKE_AZ_SC_FEDERATION    "<issuer>|<subject>" an ADO service connection reports
+                           (default the sc://<ADO_ORG>/<ADO_PROJECT>/<name> subject)
+Pipelines have integer ids (FAKE_PIPELINE_ID).
+Files passed as @path or --in-file path are copied into $FAKE_AZ_LOG.files (JSON lines) before the
 script can delete them.
 """
 
 import json
 import os
+import re
 import sys
 
 ROLE_NAMES = {
@@ -35,14 +41,16 @@ ROLE_NAMES = {
 }
 STAFF_ROLES = ["admin", "finance", "procurement", "management", "goods_in"]
 FAKE_GUID = "55555555-5555-5555-5555-555555555555"
+FAKE_PIPELINE_ID = "42"
 
 args = sys.argv[1:]
 log_path = os.environ["FAKE_AZ_LOG"]
 with open(log_path, "a", encoding="utf-8") as log:
     log.write(json.dumps(args) + "\n")
-for arg in args:
-    if arg.startswith("@") and os.path.isfile(arg[1:]):
-        with open(arg[1:], encoding="utf-8") as src, open(log_path + ".files", "a", encoding="utf-8") as out:
+for index, arg in enumerate(args):
+    path = arg[1:] if arg.startswith("@") else (arg if index and args[index - 1] == "--in-file" else "")
+    if path and os.path.isfile(path):
+        with open(path, encoding="utf-8") as src, open(log_path + ".files", "a", encoding="utf-8") as out:
             out.write(json.dumps({"args": args, "content": src.read()}) + "\n")
 
 joined = " ".join(args)
@@ -94,6 +102,26 @@ elif has("ad", "app", "show"):
     ]
     print(json.dumps(roles))
 elif has("ad", "user", "show"):
+    print(FAKE_GUID)
+elif has("devops", "service-endpoint", "list") and "workloadIdentityFederationSubject" in opt("--query"):
+    name = re.search(r"name=='([^']+)'", opt("--query")).group(1)
+    default = (
+        f"https://vstoken.dev.azure.com/{os.environ.get('ADO_ORG_ID', 'org-id')}"
+        f"|sc://{os.environ.get('ADO_ORG', '')}/{os.environ.get('ADO_PROJECT', '')}/{name}"
+    )
+    print(os.environ.get("FAKE_AZ_SC_FEDERATION", default))
+elif has("pipelines", "list"):
+    print(FAKE_PIPELINE_ID)
+elif has("devops", "service-endpoint", "show"):
+    print(os.environ.get("FAKE_AZ_SC_BINDING", f"WorkloadIdentityFederation|{FAKE_GUID}"))
+elif (
+    has("devops", "service-endpoint", "list")
+    or has("devops", "project", "show")
+    or has("devops", "user", "show")
+    or has("repos", "show")
+    or has("repos", "policy", "list")
+    or (has("devops", "invoke") and opt("--http-method") == "GET")
+):
     print(FAKE_GUID)
 elif has("rest") and opt("--method") == "get":
     print("{}")

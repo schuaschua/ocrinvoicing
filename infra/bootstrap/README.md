@@ -17,10 +17,12 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `ARM_SUBSCRIPTION_ID` | all but `app-registrations.sh`, `verify-db-isolation.sh` | target subscription |
-| `ARM_TENANT_ID` | `app-registrations.sh` | Entra tenant; `az` must be signed in to it |
+| `ARM_TENANT_ID` | `app-registrations.sh`, `ado-setup.sh` | Entra tenant; `az` must be signed in to it |
 | `TAG_OWNER`, `TAG_COST_CENTRE`, `TAG_APPLICATION`, `TAG_DATA_CLASSIFICATION` | `state-backend.sh` | P-17 tag values (use the same values as the stacks' `terraform.tfvars`) |
-| `ADO_ORG`, `ADO_ORG_ID`, `ADO_PROJECT` | `state-backend.sh` | Azure DevOps organisation name, organisation id (GUID) and project, for the federated credentials |
-| `ADO_SC_SHARED`, `ADO_SC_DEV`, `ADO_SC_PROD` | `state-backend.sh` (optional) | service connection names; default `azure-shared`, `azure-dev`, `azure-prod`. Story 1.2 must create the connections with these names |
+| `ADO_ORG`, `ADO_ORG_ID`, `ADO_PROJECT` | `state-backend.sh` (all three), `ado-setup.sh` (`ADO_ORG`, `ADO_PROJECT`) | Azure DevOps organisation name, organisation id (GUID) and project, for the federated credentials and the ADO setup |
+| `ADO_SC_SHARED`, `ADO_SC_DEV`, `ADO_SC_PROD` | `state-backend.sh`, `ado-setup.sh` (optional) | service connection names; default `azure-shared`, `azure-dev`, `azure-prod`, which `pipelines/deploy.yml` uses. Change them only in all three places |
+| `ADO_APPROVER` | `ado-setup.sh` | Dj's Azure DevOps sign-in: the approver on the `shared` and `prod` environments |
+| `ADO_REPO` | `ado-setup.sh` (optional) | Azure Repos repository; default `ADO_PROJECT` |
 | `ALERT_EMAIL` | `budget-and-roles.sh` | where the $8 subscription budget alert goes |
 | `ENVIRONMENT` | `pgp-step4b.sh`, `database-step5.sh` | `dev` or `prod` |
 | `DJ_USER_UPN` | `database-step5.sh` | Dj's Entra UPN: the load-script login |
@@ -44,12 +46,14 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | AD-17 step | Who | What to run |
 | --- | --- | --- |
 | 1 | operator with Owner | `./state-backend.sh`, then `./app-registrations.sh`, then `./budget-and-roles.sh` |
-| 2 | `shared` deploy identity (pipeline) | `infra/shared/foundation`: fill `terraform.tfvars`, plan, approve, apply. Then add the email domain's DNS records (below) |
+| 1 (ADO) | operator, Project Administrator in the ADO project | `./ado-setup.sh` (after `state-backend.sh`, which creates the deploy identities it binds). Then merge to `main` to start the deploy pipeline |
+| 2 | `shared` deploy identity (pipeline) | `infra/shared/foundation`: fill `terraform.tfvars`; the deploy pipeline plans it, Dj approves the `shared` stage, it applies the saved plan. Then add the email domain's DNS records (below) |
 | 3 | operator | `./rbac-step3.sh` |
-| 4 | env deploy identity (pipeline) | `infra/dev/foundation`, then `infra/prod/foundation` |
+| 4 | env deploy identity (pipeline) | `infra/dev/foundation` (applies automatically), then `infra/prod/foundation` (after Dj approves the `prod` stage) |
 | 4b | operator with Key Vault Secrets Officer on the vault | `ENVIRONMENT=dev ./pgp-step4b.sh`, then `ENVIRONMENT=prod ./pgp-step4b.sh` |
 | 5 | operator as PostgreSQL Entra admin | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
-| 6-9 | pipeline / operator | Stories 1.2 and 1.3 (migrations, `<env>/app`, redirect URI, code deploy) |
+| 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
+| 8 | operator | `staff-api` redirect URI (Story 1.3) |
 
 Try each script with `--dry-run` first.
 
@@ -61,6 +65,30 @@ Try each script with `--dry-run` first.
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `shared` state container.
 - `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs. The redirect URI is step 8.
 - `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine) and the $8 subscription budget with an alert to `ALERT_EMAIL`. An existing budget is left unchanged.
+
+### Step 1 (ADO): service connections, environments, pipelines and branch policy
+
+`ado-setup.sh` sets up the Azure DevOps side of AD-17. It needs the `azure-devops` extension (`az extension add --name azure-devops`) and an `az login` that is Project Administrator in the ADO project. It creates, or checks and re-applies:
+
+- service connections `azure-shared`, `azure-dev` and `azure-prod`: Azure Resource Manager, workload identity federation (manual), subscription scope, bound to the deploy identities `id-21`, `id-22` and `id-23` by client id. No secret exists. ADO's federation subject is `sc://<org>/<project>/<connection>`, the one `state-backend.sh` put on each identity's federated credential. An existing connection bound to anything else stops the script; delete it in ADO and re-run;
+- environments `shared`, `dev` and `prod`, each with an exclusive lock (one deploy at a time), and an approval check on `shared` and `prod` with `ADO_APPROVER` as approver. Approvals live on the environments, not in YAML, so this script is what gates `shared` and Prod. Dj may approve his own runs;
+- a branch control check on all three connections and all three environments that allows only `refs/heads/main`. Without it, a manual run of the deploy pipeline on another branch could sign in as `azure-shared` or `azure-prod` in a plan stage, which has no approval;
+- the pipelines `ocrinvoicing-pr` (`pipelines/pr.yml`), `ocrinvoicing-deploy` (`pipelines/deploy.yml`) and `ocrinvoicing-weekly-scan` (`pipelines/weekly-scan.yml`), and it authorises only the deploy pipeline on the three connections and environments;
+- a blocking build policy on `main`: every change goes through a pull request whose `ocrinvoicing-pr` build (lint, tests with coverage, `pip-audit`, `npm audit`, `gitleaks`, Terraform checks) must pass.
+
+What the pipelines do:
+
+- **PR build**: `ci/checks.sh lint`, `test`, `audit`, `secrets` and `terraform` as parallel jobs. Run `ci/checks.sh all` locally for the same result.
+- **Deploy** (every merge to `main`, one run at a time): for each stack, a plan stage (`plan -out=tfplan`, then `check_tags.py` on `terraform show -json`) and, only when the plan has changes, an apply stage in the stack's environment that applies that saved plan. So a stack with no changes asks for no approval. Order: `shared/foundation`, `dev/foundation`, Dev migrations, `dev/app`, Dev code deploy, `prod/foundation`, Prod migrations, `prod/app`, Prod code deploy. Dev applies without approval (the recorded terraform.md rule 26/33 exception); `shared` and Prod wait for the approval. A failed or rejected stage stops everything after it.
+- **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists.
+- **Weekly scan**: `ci/checks.sh audit` on `main` every Monday, failing on any finding.
+
+Prod can ask for up to four approvals in one run: `prod/foundation`, Prod migrations, `prod/app` and the Prod code deploy. ADO evaluates approvals per stage, and each of these is its own stage so it can be skipped (with no approval asked) when it has nothing to do. The pipeline can't tell whether migrations are pending without connecting to the database, so once migrations exist the Prod migration stage asks every run.
+
+Manual operator steps after `ado-setup.sh` (no CLI for them):
+
+1. **Weekly scan alerts.** A failed scheduled run notifies nobody by default. In Project settings > Notifications, add a subscription "A build fails" filtered to the pipeline `ocrinvoicing-weekly-scan`, delivered to Dj.
+2. **Artifact retention.** The deploy run publishes each saved plan (`tfplan-<stack>`) as a pipeline artifact, because the apply stage runs on another agent. A saved plan holds sensitive values (e.g. generated secrets and connection details), and anyone who can view the pipeline's runs can download it (project Readers by default). Branch control limits who can produce one: only runs of `main`, which only a merged PR reaches. To keep them for as short as possible, set Project settings > Pipelines > Settings > Retention "Days to keep artifacts, symbols and attachments" and "Days to keep runs" to the minimum, and do not grant pipeline view rights beyond the project team. YAML cannot set a shorter per-artifact retention.
 
 ### Step 2 extra: verify the email domain, then link it
 
@@ -112,4 +140,4 @@ python3 infra/scripts/check_tags.py .work/dev-foundation.plan.json   # exit 1 li
 
 It also fails a resource whose tags are only known after apply.
 
-The pipeline (Story 1.2) runs it after every plan and before any apply.
+The deploy pipeline runs it after every plan and before any apply (`ci/terraform-plan.sh`), and deletes the plan JSON afterwards; a failing gate stops that stack and everything after it.

@@ -1,0 +1,59 @@
+# AD-17 step 6: Alembic migrations for one environment (Story 1.2), after
+# <env>/foundation and before <env>/app. Two stages, as in terraform-stack.yml:
+# <id>_check reports whether backend/migrations/env.py exists; <id> runs
+# `alembic upgrade head` in the ADO environment as the environment's deploy identity.
+parameters:
+  - name: id
+    type: string
+  - name: environment # dev or prod
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: after
+    type: string
+
+stages:
+  - stage: ${{ parameters.id }}_check
+    displayName: Migrations? (${{ parameters.environment }})
+    dependsOn:
+      - ${{ parameters.after }}_check
+      - ${{ parameters.after }}
+    # Go on when the previous step deployed, or when its check found nothing to do.
+    condition: and(not(canceled()), or(eq(dependencies.${{ parameters.after }}.result, 'Succeeded'), and(eq(dependencies.${{ parameters.after }}_check.result, 'Succeeded'), eq(dependencies.${{ parameters.after }}_check.outputs['check.check.hasWork'], 'false'))))
+    jobs:
+      - job: check
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+          - bash: ci/migrate.sh --check ${{ parameters.environment }}
+            name: check
+            displayName: Look for migrations
+
+  - stage: ${{ parameters.id }}
+    displayName: Migrate ${{ parameters.environment }}
+    dependsOn: ${{ parameters.id }}_check
+    condition: and(succeeded(), eq(dependencies.${{ parameters.id }}_check.outputs['check.check.hasWork'], 'true'))
+    jobs:
+      - deployment: migrate
+        displayName: alembic upgrade head (${{ parameters.environment }})
+        environment: ${{ parameters.environment }}
+        pool:
+          vmImage: ubuntu-latest
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - download: none
+                - template: setup-tools.yml
+                  parameters:
+                    tools: [uv]
+                - task: AzureCLI@2
+                  displayName: alembic upgrade head
+                  inputs:
+                    azureSubscription: ${{ parameters.serviceConnection }}
+                    scriptType: bash
+                    scriptLocation: scriptPath
+                    scriptPath: ci/migrate.sh
+                    arguments: ${{ parameters.environment }}

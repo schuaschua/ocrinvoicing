@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Test double: the platform ci/install-tools.sh sees (default Linux x86_64).
+case "$1" in
+  -s) echo "${FAKE_UNAME_S:-Linux}" ;;
+  -m) echo "${FAKE_UNAME_M:-x86_64}" ;;
+  *) echo "${FAKE_UNAME_S:-Linux}" ;;
+esac

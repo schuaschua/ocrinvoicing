@@ -2,8 +2,14 @@
   "extends": "./tsconfig.app.json",
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
-    "types": ["vite/client", "node"]
+    "types": ["vite/client", "node"],
+    // shared/quality's tests (Story 1.9) sit outside this app's node_modules.
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/*": ["../../shared/*"],
+      "vitest": ["./node_modules/vitest"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../../shared/quality"],
   "exclude": []
 }

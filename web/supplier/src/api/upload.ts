@@ -8,6 +8,11 @@ import { ApiError, apiHeaders } from "./client";
 const PATH = "/api/upload";
 const IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 const CORRELATION_HEADER = "X-Correlation-Id";
+/** Story 1.9: how the page's photo check went (AD-5 `device_check`). */
+export const DEVICE_CHECK_HEADER = "X-Device-Check";
+
+/** "passed", or "overridden" after Send it anyway. */
+export type DeviceCheck = "passed" | "overridden";
 // R- and 8 Crockford base32 characters (EXPERIENCE.md "Supplier reference").
 const REFERENCE = /^R-[0-9A-HJKMNP-TV-Z]{8}$/;
 
@@ -23,6 +28,8 @@ export interface UploadOptions {
   /** Called with the fraction sent so far, from 0 to 1. */
   onProgress?: (fraction: number) => void;
   signal?: AbortSignal;
+  /** The device check's outcome: "overridden" after Send it anyway. Default "passed". */
+  deviceCheck?: DeviceCheck;
 }
 
 function parse(text: string): unknown {
@@ -50,7 +57,7 @@ export function uploadInvoice(
   key: string,
   options: UploadOptions = {},
 ): Promise<UploadResult> {
-  const { onProgress, signal } = options;
+  const { onProgress, signal, deviceCheck = "passed" } = options;
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(signal.reason);
@@ -70,6 +77,7 @@ export function uploadInvoice(
       file.type || "application/octet-stream",
     );
     xhr.setRequestHeader(IDEMPOTENCY_KEY_HEADER, key);
+    xhr.setRequestHeader(DEVICE_CHECK_HEADER, deviceCheck);
     xhr.timeout = UPLOAD_TIMEOUT_MS;
 
     xhr.upload.addEventListener("progress", (event) => {

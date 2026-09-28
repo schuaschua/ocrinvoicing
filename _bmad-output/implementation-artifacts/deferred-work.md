@@ -31,3 +31,12 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference.md`
   summary: Decide the upload size limit for phone photos (many modern phone JPEGs exceed 4 MB; originals can't be re-encoded without losing EXIF).
   evidence: The 4 MB limit follows DI F0; moving to S0 or a different ingest path changes it. Product decision for Dj.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-9-on-device-photo-quality-check-with-send-anyway.md`
+  summary: Calibrate the blur, darkness and edge cut-off thresholds on real supplier photos (device and server together), including invoices on busy backgrounds.
+  evidence: All values are `[ASSUMPTION]`; the border-density rule likely flags well-framed pages on textured surfaces.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-9-on-device-photo-quality-check-with-send-anyway.md`
+  summary: Decide whether `device_check` needs a third value (e.g. `skipped`) so the server can tell "never checked" from "passed".
+  evidence: The page records `passed` when it can't decode or times out; AD-5 defines only passed/overridden.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-9-on-device-photo-quality-check-with-send-anyway.md`
+  summary: Update spine AD-6/CAP-3 for the device-only edge cut-off check, the 1024 px analysis copy and the `X-Device-Check` header.
+  evidence: Implemented in Story 1.9; the spine describes blur and darkness only.

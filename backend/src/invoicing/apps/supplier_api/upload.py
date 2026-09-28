@@ -10,6 +10,10 @@ Table Storage, blob storage and `q-quality` only, never PostgreSQL, in this orde
 A retry with the same key replays steps 2 and 3, so a failed attempt is completed and
 a second invoice is never created; a duplicate message is harmless (AD-2).
 
+`X-Device-Check` (Story 1.9) says how the page's photo check went: `passed` (the
+default when absent) or `overridden` ("Send it anyway"); anything else is a 400. It is
+bound to the key with the invoice, so a replay keeps the first attempt's value.
+
 The body is the raw file (not multipart), stored exactly as sent. The file type comes
 from its bytes, never from the request's Content-Type. Never log the token, the key,
 the file name or its bytes.
@@ -32,15 +36,20 @@ from invoicing.domain.errors import (
 )
 from invoicing.domain.ids import new_uuid7, parse_uuid
 from invoicing.domain.reference import supplier_reference
-from invoicing.domain.upload import check_declared_length, check_upload
+from invoicing.domain.upload import (
+    check_declared_length,
+    check_upload,
+    parse_device_check,
+)
 from invoicing.ports.blobs import ImageStore
-from invoicing.ports.intake import DeviceCheck, IntakeBlobMetadata, IntakeSource
+from invoicing.ports.intake import IntakeBlobMetadata, IntakeSource
 from invoicing.ports.links import SupplierLinkRegistry
 from invoicing.ports.messages import QueueMessage
 from invoicing.ports.queue import QueueName, QueueSender
 from invoicing.ports.upload_keys import UploadKey, UploadKeyStore
 
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
+DEVICE_CHECK_HEADER = "X-Device-Check"
 KEY_MESSAGE = "This upload has no valid key. Reload the page and send the file again."
 
 _logger = logging.getLogger("invoicing.upload")
@@ -66,7 +75,7 @@ def upload_endpoint(
     clock: Callable[[], datetime] | None = None,
 ) -> Endpoint:
     """`POST /api/upload`: 200 `{invoice_id, reference}`. 401 for a link that can't be
-    used, 400 for a missing or malformed key, 413 over 4 MB, 415 for anything but
+    used, 400 for a missing or malformed key or an unknown `X-Device-Check`, 413 over 4 MB, 415 for anything but
     JPEG, PNG or PDF, 409 for a key another supplier holds or that was used for other
     bytes, 503 when storage fails. Nothing is written unless every check passed.
     `clock` defaults to the current UTC time."""
@@ -74,6 +83,7 @@ def upload_endpoint(
     async def upload(req: func.HttpRequest, correlation_id: UUID) -> func.HttpResponse:
         link = await current_link(req, registry())
         key = upload_key(req)
+        device_check = parse_device_check(req.headers.get(DEVICE_CHECK_HEADER))
         # An early refusal when the client declared a length over the limit.
         check_declared_length(req.headers.get("Content-Length"))
         body = req.get_body()
@@ -91,6 +101,7 @@ def upload_endpoint(
                 created_at=now,
                 content_sha256=content_sha256,
                 content_type=content_type,
+                device_check=device_check,
             ),
         )
         # A key is one file of one supplier: another supplier's key, or the same key
@@ -101,6 +112,15 @@ def upload_endpoint(
         ) != (content_sha256, content_type):
             log_event(_logger, "upload.key_conflict", code="IDEMPOTENCY_KEY_CONFLICT")
             raise IdempotencyKeyConflictError()
+        # A retry that reports another device check keeps the stored one; say so.
+        if stored.device_check != device_check:
+            log_event(
+                _logger,
+                "upload.device_check_mismatch",
+                invoice_id=stored.invoice_id,
+                code="DEVICE_CHECK_MISMATCH",
+                device_check=stored.device_check,
+            )
 
         # Step 2: the original bytes, once.
         written = await images().put_if_absent(
@@ -111,8 +131,8 @@ def upload_endpoint(
                 supplier_id=link.supplier_id,
                 content_type=content_type,
                 uploaded_at=stored.created_at,
-                # Story 1.9 adds the device check and "Send it anyway".
-                device_check=DeviceCheck.PASSED,
+                # The first attempt's value: a replay never changes it.
+                device_check=stored.device_check,
             ),
         )
 
@@ -132,6 +152,7 @@ def upload_endpoint(
             status="new" if inserted else "existing",
             blob_written=written,
             content_type=content_type,
+            device_check=stored.device_check,
             size_bytes=len(body),
         )
         return json_response(

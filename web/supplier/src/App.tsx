@@ -7,6 +7,7 @@ import { LinkError } from "@/screens/LinkError";
 import { LinkNotWorking } from "@/screens/LinkNotWorking";
 import { Loading } from "@/screens/Loading";
 import { Received } from "@/screens/Received";
+import type { CaptureSource } from "@/screens/capture";
 import { UploadHome } from "@/screens/UploadHome";
 import { strings } from "@/strings";
 import { newUploadKey } from "@/upload";
@@ -14,8 +15,17 @@ import { newUploadKey } from "@/upload";
 type Screen =
   | { kind: "loading" }
   | { kind: "home"; supplierName: string }
-  // One key per file, kept for every retry of that file (AD-6).
-  | { kind: "check"; supplierName: string; file: File; uploadKey: string }
+  // One key per file, kept for every retry of that file (AD-6). `failures` counts the
+  // failed device checks of this upload before the current photo (Story 1.9); a new
+  // upload from Upload home starts again at 0.
+  | {
+      kind: "check";
+      supplierName: string;
+      file: File;
+      uploadKey: string;
+      source: CaptureSource;
+      failures: number;
+    }
   | { kind: "received"; supplierName: string; reference: string }
   | { kind: "link-not-working" }
   | { kind: "error"; message: string };
@@ -104,20 +114,26 @@ export function App({ token }: { token: string | null }) {
         {screen.kind === "home" && (
           <UploadHome
             supplierName={screen.supplierName}
-            onFile={(file) =>
+            onFile={(file, source) =>
               setScreen({
                 kind: "check",
                 supplierName: screen.supplierName,
                 file,
                 uploadKey: keyFor(file),
+                source,
+                failures: 0,
               })
             }
           />
         )}
         {screen.kind === "check" && (
           <CheckAndSend
+            // A retaken photo is checked afresh, on a fresh screen.
+            key={screen.failures}
             file={screen.file}
             uploadKey={screen.uploadKey}
+            source={screen.source}
+            previousFailures={screen.failures}
             onSent={(reference) =>
               setScreen({
                 kind: "received",
@@ -128,6 +144,15 @@ export function App({ token }: { token: string | null }) {
             onLinkNotWorking={linkNotWorking}
             onChooseAgain={() =>
               setScreen({ kind: "home", supplierName: screen.supplierName })
+            }
+            // Take again after a failed check: the same upload, one more failure.
+            onRetake={(file) =>
+              setScreen({
+                ...screen,
+                file,
+                uploadKey: keyFor(file),
+                failures: screen.failures + 1,
+              })
             }
           />
         )}

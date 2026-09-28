@@ -1,5 +1,6 @@
 """The upload rules the server enforces whatever the page did (AD-6, coding-style.md
-rule 16): JPEG, PNG or PDF, decided by the file's own bytes, and 4 MB or less."""
+rule 16): JPEG, PNG or PDF, decided by the file's own bytes, and 4 MB or less; and the
+page's own photo check, as it reports it (Story 1.9)."""
 
 from enum import StrEnum
 
@@ -10,6 +11,32 @@ from invoicing.domain.errors import (
 )
 
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
+
+
+class DeviceCheck(StrEnum):
+    """The page's own photo check (CAP-3), stored as `device_check` (AD-5).
+    `overridden` means the supplier chose "Send it anyway" after 2 failed checks; the
+    server's quality stage checks every upload again either way (AD-6)."""
+
+    PASSED = "passed"
+    OVERRIDDEN = "overridden"
+
+
+DEVICE_CHECK_MESSAGE = (
+    "This upload's photo check is not valid. Reload the page and send the file again."
+)
+
+
+def parse_device_check(value: str | None) -> DeviceCheck:
+    """The `X-Device-Check` header: absent means `passed` (a page from before Story
+    1.9, or a goods-in scan); `passed` or `overridden` in any case; anything else is
+    refused, never guessed."""
+    if value is None:
+        return DeviceCheck.PASSED
+    try:
+        return DeviceCheck(value.strip().lower())
+    except ValueError:
+        raise ValidationFailedError(DEVICE_CHECK_MESSAGE) from None
 
 
 class UploadContentType(StrEnum):

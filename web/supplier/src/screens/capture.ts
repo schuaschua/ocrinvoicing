@@ -4,3 +4,6 @@
  */
 export const CAPTURE =
   "h-auto min-h-capture w-full whitespace-normal text-base";
+
+/** Where a file came from, so Take again reopens the same thing (Story 1.9). */
+export type CaptureSource = "camera" | "file";

@@ -3,12 +3,19 @@
 
 import pytest
 
-from invoicing.domain.errors import ErrorCode, IdempotencyKeyConflictError
+from invoicing.domain.errors import (
+    ErrorCode,
+    IdempotencyKeyConflictError,
+    ValidationFailedError,
+)
 from invoicing.domain.upload import (
+    DEVICE_CHECK_MESSAGE,
     MAX_UPLOAD_BYTES,
+    DeviceCheck,
     UploadContentType,
     check_declared_length,
     check_upload,
+    parse_device_check,
     sniff_content_type,
 )
 
@@ -94,3 +101,30 @@ def test_story_1_8_key_conflict_says_nothing_about_the_other_upload() -> None:
     error = IdempotencyKeyConflictError()
     assert error.code is ErrorCode.IDEMPOTENCY_KEY_CONFLICT
     assert "supplier" not in error.message.lower()
+
+
+# --- Story 1.9: the page's device check -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("header", "expected"),
+    [
+        (None, DeviceCheck.PASSED),
+        ("passed", DeviceCheck.PASSED),
+        ("overridden", DeviceCheck.OVERRIDDEN),
+        (" Overridden ", DeviceCheck.OVERRIDDEN),
+    ],
+)
+def test_story_1_9_the_device_check_header_is_read(
+    header: str | None, expected: DeviceCheck
+) -> None:
+    assert parse_device_check(header) is expected
+
+
+@pytest.mark.parametrize("header", ["", "failed", "true", "passed,overridden"])
+def test_story_1_9_any_other_device_check_is_refused(header: str) -> None:
+    with pytest.raises(ValidationFailedError) as refused:
+        parse_device_check(header)
+    assert refused.value.code is ErrorCode.VALIDATION_FAILED
+    # One fixed message: never what the client sent.
+    assert refused.value.message == DEVICE_CHECK_MESSAGE

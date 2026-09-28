@@ -657,3 +657,86 @@ def test_story_1_8_the_accepted_log_names_the_outcome_type_and_size(
         ("new", True, "image/png", len(PNG)),
         ("existing", False, "image/png", len(PNG)),
     ]
+
+
+# --- Story 1.9: the device check ------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("header", "stored"),
+    [(None, "passed"), ("passed", "passed"), ("overridden", "overridden")],
+)
+def test_story_1_9_the_device_check_is_stored_in_the_blob_metadata(
+    header: str | None, stored: str, call: Call, storage: Storage
+) -> None:
+    headers = {} if header is None else {"X-Device-Check": header}
+    invoice_id, _ = _ok(call(headers=headers))
+    assert storage.blobs[invoice_id][1].to_blob_metadata()["device_check"] == stored
+    assert storage.keys[UUID(KEY)].device_check == stored
+
+
+@pytest.mark.parametrize("header", ["", "failed", "OVERRIDE"])
+def test_story_1_9_any_other_device_check_is_a_400_and_writes_nothing(
+    header: str, call: Call, storage: Storage
+) -> None:
+    message = _error(call(headers={"X-Device-Check": header}), 400, "VALIDATION_FAILED")
+    assert "check" in message.lower()
+    _nothing_written(storage)
+
+
+def test_story_1_9_a_replay_with_another_device_check_keeps_the_stored_one(
+    call: Call, storage: Storage
+) -> None:
+    first = _ok(call(headers={"X-Device-Check": "overridden"}))
+    again = _ok(call(headers={"X-Device-Check": "passed"}))
+    assert first == again
+    invoice_id, _ = first
+    assert storage.writes == ["key", "blob", "queue", "queue"]
+    assert storage.blobs[invoice_id][1].device_check == "overridden"
+
+
+def test_story_1_9_a_retry_completing_a_crashed_upload_writes_the_first_device_check(
+    call: Call, storage: Storage
+) -> None:
+    storage.fail = {"blob"}
+    _error(call(headers={"X-Device-Check": "overridden"}), 503, "SERVICE_UNAVAILABLE")
+    storage.fail = set()
+    # The retry says passed; the key holds the first attempt's overridden.
+    invoice_id, _ = _ok(call())
+    assert storage.blobs[invoice_id][1].device_check == "overridden"
+
+
+def test_story_1_9_the_accepted_log_names_the_device_check(
+    call: Call, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger="invoicing"):
+        call(headers={"X-Device-Check": "overridden"})
+    (accepted,) = [
+        event_fields(r)
+        for r in caplog.records
+        if r.getMessage().startswith("upload.accepted ")
+    ]
+    assert accepted["device_check"] == "overridden"
+
+
+def test_story_1_9_a_replay_with_another_device_check_is_logged_by_code(
+    call: Call, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger="invoicing"):
+        first, _ = _ok(call(headers={"X-Device-Check": "overridden"}))
+        _ok(call(headers={"X-Device-Check": "overridden"}))
+        _ok(call(headers={"X-Device-Check": "passed"}))
+    mismatches = [
+        event_fields(r)
+        for r in caplog.records
+        if r.getMessage().startswith("upload.device_check_mismatch ")
+    ]
+    # Once, for the retry that differed; the stored value, ids and codes only.
+    assert mismatches == [
+        {
+            "invoice_id": str(first),
+            "code": "DEVICE_CHECK_MISMATCH",
+            "device_check": "overridden",
+            **{k: v for k, v in mismatches[0].items() if k == "correlation_id"},
+        }
+    ]

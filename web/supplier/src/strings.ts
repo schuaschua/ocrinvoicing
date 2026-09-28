@@ -1,6 +1,8 @@
 // All user-facing copy for the supplier page (coding-style.md rule 18, UX-DR2),
 // worded as EXPERIENCE.md's Voice and Tone sets it. Components never hold copy.
 
+import type { Side } from "@shared/quality/measure";
+
 /** AD-4 admin-queue reason codes. */
 export type ReasonCode =
   | "UNREADABLE"
@@ -131,6 +133,16 @@ export const strings = {
     sending: "Sending…",
     progressLabel: "Upload progress",
     failed: "Couldn't send. Check your connection and tap Send again.",
+    /** Story 1.9: the on-device check (EXPERIENCE.md "Quality check"). */
+    checking: "Checking photo…",
+    checkingPdf: "Checking PDF…",
+    takeAgain: "Take again",
+    sendAnyway: "Send it anyway",
+    tooDark: "The photo is too dark. Move to better light and take it again.",
+    blurry: "The photo is blurry. Hold the phone still and take it again.",
+    cutOff: (side: Side) =>
+      `The ${side} edge is cut off. Fit the whole invoice in the photo and take it again.`,
+    tooManyPages: "This PDF has more than 2 pages. Send a PDF of 1 or 2 pages.",
   },
   /** EXPERIENCE.md "Received": "Received. Reference R-7Q4KXM2D." */
   received: {

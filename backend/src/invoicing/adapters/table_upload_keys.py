@@ -15,7 +15,7 @@ from azure.identity.aio import ManagedIdentityCredential
 from invoicing.adapters.logging import log_event
 from invoicing.adapters.storage_errors import raise_unavailable
 from invoicing.domain.errors import ServiceUnavailableError
-from invoicing.domain.upload import UploadContentType
+from invoicing.domain.upload import DeviceCheck, UploadContentType
 from invoicing.ports.upload_keys import (
     UPLOAD_KEYS_TABLE,
     UploadKey,
@@ -33,6 +33,7 @@ _SELECT = [
     "created_at",
     "content_sha256",
     "content_type",
+    "device_check",
 ]
 # An insert refused because the key exists, then a read that finds nothing, means the
 # sweeper deleted the row in between: insert again, once.
@@ -149,6 +150,7 @@ def _entity(key: UUID, value: UploadKey) -> dict[str, Any]:
         "created_at": value.created_at.astimezone(UTC),
         "content_sha256": value.content_sha256,
         "content_type": value.content_type.value,
+        "device_check": value.device_check.value,
     }
 
 
@@ -187,6 +189,7 @@ def _upload_key(entity: Mapping[str, Any]) -> UploadKey:
         created_at=_created_at(entity.get("created_at")),
         content_sha256=_sha256(entity.get("content_sha256")),
         content_type=_content_type(entity.get("content_type")),
+        device_check=_device_check(entity.get("device_check")),
     )
 
 
@@ -201,3 +204,13 @@ def _content_type(value: object) -> UploadContentType:
         return UploadContentType(str(value))
     except ValueError:
         raise _CorruptRowError("BAD_CONTENT_TYPE") from None
+
+
+def _device_check(value: object) -> DeviceCheck:
+    # A row written before Story 1.9 has none (or an empty one): all were `passed`.
+    if value is None or value == "":
+        return DeviceCheck.PASSED
+    try:
+        return DeviceCheck(str(value))
+    except ValueError:
+        raise _CorruptRowError("BAD_DEVICE_CHECK") from None

@@ -122,15 +122,18 @@ describe("1.8 choosing or taking the invoice", () => {
     expect(screen.queryByText(/Camera not available here/)).toBeNull();
   });
 
-  it.each(["take-photo-input", "choose-file-input"] as const)(
-    "passes a sendable file from %s on",
-    (testId) => {
+  it.each([
+    ["take-photo-input", "camera"],
+    ["choose-file-input", "file"],
+  ] as const)(
+    "passes a sendable file from %s on, with where it came from",
+    (testId, source) => {
       const onFile = renderHome();
       const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], "inv.jpg", {
         type: "image/jpeg",
       });
       choose(input(testId), file);
-      expect(onFile).toHaveBeenCalledWith(file);
+      expect(onFile).toHaveBeenCalledWith(file, source);
       // Cleared, so the same file can be chosen again.
       expect(input(testId).value).toBe("");
     },

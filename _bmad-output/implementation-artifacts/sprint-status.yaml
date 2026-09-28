@@ -44,7 +44,7 @@ development_status:
   1-6-load-suppliers-and-issue-upload-links: backlog
   1-7-supplier-opens-their-link: review
   1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference: review
-  1-9-on-device-photo-quality-check-with-send-anyway: backlog
+  1-9-on-device-photo-quality-check-with-send-anyway: review
   epic-1-retrospective: optional
 
   epic-2: backlog

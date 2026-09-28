@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Iterator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -27,7 +28,7 @@ from invoicing.adapters import table_upload_keys
 from invoicing.adapters.logging import event_fields
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.domain.errors import ServiceUnavailableError
-from invoicing.domain.upload import UploadContentType
+from invoicing.domain.upload import DeviceCheck, UploadContentType
 from invoicing.ports.upload_keys import UploadKey, UploadKeyStore
 
 KEY = UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6")
@@ -39,6 +40,7 @@ MINE = UploadKey(
     created_at=CREATED,
     content_sha256="ab" * 32,
     content_type=UploadContentType.JPEG,
+    device_check=DeviceCheck.PASSED,
 )
 THEIRS = UploadKey(
     invoice_id=UUID("0192f0c1-7a2b-7c3d-8e4f-0000000000ff"),
@@ -47,6 +49,7 @@ THEIRS = UploadKey(
     created_at=CREATED,
     content_sha256="cd" * 32,
     content_type=UploadContentType.PDF,
+    device_check=DeviceCheck.OVERRIDDEN,
 )
 
 
@@ -58,6 +61,7 @@ def _row(value: UploadKey) -> dict[str, Any]:
         "created_at": value.created_at,
         "content_sha256": value.content_sha256,
         "content_type": value.content_type.value,
+        "device_check": value.device_check.value,
     }
 
 
@@ -103,16 +107,17 @@ class FakeTable:
         self, query_filter: str, **kwargs: Any
     ) -> AsyncIterator[Mapping[str, Any]]:
         self.queries.append((query_filter, kwargs))
-        return self._iterate(kwargs["parameters"])
+        return self._iterate(kwargs["parameters"], kwargs.get("select"))
 
     async def _iterate(
-        self, parameters: dict[str, str]
+        self, parameters: dict[str, str], select: list[str] | None
     ) -> AsyncIterator[Mapping[str, Any]]:
         if self.query_error is not None:
             raise self.query_error
         row = self.rows.get((parameters["pk"], parameters["rk"]))
         if row is not None:
-            yield row
+            # Like the service: only the selected properties come back.
+            yield row if select is None else {k: row[k] for k in select if k in row}
 
     async def close(self) -> None:
         self.closed = True
@@ -158,6 +163,7 @@ def test_story_1_8_two_racing_claims_get_the_same_upload() -> None:
         created_at=CREATED,
         content_sha256=MINE.content_sha256,
         content_type=MINE.content_type,
+        device_check=MINE.device_check,
     )
 
     async def race() -> list[tuple[UploadKey, bool]]:
@@ -256,6 +262,50 @@ def test_story_1_8_a_corrupt_row_is_logged_by_code_and_answers_503(
         for r in caplog.records
         if r.getMessage().startswith("uploadkeys.corrupt_row ")
     ] == [code]
+
+
+def test_story_1_9_the_device_check_is_stored_and_read_back() -> None:
+    overridden = replace(MINE, device_check=DeviceCheck.OVERRIDDEN)
+    table = FakeTable()
+    _claim(table, overridden)
+    assert table.created[0]["device_check"] == "overridden"
+    # The next claim on the key reads the stored value, whatever it offers.
+    assert _claim(table, MINE) == (overridden, False)
+
+
+def test_story_1_9_the_device_check_is_read_through_the_selected_columns() -> None:
+    table = FakeTable({("3f", str(KEY)): _row(THEIRS)})
+    stored, _ = _claim(table)
+    assert stored.device_check is DeviceCheck.OVERRIDDEN
+    ((_, kwargs),) = table.queries
+    assert "device_check" in kwargs["select"]
+
+
+@pytest.mark.parametrize("legacy", ["missing", "", None])
+def test_story_1_9_a_row_from_before_the_device_check_reads_as_passed(
+    legacy: str | None,
+) -> None:
+    row = {k: v for k, v in _row(THEIRS).items() if k != "device_check"}
+    if legacy != "missing":
+        row["device_check"] = legacy
+    stored, _ = _claim(FakeTable({("3f", str(KEY)): row}))
+    assert stored.device_check is DeviceCheck.PASSED
+
+
+def test_story_1_9_an_unknown_device_check_is_a_corrupt_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    table = FakeTable({("3f", str(KEY)): {**_row(THEIRS), "device_check": "maybe"}})
+    with (
+        caplog.at_level(logging.DEBUG, logger="invoicing"),
+        pytest.raises(ServiceUnavailableError),
+    ):
+        _claim(table)
+    assert [
+        event_fields(r).get("code")
+        for r in caplog.records
+        if r.getMessage().startswith("uploadkeys.corrupt_row ")
+    ] == ["BAD_DEVICE_CHECK"]
 
 
 def test_story_1_8_an_iso_string_created_at_is_read_as_utc() -> None:

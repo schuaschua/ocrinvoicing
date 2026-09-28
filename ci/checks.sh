@@ -19,7 +19,8 @@ usage() {
 Usage: ci/checks.sh <lint|test|audit|secrets|terraform|all>
 
   lint       ruff format/check and mypy on backend/; ESLint, Prettier and tsc per
-             scaffolded web app; shellcheck on ci/ and infra/bootstrap/
+             scaffolded web app, and ESLint and Prettier on shared/quality/ (with
+             web/supplier's); shellcheck on ci/ and infra/bootstrap/
   test       pytest with coverage (backend, floor 80%), Vitest with coverage per web
              app (floor 60%), then per web app the build, the supplier JS limit (150 KB
              gzipped) and the a11y check (Playwright + axe: WCAG 2.2 AA, 320px reflow,
@@ -186,6 +187,9 @@ web_build_checks() {
     npm run --prefix "$app" a11y
 }
 
+# supplier_tool TOOL ARGS... - a tool from web/supplier's devDependencies, run there.
+supplier_tool() { (cd "$REPO_ROOT/web/supplier" && npm exec --no -- "$@"); }
+
 uv_backend() { uv run --directory "$REPO_ROOT/backend" --locked "$@"; }
 
 # pytest outside the backend project (ci/tests, infra/scripts/tests), pinned.
@@ -222,6 +226,19 @@ run_lint() {
       fi
     done
   done
+
+  # shared/quality/ (Story 1.9) belongs to no app: it is linted and format-checked with
+  # the supplier page's ESLint and Prettier (shared/eslint.config.mjs points ESLint at
+  # the supplier rules). The supplier app was installed above.
+  if has_files "$REPO_ROOT/shared/quality" -name '*.ts'; then
+    if [[ -d "$REPO_ROOT/web/supplier/node_modules" ]]; then
+      check "eslint (shared/quality)" supplier_tool eslint --max-warnings 0 ../../shared/quality
+      check "prettier --check (shared/quality)" supplier_tool prettier --check \
+        ../../shared/quality ../../shared/eslint.config.mjs ../../shared/quality-thresholds.json
+    else
+      check "lint (shared/quality)" fail "web/supplier is not installed, so shared/quality can't be linted"
+    fi
+  fi
 
   local scripts=() file
   for file in "$REPO_ROOT"/ci/*.sh "$REPO_ROOT"/infra/bootstrap/*.sh; do

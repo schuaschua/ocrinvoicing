@@ -17,7 +17,11 @@ from pydantic import (
     field_validator,
 )
 
-from invoicing.domain.upload import UploadContentType
+from invoicing.domain.upload import DeviceCheck, UploadContentType
+
+# DeviceCheck lives in the domain (the upload rules parse it); exported here with the
+# metadata it belongs to.
+__all__ = ["DeviceCheck", "IntakeBlobMetadata", "IntakeSource"]
 
 
 class IntakeSource(StrEnum):
@@ -25,14 +29,6 @@ class IntakeSource(StrEnum):
 
     LINK = "link"
     GOODS_IN = "goods_in"
-
-
-class DeviceCheck(StrEnum):
-    """The page's own photo check (CAP-3). `overridden` means "Send it anyway"
-    (Story 1.9); until then every upload is `passed`."""
-
-    PASSED = "passed"
-    OVERRIDDEN = "overridden"
 
 
 class IntakeBlobMetadata(BaseModel):

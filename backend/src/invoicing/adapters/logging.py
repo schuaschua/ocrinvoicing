@@ -24,6 +24,8 @@ ALLOWED_KEYS = frozenset(
         "content_type",
         "correlation_id",
         "count",
+        # passed | overridden: the page's photo check (Story 1.9), a code.
+        "device_check",
         "duration_ms",
         "field_id",
         "from_status",

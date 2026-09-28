@@ -45,10 +45,16 @@ describe("1.8 upload call", () => {
       "X-Upload-Token": TOKEN,
       "Content-Type": "image/jpeg",
       "Idempotency-Key": UPLOAD_ID,
+      "X-Device-Check": "passed",
     });
     expect(xhr.timeout).toBe(UPLOAD_TIMEOUT_MS);
     xhr.respond(200, OK);
     await expect(sent).resolves.toEqual(OK);
+  });
+
+  it("1.9 sends X-Device-Check overridden after Send it anyway", () => {
+    void uploadInvoice(jpeg(), UPLOAD_ID, { deviceCheck: "overridden" });
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("overridden");
   });
 
   it("labels a file with no type as octet-stream; the server reads the bytes", () => {

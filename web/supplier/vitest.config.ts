@@ -8,7 +8,13 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: "jsdom",
-      include: ["src/**/*.test.{ts,tsx}", "*.test.ts"],
+      // shared/quality/ (Story 1.9): the device check and its tests; the supplier page
+      // imports it, and the staff app will from Story 4.1.
+      include: [
+        "src/**/*.test.{ts,tsx}",
+        "*.test.ts",
+        "../../shared/quality/**/*.test.ts",
+      ],
       setupFiles: ["./src/test/setup.ts"],
       coverage: {
         provider: "v8",

@@ -9,6 +9,9 @@ Storage contract, shared with the sweeper that deletes rows older than 24 hours 
   attempt's, so a replay's queue message stays in the upload's trace), `created_at`
   (UTC datetime), and `content_sha256` (lowercase hex) and `content_type` of the file,
   so a key reused for different bytes is refused instead of dropping the new file.
+- `device_check` (Story 1.9): `passed` or `overridden`, as the first attempt sent it. A
+  replay keeps it, whatever the retry sends. A row without it, or with it empty
+  (written before 1.9), reads as `passed`.
 
 The key is a client-chosen value: never log it.
 """
@@ -18,7 +21,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from invoicing.domain.upload import UploadContentType
+from invoicing.domain.upload import DeviceCheck, UploadContentType
 
 UPLOAD_KEYS_TABLE = "uploadkeys"
 PARTITION_KEY_LENGTH = 2
@@ -44,6 +47,7 @@ class UploadKey:
     created_at: datetime
     content_sha256: str
     content_type: UploadContentType
+    device_check: DeviceCheck
 
 
 class UploadKeyStore(Protocol):

@@ -1,5 +1,11 @@
 {
   "status": "[ASSUMPTION] uncalibrated placeholder values; calibrate on sample photos before relying on them (spine AD-6, Open Questions)",
+  "analysis": {
+    "note": "[ASSUMPTION] the device check aims to finish within target_check_ms and is given up (the file passes) at max_check_ms; every measure runs on a copy whose long side is at most max_long_side_px, EXIF orientation applied, grey = 0.299 R + 0.587 G + 0.114 B (Pillow 'L'); the server quality stage must measure the same copy",
+    "max_long_side_px": 1024,
+    "target_check_ms": 2000,
+    "max_check_ms": 5000
+  },
   "blur": {
     "measure": "variance_of_laplacian",
     "min_variance": 100.0
@@ -7,6 +13,14 @@
   "darkness": {
     "measure": "mean_luminance_0_255",
     "min_mean_luminance": 60.0
+  },
+  "edge": {
+    "note": "[ASSUMPTION] device check only (Story 1.9): a side is cut off when its outer strip's edge density is over max_border_edge_density while the interior's is at least min_interior_edge_density. Known false-positive risk until calibrated: a well-framed page on a busy background (wood grain, fabric, a cluttered desk) can read as cut off",
+    "measure": "border_edge_density",
+    "strip_fraction": 0.03,
+    "gradient_threshold": 40.0,
+    "max_border_edge_density": 0.06,
+    "min_interior_edge_density": 0.02
   },
   "max_device_check_failures_before_send_anyway": 2
 }

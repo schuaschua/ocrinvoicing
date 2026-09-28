@@ -9,7 +9,7 @@ import {
   refusal,
 } from "@/upload";
 
-import { CAPTURE } from "./capture";
+import { CAPTURE, type CaptureSource } from "./capture";
 import { usePageHeading } from "./usePageHeading";
 
 function CameraIcon() {
@@ -53,14 +53,15 @@ function FileIcon() {
  * actions in the lower half, within thumb reach. Each opens a native file input: Take
  * photo the camera (with a hint to use Choose file when the browser lists no camera),
  * Choose file a JPEG, PNG or PDF. A chosen file the page can already
- * tell is unsendable is refused here, with the reason; any other goes to `onFile`.
+ * tell is unsendable is refused here, with the reason; any other goes to `onFile`,
+ * with the input it came from.
  */
 export function UploadHome({
   supplierName,
   onFile,
 }: {
   supplierName: string;
-  onFile: (file: File) => void;
+  onFile: (file: File, source: CaptureSource) => void;
 }) {
   const heading = usePageHeading(strings.uploadHome.pageTitle);
   const cameraInput = useRef<HTMLInputElement>(null);
@@ -91,7 +92,7 @@ export function UploadHome({
     fileInput.current?.click();
   }
 
-  function chosen(event: ChangeEvent<HTMLInputElement>) {
+  function chosen(source: CaptureSource, event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     // Cleared, so choosing the same file again still counts as a choice.
     event.target.value = "";
@@ -101,7 +102,7 @@ export function UploadHome({
       setNotice(reason);
       return;
     }
-    onFile(file);
+    onFile(file, source);
   }
 
   return (
@@ -145,7 +146,7 @@ export function UploadHome({
           hidden
           tabIndex={-1}
           data-testid="take-photo-input"
-          onChange={chosen}
+          onChange={(event) => chosen("camera", event)}
         />
         <input
           ref={fileInput}
@@ -154,7 +155,7 @@ export function UploadHome({
           hidden
           tabIndex={-1}
           data-testid="choose-file-input"
-          onChange={chosen}
+          onChange={(event) => chosen("file", event)}
         />
       </div>
     </div>

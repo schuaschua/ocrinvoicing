@@ -21,9 +21,12 @@ function renderCheck(file = photo()) {
   const props = {
     file,
     uploadKey: UPLOAD_ID,
+    source: "camera" as const,
+    previousFailures: 0,
     onSent: vi.fn(),
     onLinkNotWorking: vi.fn(),
     onChooseAgain: vi.fn(),
+    onRetake: vi.fn(),
   };
   const view = render(<CheckAndSend {...props} />);
   return { ...props, ...view };

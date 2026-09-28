@@ -1,8 +1,19 @@
 // The supplier page's screens for the accessibility check (e2e/a11y.spec.ts, shared
 // with web/staff). Screen stories add theirs here.
+import { readFileSync } from "node:fs";
+
 import type { Page } from "@playwright/test";
 
 import type { ApiAnswer, Screen } from "./checks.ts";
+
+// The device check's hard cap (shared/quality-thresholds.json), after which a check
+// still running is given up and Send appears.
+const MAX_CHECK_MS: number = JSON.parse(
+  readFileSync(
+    new URL("../../../shared/quality-thresholds.json", import.meta.url),
+    "utf8",
+  ),
+).analysis.max_check_ms;
 
 // Synthetic: base64url of 32 bytes of 0x5a, canonical like a real link token.
 const TOKEN = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
@@ -34,6 +45,48 @@ async function choose(
 async function chooseAndSend(page: Page): Promise<void> {
   await choose(page);
   await page.getByRole("button", { name: "Send" }).click();
+}
+
+/** A real PNG of a very dark photo, made in the browser (fails the device check). */
+async function darkPhoto(page: Page): Promise<Buffer> {
+  const bytes = await page.evaluate(async () => {
+    const width = 400;
+    const height = 300;
+    const pixels = new Uint8ClampedArray(width * height * 4);
+    for (let i = 0; i < pixels.length; i += 4) {
+      pixels[i] = pixels[i + 1] = pixels[i + 2] = 10;
+      pixels[i + 3] = 255;
+    }
+    const canvas = new OffscreenCanvas(width, height);
+    canvas.getContext("2d")!.putImageData(new ImageData(pixels, width), 0, 0);
+    const blob = await canvas.convertToBlob({ type: "image/png" });
+    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+  });
+  return Buffer.from(bytes);
+}
+
+async function chooseDarkPhoto(page: Page): Promise<void> {
+  await atHome(page);
+  await page.getByTestId("choose-file-input").setInputFiles({
+    name: "dark.png",
+    mimeType: "image/png",
+    buffer: await darkPhoto(page),
+  });
+  await page.getByRole("alert").getByText("The photo is too dark.").waitFor();
+}
+
+/** A PDF with 3 page objects (refused on the device). */
+function threePagePdf(): Buffer {
+  const pages = [3, 4, 5]
+    .map((n) => `${n} 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n`)
+    .join("");
+  return Buffer.from(
+    "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
+      "2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>\nendobj\n" +
+      pages +
+      "trailer\n<< /Root 1 0 R >>\n%%EOF\n",
+    "latin1",
+  );
 }
 
 function upload(answer: ApiAnswer): Record<string, ApiAnswer> {
@@ -168,6 +221,69 @@ export const SCREENS: Screen[] = [
     }),
     steps: chooseAndSend,
     ready: "Choose a JPEG or PNG photo, or a PDF.",
+  },
+  {
+    story: "1.9",
+    name: "checking photo",
+    path: `/u#${TOKEN}`,
+    api: LINK_OK,
+    // A decoder that never answers keeps the check running, and its hard-cap timer
+    // never fires, so the screen can't turn into Send during the scan. Test-only: the
+    // app has no hook for this.
+    setup: async (page) => {
+      await page.addInitScript((cap) => {
+        window.createImageBitmap = () => new Promise<ImageBitmap>(() => {});
+        const setTimer = window.setTimeout.bind(window);
+        window.setTimeout = ((
+          handler: TimerHandler,
+          ms?: number,
+          ...rest: unknown[]
+        ) =>
+          ms === cap
+            ? 0
+            : setTimer(handler, ms, ...rest)) as typeof window.setTimeout;
+      }, MAX_CHECK_MS);
+    },
+    steps: (page) => choose(page),
+    ready: "Checking photo…",
+  },
+  {
+    story: "1.9",
+    name: "photo check failed",
+    path: `/u#${TOKEN}`,
+    api: LINK_OK,
+    steps: chooseDarkPhoto,
+    ready: "Take again",
+  },
+  {
+    story: "1.9",
+    name: "second failed check (send it anyway)",
+    path: `/u#${TOKEN}`,
+    api: LINK_OK,
+    steps: async (page) => {
+      await chooseDarkPhoto(page);
+      await page.getByTestId("take-again-input").setInputFiles({
+        name: "dark-again.png",
+        mimeType: "image/png",
+        buffer: await darkPhoto(page),
+      });
+    },
+    ready: "Send it anyway",
+  },
+  {
+    story: "1.9",
+    name: "PDF over 2 pages refused on the device",
+    path: `/u#${TOKEN}`,
+    api: LINK_OK,
+    steps: async (page) => {
+      await atHome(page);
+      await page.getByTestId("choose-file-input").setInputFiles({
+        name: "invoice.pdf",
+        mimeType: "application/pdf",
+        buffer: threePagePdf(),
+      });
+    },
+    ready: "This PDF has more than 2 pages.",
   },
   {
     story: "1.8",

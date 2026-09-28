@@ -1,0 +1,85 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "azurerm_resource_group.this",
+      "mode": "managed",
+      "type": "azurerm_resource_group",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "babaloo-sea-lng-rg-01",
+          "tags": {
+            "owner": "dj",
+            "costCentre": "cc-000",
+            "environment": "dev",
+            "application": "ocrinvoicing",
+            "dataClassification": "synthetic"
+          }
+        },
+        "after_unknown": {"id": true}
+      }
+    },
+    {
+      "address": "module.env.module.storage.azapi_resource.this",
+      "mode": "managed",
+      "type": "azapi_resource",
+      "provider_name": "registry.terraform.io/azure/azapi",
+      "change": {
+        "actions": ["update"],
+        "after": {
+          "type": "Microsoft.Storage/storageAccounts@2023-05-01",
+          "tags": {
+            "owner": "dj",
+            "costCentre": "cc-000",
+            "environment": "dev",
+            "application": "ocrinvoicing",
+            "dataClassification": "synthetic",
+            "extra": "allowed"
+          }
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.env.module.storage.azapi_resource.containers[\"images\"]",
+      "mode": "managed",
+      "type": "azapi_resource",
+      "provider_name": "registry.terraform.io/azure/azapi",
+      "change": {
+        "actions": ["create"],
+        "after": {"type": "Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01", "tags": null},
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "azurerm_role_assignment.x",
+      "mode": "managed",
+      "type": "azurerm_role_assignment",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {"actions": ["create"], "after": {"scope": "/x"}, "after_unknown": {}}
+    },
+    {
+      "address": "module.env.modtm_telemetry.telemetry[0]",
+      "mode": "managed",
+      "type": "modtm_telemetry",
+      "provider_name": "registry.terraform.io/azure/modtm",
+      "change": {"actions": ["create"], "after": {"tags": {"avm_git_commit": "abc"}}, "after_unknown": {}}
+    },
+    {
+      "address": "data.azurerm_client_config.current",
+      "mode": "data",
+      "type": "azurerm_client_config",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {"actions": ["read"], "after": {"tags": {}}, "after_unknown": {}}
+    },
+    {
+      "address": "azurerm_storage_account.old",
+      "mode": "managed",
+      "type": "azurerm_storage_account",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {"actions": ["delete"], "after": null, "after_unknown": {}}
+    }
+  ]
+}

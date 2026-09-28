@@ -1,0 +1,361 @@
+{
+  "type": "c4-containers",
+  "title": "OCR Invoice Automation PoC: containers (one environment)",
+  "spine": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md",
+  "sources": [
+    "_bmad-output/specs/spec-ocr-invoice-automation/SPEC.md"
+  ],
+  "page": {
+    "size": "A2",
+    "orientation": "landscape"
+  },
+  "groups": [
+    {
+      "id": "sys",
+      "label": "OCR Invoice Automation (per environment: Dev, Prod)",
+      "kind": "boundary",
+      "cite": [
+        "AD-1",
+        "AD-17"
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "supplier",
+      "label": "Supplier",
+      "kind": "person",
+      "cite": [
+        "SPEC.md \u00a7Capabilities",
+        "AD-6"
+      ]
+    },
+    {
+      "id": "staff",
+      "label": "Staff (admin, goods-in, finance, procurement, management)",
+      "kind": "person",
+      "cite": "AD-14"
+    },
+    {
+      "id": "operator",
+      "label": "Operator (supplier load script)",
+      "kind": "person",
+      "cite": "AD-6"
+    },
+    {
+      "id": "websup",
+      "label": "Supplier upload page",
+      "kind": "container",
+      "group": "sys",
+      "tech": "React 19, Vite, TypeScript",
+      "description": "Device blur/dark check, served by supplier-api",
+      "cite": [
+        "AD-6",
+        "AD-14"
+      ]
+    },
+    {
+      "id": "webstaff",
+      "label": "Staff app",
+      "kind": "container",
+      "group": "sys",
+      "tech": "React 19, Vite, TypeScript",
+      "description": "Admin queue, goods-in, dashboards, served by staff-api",
+      "cite": "AD-14"
+    },
+    {
+      "id": "supapi",
+      "label": "supplier-api",
+      "kind": "container",
+      "group": "sys",
+      "tech": "Python 3.13, Functions Flex",
+      "description": "Anonymous edge, upload token; no DB login",
+      "cite": [
+        "AD-1",
+        "AD-6"
+      ]
+    },
+    {
+      "id": "staffapi",
+      "label": "staff-api",
+      "kind": "container",
+      "group": "sys",
+      "tech": "Python 3.13, Functions Flex",
+      "description": "Built-in auth, role checks, admin actions",
+      "cite": [
+        "AD-1",
+        "AD-3",
+        "AD-14"
+      ]
+    },
+    {
+      "id": "queues",
+      "label": "Stage queues",
+      "kind": "container",
+      "group": "sys",
+      "tech": "Azure Storage Queues",
+      "description": "q-quality, q-extract, q-validate, q-post",
+      "cite": "AD-2"
+    },
+    {
+      "id": "pipeline",
+      "label": "pipeline",
+      "kind": "container",
+      "group": "sys",
+      "tech": "Python 3.13, Functions Flex",
+      "description": "quality, extract, validate, post, sweeper, analytics refresh",
+      "cite": [
+        "AD-1",
+        "AD-2",
+        "AD-13"
+      ]
+    },
+    {
+      "id": "accsim",
+      "label": "accounts-sim",
+      "kind": "container",
+      "group": "sys",
+      "tech": "Python 3.13, Functions Flex",
+      "description": "Simulated accounts XML API",
+      "cite": [
+        "AD-1",
+        "AD-10"
+      ]
+    },
+    {
+      "id": "tables",
+      "label": "Tables",
+      "kind": "database",
+      "group": "sys",
+      "tech": "Azure Table Storage",
+      "description": "supplierlinks, uploadkeys, supplierreminders",
+      "cite": "AD-6"
+    },
+    {
+      "id": "blob",
+      "label": "Blobs",
+      "kind": "database",
+      "group": "sys",
+      "tech": "Azure Blob Storage",
+      "description": "images, corrections (30-day)",
+      "cite": [
+        "AD-6",
+        "AD-15"
+      ]
+    },
+    {
+      "id": "pg",
+      "label": "Invoicing database",
+      "kind": "database",
+      "group": "sys",
+      "tech": "PostgreSQL 18",
+      "description": "intake, master, analytics, audit, sim_purchasing, sim_accounts",
+      "cite": [
+        "AD-11",
+        "AD-12"
+      ]
+    },
+    {
+      "id": "kv",
+      "label": "Key Vault",
+      "kind": "database",
+      "group": "sys",
+      "tech": "Azure Key Vault",
+      "description": "PGP key pair, HMAC key",
+      "cite": "AD-11"
+    },
+    {
+      "id": "entra",
+      "label": "Microsoft Entra ID",
+      "kind": "system_ext",
+      "cite": "AD-14"
+    },
+    {
+      "id": "di",
+      "label": "Document Intelligence F0 (shared)",
+      "kind": "container_ext",
+      "cite": "AD-8"
+    },
+    {
+      "id": "acs",
+      "label": "ACS Email (shared)",
+      "kind": "container_ext",
+      "cite": "AD-16"
+    }
+  ],
+  "edges": [
+    {
+      "from": "supplier",
+      "to": "websup",
+      "label": "opens link, uploads",
+      "tech": "HTTPS",
+      "cite": "AD-6"
+    },
+    {
+      "from": "staff",
+      "to": "webstaff",
+      "label": "uses",
+      "tech": "HTTPS",
+      "cite": "AD-14"
+    },
+    {
+      "from": "websup",
+      "to": "supapi",
+      "label": "uploads, reads reminders",
+      "tech": "HTTPS, X-Upload-Token",
+      "cite": [
+        "AD-6",
+        "AD-14"
+      ]
+    },
+    {
+      "from": "webstaff",
+      "to": "staffapi",
+      "label": "calls API",
+      "tech": "HTTPS, session cookie",
+      "cite": "AD-14"
+    },
+    {
+      "from": "staffapi",
+      "to": "entra",
+      "label": "signs staff in",
+      "tech": "built-in auth",
+      "cite": "AD-14"
+    },
+    {
+      "from": "supapi",
+      "to": "tables",
+      "label": "checks link, idempotency key",
+      "cite": "AD-6"
+    },
+    {
+      "from": "supapi",
+      "to": "blob",
+      "label": "writes original image",
+      "cite": "AD-6"
+    },
+    {
+      "from": "supapi",
+      "to": "queues",
+      "label": "enqueues q-quality",
+      "dashed": true,
+      "cite": "AD-6"
+    },
+    {
+      "from": "staffapi",
+      "to": "blob",
+      "label": "goods-in images, corrections",
+      "cite": [
+        "AD-6",
+        "AD-15"
+      ]
+    },
+    {
+      "from": "staffapi",
+      "to": "queues",
+      "label": "enqueues next stage",
+      "dashed": true,
+      "cite": "AD-2"
+    },
+    {
+      "from": "staffapi",
+      "to": "pg",
+      "label": "admin actions, dashboards",
+      "cite": [
+        "AD-3",
+        "AD-11"
+      ]
+    },
+    {
+      "from": "staffapi",
+      "to": "kv",
+      "label": "private key to decrypt bank details",
+      "cite": "AD-11"
+    },
+    {
+      "from": "queues",
+      "to": "pipeline",
+      "label": "triggers stages",
+      "dashed": true,
+      "cite": "AD-2"
+    },
+    {
+      "from": "pipeline",
+      "to": "pg",
+      "label": "invoice state, results, analytics",
+      "cite": [
+        "AD-3",
+        "AD-13"
+      ]
+    },
+    {
+      "from": "pipeline",
+      "to": "blob",
+      "label": "reads images",
+      "cite": "AD-6"
+    },
+    {
+      "from": "pipeline",
+      "to": "tables",
+      "label": "writes and clears reminders",
+      "cite": [
+        "AD-6",
+        "AD-13"
+      ]
+    },
+    {
+      "from": "pipeline",
+      "to": "kv",
+      "label": "public and HMAC keys",
+      "cite": "AD-11"
+    },
+    {
+      "from": "pipeline",
+      "to": "di",
+      "label": "analyze invoice",
+      "tech": "HTTPS, managed identity",
+      "cite": "AD-8"
+    },
+    {
+      "from": "pipeline",
+      "to": "accsim",
+      "label": "posts invoice",
+      "tech": "HTTPS XML (invoice-v1.xsd), MI token",
+      "cite": "AD-10"
+    },
+    {
+      "from": "pipeline",
+      "to": "acs",
+      "label": "alert emails",
+      "cite": "AD-16"
+    },
+    {
+      "from": "accsim",
+      "to": "pg",
+      "label": "sim_accounts",
+      "cite": [
+        "AD-10",
+        "AD-11"
+      ]
+    },
+    {
+      "from": "operator",
+      "to": "pg",
+      "label": "loads suppliers (master)",
+      "cite": [
+        "AD-6",
+        "AD-11"
+      ]
+    },
+    {
+      "from": "operator",
+      "to": "tables",
+      "label": "issues, revokes links",
+      "cite": "AD-6"
+    }
+  ],
+  "gaps": [
+    "The pipeline also enqueues each next stage (AD-2); drawn once as queues -> pipeline to keep the diagram acyclic.",
+    "Production accounts system and PO/GRN database (Q9) are not drawn: only the simulations exist in the PoC (AD-10, Deferred)."
+  ]
+}

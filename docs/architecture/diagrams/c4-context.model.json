@@ -1,0 +1,33 @@
+{
+  "type": "c4-context",
+  "title": "OCR Invoice Automation PoC: system context",
+  "spine": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md",
+  "sources": ["_bmad-output/specs/spec-ocr-invoice-automation/SPEC.md"],
+  "page": {"size": "A4", "orientation": "landscape"},
+  "groups": [],
+  "nodes": [
+    {"id": "supplier", "label": "Supplier", "kind": "person", "description": "Uploads invoices from a phone through a personal link", "cite": ["SPEC.md §Capabilities", "AD-6"]},
+    {"id": "goodsin", "label": "Goods-in staff", "kind": "person", "description": "Scans paper invoices at delivery", "cite": ["SPEC.md §Capabilities", "AD-5", "AD-14"]},
+    {"id": "admin", "label": "Admin", "kind": "person", "description": "Works the admin queue", "cite": ["AD-3", "AD-14"]},
+    {"id": "business", "label": "Finance, procurement, management", "kind": "person", "description": "Read dashboards, receive alerts", "cite": ["SPEC.md §Capabilities", "AD-14", "AD-16"]},
+    {"id": "operator", "label": "Operator (Dj)", "kind": "person", "description": "Loads suppliers, issues and revokes links", "cite": "AD-6"},
+    {"id": "system", "label": "OCR Invoice Automation", "kind": "system", "description": "Intake, extraction, validation, admin queue, accounts posting, analytics; on-prem systems simulated", "cite": ["SPEC.md §Why", "AD-10"]},
+    {"id": "entra", "label": "Microsoft Entra ID", "kind": "system_ext", "description": "Staff sign-in, app roles", "cite": "AD-14"},
+    {"id": "di", "label": "Azure AI Document Intelligence (F0)", "kind": "system_ext", "description": "Reads invoice fields", "cite": "AD-8"},
+    {"id": "acs", "label": "Azure Communication Services Email", "kind": "system_ext", "description": "Sends staff alerts", "cite": "AD-16"}
+  ],
+  "edges": [
+    {"from": "supplier", "to": "system", "label": "uploads invoice photo or PDF; sees reminders", "cite": ["AD-6", "AD-14"]},
+    {"from": "goodsin", "to": "system", "label": "scans paper invoice for a delivery", "cite": "AD-5"},
+    {"from": "admin", "to": "system", "label": "corrects, approves, rejects invoices", "cite": "AD-3"},
+    {"from": "business", "to": "system", "label": "views dashboards", "cite": "AD-13"},
+    {"from": "operator", "to": "system", "label": "loads suppliers, issues links", "cite": "AD-6"},
+    {"from": "system", "to": "entra", "label": "signs staff in", "cite": "AD-14"},
+    {"from": "system", "to": "di", "label": "sends pages for extraction", "cite": "AD-8"},
+    {"from": "system", "to": "acs", "label": "sends price and watchlist alerts", "cite": "AD-16"}
+  ],
+  "gaps": [
+    "Production link to the real on-premises accounts system and PO/GRN database (Q9): how will they be reached, and does the real accounts API accept invoice-v1.xsd idempotently? Simulated inside the system for the PoC (AD-10, Deferred).",
+    "How does the operator deliver upload links to suppliers? AD-6 says WhatsApp or SMS by hand, outside the system; no channel is part of the architecture."
+  ]
+}

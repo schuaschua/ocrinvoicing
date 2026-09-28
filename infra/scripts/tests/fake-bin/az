@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Test double: a dry run must never call this tool.
+echo "FAKE-TOOL-CALLED: az $*" >&2
+exit 97

@@ -1,0 +1,259 @@
+{
+  "type": "data-flow",
+  "title": "OCR Invoice Automation PoC: data flow and trust boundaries",
+  "spine": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md",
+  "sources": [
+    "_bmad-output/specs/spec-ocr-invoice-automation/SPEC.md"
+  ],
+  "page": {
+    "size": "A3",
+    "orientation": "landscape"
+  },
+  "groups": [
+    {
+      "id": "internet",
+      "label": "Public internet: supplier phones and staff browsers",
+      "kind": "trust_boundary",
+      "cite": [
+        "AD-6",
+        "AD-14"
+      ]
+    },
+    {
+      "id": "azure",
+      "label": "Babaloo Azure subscription (southeastasia)",
+      "kind": "trust_boundary",
+      "cite": [
+        "AD-1",
+        "AD-17"
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "id": "supplier",
+      "label": "Supplier",
+      "kind": "person",
+      "group": "internet",
+      "cite": "AD-6"
+    },
+    {
+      "id": "staff",
+      "label": "Staff (Entra roles)",
+      "kind": "person",
+      "group": "internet",
+      "cite": "AD-14"
+    },
+    {
+      "id": "supapi",
+      "label": "supplier-api",
+      "kind": "process",
+      "group": "azure",
+      "cite": "AD-6"
+    },
+    {
+      "id": "staffapi",
+      "label": "staff-api",
+      "kind": "process",
+      "group": "azure",
+      "cite": "AD-14"
+    },
+    {
+      "id": "pipeline",
+      "label": "pipeline stages",
+      "kind": "process",
+      "group": "azure",
+      "cite": "AD-2"
+    },
+    {
+      "id": "accsim",
+      "label": "accounts-sim",
+      "kind": "process",
+      "group": "azure",
+      "cite": "AD-10"
+    },
+    {
+      "id": "tables",
+      "label": "Tables (token hashes, keys, reminders)",
+      "kind": "store",
+      "group": "azure",
+      "cite": "AD-6"
+    },
+    {
+      "id": "blob",
+      "label": "Blobs: images, corrections (30 days)",
+      "kind": "store",
+      "group": "azure",
+      "cite": "AD-15"
+    },
+    {
+      "id": "pg",
+      "label": "PostgreSQL (bank details encrypted)",
+      "kind": "store",
+      "group": "azure",
+      "cite": "AD-11"
+    },
+    {
+      "id": "kv",
+      "label": "Key Vault",
+      "kind": "store",
+      "group": "azure",
+      "cite": "AD-11"
+    },
+    {
+      "id": "logs",
+      "label": "App Insights logs (ids, codes, timings only)",
+      "kind": "store",
+      "group": "azure",
+      "cite": [
+        "AD-17",
+        "AD-2"
+      ]
+    },
+    {
+      "id": "di",
+      "label": "Document Intelligence F0",
+      "kind": "external",
+      "cite": [
+        "AD-8",
+        "AD-17"
+      ],
+      "group": "azure"
+    },
+    {
+      "id": "acs",
+      "label": "ACS Email (data in Asia Pacific)",
+      "kind": "external",
+      "cite": [
+        "AD-16",
+        "AD-17"
+      ],
+      "group": "azure"
+    }
+  ],
+  "edges": [
+    {
+      "from": "supplier",
+      "to": "supapi",
+      "label": "invoice image + upload token (header)",
+      "cite": [
+        "AD-6",
+        "AD-14"
+      ]
+    },
+    {
+      "from": "supapi",
+      "to": "tables",
+      "label": "token hash lookup, idempotency key",
+      "cite": "AD-6"
+    },
+    {
+      "from": "supapi",
+      "to": "blob",
+      "label": "original image + supplier metadata",
+      "cite": [
+        "AD-5",
+        "AD-6"
+      ]
+    },
+    {
+      "from": "staff",
+      "to": "staffapi",
+      "label": "goods-in scans, corrections, approvals",
+      "cite": [
+        "AD-3",
+        "AD-5"
+      ]
+    },
+    {
+      "from": "staffapi",
+      "to": "staff",
+      "label": "images and decrypted bank details (admin only)",
+      "cite": "AD-11"
+    },
+    {
+      "from": "staffapi",
+      "to": "pg",
+      "label": "admin rows, audit events",
+      "cite": [
+        "AD-3",
+        "AD-11"
+      ]
+    },
+    {
+      "from": "staffapi",
+      "to": "blob",
+      "label": "correction JSON (no bank plaintext)",
+      "cite": [
+        "AD-11",
+        "AD-15"
+      ]
+    },
+    {
+      "from": "staffapi",
+      "to": "kv",
+      "label": "reads private key",
+      "cite": "AD-11"
+    },
+    {
+      "from": "blob",
+      "to": "pipeline",
+      "label": "image bytes",
+      "cite": "AD-6"
+    },
+    {
+      "from": "pipeline",
+      "to": "di",
+      "label": "invoice pages",
+      "cite": "AD-8"
+    },
+    {
+      "from": "di",
+      "to": "pipeline",
+      "label": "fields, lines, bank details",
+      "cite": [
+        "AD-8",
+        "AD-18"
+      ]
+    },
+    {
+      "from": "pipeline",
+      "to": "kv",
+      "label": "reads public + HMAC keys",
+      "cite": "AD-11"
+    },
+    {
+      "from": "pipeline",
+      "to": "pg",
+      "label": "fields; bank as ciphertext + fingerprint",
+      "cite": [
+        "AD-11",
+        "AD-18"
+      ]
+    },
+    {
+      "from": "pipeline",
+      "to": "accsim",
+      "label": "invoice XML",
+      "cite": "AD-10"
+    },
+    {
+      "from": "pipeline",
+      "to": "acs",
+      "label": "alert (no bank details, no tokens)",
+      "cite": "AD-16"
+    },
+    {
+      "from": "pipeline",
+      "to": "logs",
+      "label": "ids, reason codes, timings",
+      "cite": "AD-17"
+    }
+  ],
+  "gaps": [
+    "No source classifies any data as personal (PII). Invoice images may show names and phone numbers of sole-trader suppliers, and master.supplier holds a phone number (AD-11): is any of it personal data under Singapore PDPA? Left unmarked until a source says so.",
+    "Bank details are protected by AD-11 but are not PII/PHI tags; this diagram marks them in labels only.",
+    "Document Intelligence and ACS Email are drawn inside the subscription because the spine puts them in rg shared (AD-17); it doesn't say whether Microsoft keeps submitted pages or emails beyond processing. Confirm the processing and retention terms.",
+    "ACS stores email data in 'Asia Pacific' (spine Open Questions): acceptable under P-15?"
+  ]
+}

@@ -1,0 +1,6 @@
+estimate,currency,number,epic,deliverables,days,weeks,start,end,share,mandays,team_cost,infra_cost,other_costs,api_budget,forecast_total,actual_start,actual_end,actual_days,days_variance,days_variance_pct,api_actual,actual_team_cost,actual_total,cost_variance
+ocrinvoicing-poc,USD,1,Suppliers can upload invoices by link,"Stories 1.1-1.9: Terraform, CI/CD, API and web skeletons, monitoring, supplier links, upload, device quality check",9,1.8,,,0.2812,18.0,14400.0,5.4,0,54,14459.4,,,,,,,,,
+ocrinvoicing-poc,USD,2,Invoices are read and checked automatically,"Stories 2.1-2.11: quality stage, pipeline recovery, DI extraction, PO sim, validation, staff sign-in, admin queue",11,2.2,,,0.3438,22.0,17600.0,6.6,0,66,17672.6,,,,,,,,,
+ocrinvoicing-poc,USD,3,Clean invoices post to the accounts system,"Stories 3.1-3.4: accounts sim, auto-post, admin approve, search",4,0.8,,,0.125,8.0,6400.0,2.4,0,24,6426.4,,,,,,,,,
+ocrinvoicing-poc,USD,4,"Deliveries tracked, overdue suppliers reminded","Stories 4.1-4.4: goods-in scan, overdue list, reminders, delivery dates page",3,0.6,,,0.0938,6.0,4800.0,1.8,0,30,4831.8,,,,,,,,,
+ocrinvoicing-poc,USD,5,Supplier price and speed insights,"Stories 5.1-5.6: analytics refresh, alert emails, price comparison, watchlist, scorecard, finance view",5,1.0,,,0.1562,10.0,8000.0,3.0,0,36,8039.0,,,,,,,,,

@@ -1,0 +1,7 @@
+{
+  "name": "@babaloo/web-staff",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Staff app: admin queue, goods-in and dashboards (Vite + React + TS); scaffolded in Story 1.4, packaged into staff-api",
+  "license": "UNLICENSED"
+}

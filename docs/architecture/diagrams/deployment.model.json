@@ -1,0 +1,316 @@
+{
+  "type": "deployment",
+  "title": "OCR Invoice Automation PoC: Azure deployment",
+  "spine": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md",
+  "sources": [
+    "_bmad-output/specs/spec-ocr-invoice-automation/SPEC.md"
+  ],
+  "provider": "azure",
+  "page": {
+    "size": "A3",
+    "orientation": "portrait"
+  },
+  "groups": [
+    {
+      "id": "azure",
+      "label": "Azure",
+      "kind": "cloud",
+      "cite": "AD-17"
+    },
+    {
+      "id": "sub",
+      "label": "One subscription ($8 budget alert)",
+      "kind": "subscription",
+      "parent": "azure",
+      "cite": [
+        "AD-17",
+        "AD-12"
+      ]
+    },
+    {
+      "id": "sea",
+      "label": "southeastasia (Singapore)",
+      "kind": "region",
+      "parent": "sub",
+      "cite": "AD-1"
+    },
+    {
+      "id": "rgshared",
+      "label": "rg shared",
+      "kind": "resource_group",
+      "parent": "sea",
+      "cite": "AD-17"
+    },
+    {
+      "id": "rgdev",
+      "label": "rg dev",
+      "kind": "resource_group",
+      "parent": "sea",
+      "cite": "AD-17"
+    },
+    {
+      "id": "rgprod",
+      "label": "rg prod",
+      "kind": "resource_group",
+      "parent": "sea",
+      "cite": "AD-17"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "users",
+      "label": "Suppliers and staff",
+      "kind": "person",
+      "cite": [
+        "AD-6",
+        "AD-14"
+      ]
+    },
+    {
+      "id": "ado",
+      "label": "Azure DevOps Pipelines + Terraform",
+      "kind": "external",
+      "icon": "devops/Azure_DevOps",
+      "cite": "AD-17"
+    },
+    {
+      "id": "entra",
+      "label": "Entra ID (app registrations)",
+      "kind": "external",
+      "icon": "identity/Azure_Active_Directory",
+      "cite": [
+        "AD-14",
+        "AD-17"
+      ]
+    },
+    {
+      "id": "pg",
+      "label": "PostgreSQL Flexible Server B1ms",
+      "kind": "service",
+      "group": "rgshared",
+      "icon": "databases/Azure_Database_PostgreSQL_Server",
+      "description": "invoicing_dev, invoicing_prod; stopped out of hours",
+      "cite": "AD-12"
+    },
+    {
+      "id": "di",
+      "label": "Document Intelligence F0",
+      "kind": "service",
+      "group": "rgshared",
+      "icon": "ai_machine_learning/Form_Recognizers",
+      "description": "Custom subdomain; Dev 100 / Prod 400 pages",
+      "cite": "AD-8"
+    },
+    {
+      "id": "acs",
+      "label": "ACS Email",
+      "kind": "service",
+      "group": "rgshared",
+      "icon": "other/Azure_Communication_Services",
+      "description": "Verified custom domain",
+      "cite": "AD-16"
+    },
+    {
+      "id": "devapps",
+      "label": "Function Apps x4 (Flex)",
+      "kind": "service",
+      "group": "rgdev",
+      "icon": "compute/Function_Apps",
+      "description": "supplier-api, staff-api, pipeline, accounts-sim",
+      "cite": "AD-1"
+    },
+    {
+      "id": "devst",
+      "label": "Storage account (LRS)",
+      "kind": "service",
+      "group": "rgdev",
+      "icon": "storage/Storage_Accounts",
+      "description": "blobs, queues, tables",
+      "cite": [
+        "AD-15",
+        "AD-17"
+      ]
+    },
+    {
+      "id": "devkv",
+      "label": "Key Vault",
+      "kind": "service",
+      "group": "rgdev",
+      "icon": "security/Key_Vaults",
+      "cite": "AD-11"
+    },
+    {
+      "id": "devmon",
+      "label": "App Insights + Log Analytics",
+      "kind": "service",
+      "group": "rgdev",
+      "icon": "devops/Application_Insights",
+      "cite": "AD-17"
+    },
+    {
+      "id": "prodapps",
+      "label": "Function Apps x4 (Flex)",
+      "kind": "service",
+      "group": "rgprod",
+      "icon": "compute/Function_Apps",
+      "description": "supplier-api, staff-api, pipeline, accounts-sim",
+      "cite": "AD-1"
+    },
+    {
+      "id": "prodst",
+      "label": "Storage account (LRS)",
+      "kind": "service",
+      "group": "rgprod",
+      "icon": "storage/Storage_Accounts",
+      "description": "blobs, queues, tables",
+      "cite": [
+        "AD-15",
+        "AD-17"
+      ]
+    },
+    {
+      "id": "prodkv",
+      "label": "Key Vault",
+      "kind": "service",
+      "group": "rgprod",
+      "icon": "security/Key_Vaults",
+      "cite": "AD-11"
+    },
+    {
+      "id": "prodmon",
+      "label": "App Insights + Log Analytics",
+      "kind": "service",
+      "group": "rgprod",
+      "icon": "devops/Application_Insights",
+      "cite": "AD-17"
+    }
+  ],
+  "edges": [
+    {
+      "from": "users",
+      "to": "devapps",
+      "label": "HTTPS (public)",
+      "cite": "AD-14"
+    },
+    {
+      "from": "users",
+      "to": "prodapps",
+      "label": "HTTPS (public)",
+      "cite": "AD-14"
+    },
+    {
+      "from": "ado",
+      "to": "devapps",
+      "label": "auto apply on merge",
+      "cite": "AD-17"
+    },
+    {
+      "from": "ado",
+      "to": "prodapps",
+      "label": "manual approval",
+      "cite": "AD-17"
+    },
+    {
+      "from": "ado",
+      "to": "pg",
+      "label": "shared: manual approval",
+      "cite": "AD-17"
+    },
+    {
+      "from": "devapps",
+      "to": "entra",
+      "label": "staff sign-in",
+      "cite": "AD-14"
+    },
+    {
+      "from": "prodapps",
+      "to": "entra",
+      "label": "staff sign-in",
+      "cite": "AD-14"
+    },
+    {
+      "from": "devapps",
+      "to": "devst",
+      "label": "managed identity",
+      "cite": "AD-17"
+    },
+    {
+      "from": "devapps",
+      "to": "devkv",
+      "label": "keys",
+      "cite": "AD-11"
+    },
+    {
+      "from": "devapps",
+      "to": "devmon",
+      "label": "telemetry",
+      "cite": "AD-17"
+    },
+    {
+      "from": "prodapps",
+      "to": "prodst",
+      "label": "managed identity",
+      "cite": "AD-17"
+    },
+    {
+      "from": "prodapps",
+      "to": "prodkv",
+      "label": "keys",
+      "cite": "AD-11"
+    },
+    {
+      "from": "prodapps",
+      "to": "prodmon",
+      "label": "telemetry",
+      "cite": "AD-17"
+    },
+    {
+      "from": "devapps",
+      "to": "pg",
+      "label": "invoicing_dev only",
+      "cite": [
+        "AD-11",
+        "AD-12"
+      ]
+    },
+    {
+      "from": "prodapps",
+      "to": "pg",
+      "label": "invoicing_prod only",
+      "cite": [
+        "AD-11",
+        "AD-12"
+      ]
+    },
+    {
+      "from": "devapps",
+      "to": "di",
+      "label": "extract",
+      "cite": "AD-8"
+    },
+    {
+      "from": "prodapps",
+      "to": "di",
+      "label": "extract",
+      "cite": "AD-8"
+    },
+    {
+      "from": "devapps",
+      "to": "acs",
+      "label": "alerts",
+      "cite": "AD-16"
+    },
+    {
+      "from": "prodapps",
+      "to": "acs",
+      "label": "alerts",
+      "cite": "AD-16"
+    }
+  ],
+  "gaps": [
+    "Networking: no VNet, private endpoint or firewall rule set is stated beyond 'firewall' on the PostgreSQL server (AD-17 step 2). Which source addresses may reach PostgreSQL, and is everything public-endpoint by design (PaaS only, $10 ceiling)?",
+    "ACS Email stores email data in 'Asia Pacific', not strictly southeastasia: is that acceptable under P-15 residency (spine Open Questions)?",
+    "Is Document Intelligence API 2024-11-30 served in southeastasia (spine Open Questions)?",
+    "Terraform state storage (AD-17 step 1) sits in a resource group the spine doesn't name; not drawn."
+  ]
+}

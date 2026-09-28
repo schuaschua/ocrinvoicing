@@ -1,0 +1,54 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "azurerm_monitor_action_group.this",
+      "mode": "managed",
+      "type": "azurerm_monitor_action_group",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["create"],
+        "after": {
+          "name": "babaloo-sea-lng-ag-01",
+          "tags": {
+            "owner": "dj",
+            "environment": "dev",
+            "application": "ocrinvoicing",
+            "dataClassification": ""
+          }
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.shared.azapi_resource.email",
+      "mode": "managed",
+      "type": "azapi_resource",
+      "provider_name": "registry.terraform.io/azure/azapi",
+      "change": {
+        "actions": ["create"],
+        "after": {"type": "Microsoft.Communication/emailServices@2025-05-01", "tags": null},
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "azurerm_resource_group.this",
+      "mode": "managed",
+      "type": "azurerm_resource_group",
+      "provider_name": "registry.terraform.io/hashicorp/azurerm",
+      "change": {
+        "actions": ["no-op"],
+        "after": {
+          "tags": {
+            "owner": "dj",
+            "costCentre": "cc-000",
+            "environment": "dev",
+            "application": "ocrinvoicing",
+            "dataClassification": "synthetic"
+          }
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

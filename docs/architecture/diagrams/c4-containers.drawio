@@ -1,0 +1,371 @@
+<mxfile host="org-kit agent-davinci" type="device">
+  <diagram id="c4-containers" name="C4 containers">
+    <mxGraphModel grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" math="0" shadow="0" pageWidth="2339" pageHeight="1654">
+      <root>
+        <object id="0" label="" arch_diagram="1" arch_type="c4-containers" arch_title="OCR Invoice Automation PoC: containers (one environment)" drawn="2026-09-28T13:35:37+00:00" spine="_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md" spine_commit="" spine_committed="" spine_dirty="false" spine_modified="2026-09-28T13:31:25+00:00" ad_hashes="{&quot;AD-1&quot;:&quot;e720e5c2e37d&quot;,&quot;AD-2&quot;:&quot;0a5dc8748914&quot;,&quot;AD-3&quot;:&quot;a3672803116a&quot;,&quot;AD-4&quot;:&quot;1def0c5c0e4a&quot;,&quot;AD-5&quot;:&quot;77643380bbf9&quot;,&quot;AD-6&quot;:&quot;6373c83e8532&quot;,&quot;AD-7&quot;:&quot;d77bea70a15e&quot;,&quot;AD-8&quot;:&quot;78939506ce86&quot;,&quot;AD-9&quot;:&quot;541db2620282&quot;,&quot;AD-10&quot;:&quot;eacaa98564cc&quot;,&quot;AD-11&quot;:&quot;e992b76616b8&quot;,&quot;AD-12&quot;:&quot;9f4a00135dc0&quot;,&quot;AD-13&quot;:&quot;9fdde200c947&quot;,&quot;AD-14&quot;:&quot;6ea47a68e514&quot;,&quot;AD-15&quot;:&quot;751b4a159811&quot;,&quot;AD-16&quot;:&quot;78a2dda1691b&quot;,&quot;AD-17&quot;:&quot;011b199b0d54&quot;,&quot;AD-18&quot;:&quot;82df3a751d8b&quot;,&quot;AD-19&quot;:&quot;611b7a60c17f&quot;,&quot;AD-20&quot;:&quot;6fd235002851&quot;}" cited_ads="AD-1,AD-2,AD-3,AD-6,AD-8,AD-10,AD-11,AD-12,AD-13,AD-14,AD-15,AD-16,AD-17" source_hashes="{&quot;_bmad-output/specs/spec-ocr-invoice-automation/SPEC.md&quot;:&quot;39729865f568&quot;}" page="A2 landscape x2 at 1.0">
+          <mxCell />
+        </object>
+        <mxCell id="1" parent="0" />
+        <object id="g-sys" label="OCR Invoice Automation (per environment: Dev, Prod) &lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;(AD-1; AD-17)&lt;/font&gt;" cite="AD-1; AD-17" tooltip="Source: AD-1; AD-17">
+          <mxCell style="rounded=0;whiteSpace=wrap;html=1;container=1;collapsible=0;recursiveResize=0;align=left;verticalAlign=top;spacingLeft=8;spacingTop=2;fillColor=none;fontStyle=1;fontSize=12;dashed=1;strokeColor=#444444;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="640" y="540.9" width="1594.4" height="2426.5" />
+          </mxCell>
+        </object>
+        <object id="n-supplier" label="&lt;b&gt;Supplier&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;SPEC.md §Capabilities; AD-6&lt;/font&gt;" cite="SPEC.md §Capabilities; AD-6" tooltip="Source: SPEC.md §Capabilities; AD-6">
+          <mxCell style="shape=actor;html=1;fillColor=#08427B;strokeColor=#073B6F;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;labelWidth=144;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="823.28" y="90" width="44" height="52" />
+          </mxCell>
+        </object>
+        <object id="n-staff" label="&lt;b&gt;Staff (admin, goods-in, finance, procurement, management)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-14&lt;/font&gt;" cite="AD-14" tooltip="Source: AD-14">
+          <mxCell style="shape=actor;html=1;fillColor=#08427B;strokeColor=#073B6F;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;labelWidth=142;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="1388.2" y="90" width="44" height="52" />
+          </mxCell>
+        </object>
+        <object id="n-operator" label="&lt;b&gt;Operator (supplier load script)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="shape=actor;html=1;fillColor=#08427B;strokeColor=#073B6F;verticalLabelPosition=bottom;verticalAlign=top;fontSize=12;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;labelWidth=142;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="1106.28" y="90" width="44" height="52" />
+          </mxCell>
+        </object>
+        <object id="n-websup" label="&lt;b&gt;Supplier upload page&lt;/b&gt;&lt;br&gt;&lt;i&gt;[React 19, Vite, TypeScript]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Device blur/dark check, served by supplier-api&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6; AD-14&lt;/font&gt;" cite="AD-6; AD-14" tooltip="Source: AD-6; AD-14">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="788.4" y="38" width="170" height="108.5" />
+          </mxCell>
+        </object>
+        <object id="n-webstaff" label="&lt;b&gt;Staff app&lt;/b&gt;&lt;br&gt;&lt;i&gt;[React 19, Vite, TypeScript]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Admin queue, goods-in, dashboards, served by staff-api&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-14&lt;/font&gt;" cite="AD-14" tooltip="Source: AD-14">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="1098.4" y="38" width="170" height="121.5" />
+          </mxCell>
+        </object>
+        <object id="n-supapi" label="&lt;b&gt;supplier-api&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Python 3.13, Functions Flex]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Anonymous edge, upload token; no DB login&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-1; AD-6&lt;/font&gt;" cite="AD-1; AD-6" tooltip="Source: AD-1; AD-6">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="788.4" y="406.9" width="170" height="108.5" />
+          </mxCell>
+        </object>
+        <object id="n-staffapi" label="&lt;b&gt;staff-api&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Python 3.13, Functions Flex]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Built-in auth, role checks, admin actions&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-1; AD-3; AD-14&lt;/font&gt;" cite="AD-1; AD-3; AD-14" tooltip="Source: AD-1; AD-3; AD-14">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="1098.4" y="406.9" width="170" height="108.5" />
+          </mxCell>
+        </object>
+        <object id="n-queues" label="&lt;b&gt;Stage queues&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Azure Storage Queues]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;q-quality, q-extract, q-validate, q-post&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-2&lt;/font&gt;" cite="AD-2" tooltip="Source: AD-2">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="943.4" y="1030" width="170" height="92.9" />
+          </mxCell>
+        </object>
+        <object id="n-pipeline" label="&lt;b&gt;pipeline&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Python 3.13, Functions Flex]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;quality, extract, validate, post, sweeper, analytics refresh&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-1; AD-2; AD-13&lt;/font&gt;" cite="AD-1; AD-2; AD-13" tooltip="Source: AD-1; AD-2; AD-13">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="943.4" y="1297.6" width="170" height="121.5" />
+          </mxCell>
+        </object>
+        <object id="n-accsim" label="&lt;b&gt;accounts-sim&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Python 3.13, Functions Flex]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;Simulated accounts XML API&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-1; AD-10&lt;/font&gt;" cite="AD-1; AD-10" tooltip="Source: AD-1; AD-10">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="1098.4" y="1973" width="170" height="95.5" />
+          </mxCell>
+        </object>
+        <object id="n-tables" label="&lt;b&gt;Tables&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Azure Table Storage]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;supplierlinks, uploadkeys, supplierreminders&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="478.4" y="1973" width="170" height="106.9" />
+          </mxCell>
+        </object>
+        <object id="n-blob" label="&lt;b&gt;Blobs&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Azure Blob Storage]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;images, corrections (30-day)&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6; AD-15&lt;/font&gt;" cite="AD-6; AD-15" tooltip="Source: AD-6; AD-15">
+          <mxCell style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="788.4" y="1973" width="170" height="106.9" />
+          </mxCell>
+        </object>
+        <object id="n-pg" label="&lt;b&gt;Invoicing database&lt;/b&gt;&lt;br&gt;&lt;i&gt;[PostgreSQL 18]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;intake, master, analytics, audit, sim_purchasing, sim_accounts&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-11; AD-12&lt;/font&gt;" cite="AD-11; AD-12" tooltip="Source: AD-11; AD-12">
+          <mxCell style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="943.4" y="2290.6" width="170" height="119.9" />
+          </mxCell>
+        </object>
+        <object id="n-kv" label="&lt;b&gt;Key Vault&lt;/b&gt;&lt;br&gt;&lt;i&gt;[Azure Key Vault]&lt;/i&gt;&lt;br&gt;&lt;font style=&quot;font-size:10px&quot;&gt;PGP key pair, HMAC key&lt;/font&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-11&lt;/font&gt;" cite="AD-11" tooltip="Source: AD-11">
+          <mxCell style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fontSize=12;fillColor=#438DD5;strokeColor=#3C7FC0;fontColor=#FFFFFF;" parent="g-sys" vertex="1">
+            <mxGeometry as="geometry" x="1408.4" y="1973" width="170" height="93.9" />
+          </mxCell>
+        </object>
+        <object id="n-entra" label="&lt;b&gt;Microsoft Entra ID&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-14&lt;/font&gt;" cite="AD-14" tooltip="Source: AD-14">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="175" y="1570.9" width="170" height="80" />
+          </mxCell>
+        </object>
+        <object id="n-di" label="&lt;b&gt;Document Intelligence F0 (shared)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-8&lt;/font&gt;" cite="AD-8" tooltip="Source: AD-8">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="20" y="2513.9" width="170" height="82.5" />
+          </mxCell>
+        </object>
+        <object id="n-acs" label="&lt;b&gt;ACS Email (shared)&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-16&lt;/font&gt;" cite="AD-16" tooltip="Source: AD-16">
+          <mxCell style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fontSize=12;fillColor=#999999;strokeColor=#6B6B6B;fontColor=#FFFFFF;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="330" y="2513.9" width="170" height="80" />
+          </mxCell>
+        </object>
+        <object id="e-1" label="opens link, uploads [HTTPS]&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.5000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-supplier" target="n-websup">
+            <mxGeometry as="geometry" relative="1" x="-0.0054">
+              <mxPoint x="72.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="925.3" y="116.0" />
+                <mxPoint x="925.3" y="313.5" />
+                <mxPoint x="1513.4" y="313.5" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-2" label="uses [HTTPS]&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-14&lt;/font&gt;" cite="AD-14" tooltip="Source: AD-14">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.5000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-staff" target="n-webstaff">
+            <mxGeometry as="geometry" relative="1" x="0.0985">
+              <Array as="points">
+                <mxPoint x="1489.2" y="116.0" />
+                <mxPoint x="1489.2" y="360.1" />
+                <mxPoint x="1823.4" y="360.1" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-3" label="uploads, reads reminders&lt;br&gt;[HTTPS, X-Upload-Token]&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6; AD-14&lt;/font&gt;" cite="AD-6; AD-14" tooltip="Source: AD-6; AD-14">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.5000;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-websup" target="n-supapi">
+            <mxGeometry as="geometry" relative="1" x="-0.5699">
+              <mxPoint x="76.2" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1513.4" y="794.2" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-4" label="calls API [HTTPS, session&lt;br&gt;cookie]&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-14&lt;/font&gt;" cite="AD-14" tooltip="Source: AD-14">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.5000;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-webstaff" target="n-staffapi">
+            <mxGeometry as="geometry" relative="1" x="-0.3533">
+              <mxPoint x="-79.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1823.4" y="854.0" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-5" label="signs staff in [built-in auth]&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-14&lt;/font&gt;" cite="AD-14" tooltip="Source: AD-14">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.1667;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-staffapi" target="n-entra">
+            <mxGeometry as="geometry" relative="1" x="-0.1695">
+              <Array as="points">
+                <mxPoint x="1766.7" y="1143.7" />
+                <mxPoint x="260.0" y="1143.7" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-6" label="checks link, idempotency key&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.2500;exitY=1.0000;exitPerimeter=0;entryX=0.2500;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-supapi" target="n-tables">
+            <mxGeometry as="geometry" relative="1" x="-0.6763">
+              <mxPoint x="16.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1470.9" y="1190.4" />
+                <mxPoint x="1160.9" y="1190.4" />
+                <mxPoint x="1160.9" y="2030.0" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-7" label="writes original image&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.5000;exitY=1.0000;exitPerimeter=0;entryX=0.2500;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-supapi" target="n-blob">
+            <mxGeometry as="geometry" relative="1" x="-0.7270">
+              <Array as="points">
+                <mxPoint x="1513.4" y="1237.1" />
+                <mxPoint x="1470.9" y="1237.1" />
+                <mxPoint x="1470.9" y="2042.0" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-8" label="enqueues q-quality&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;dashed=1;exitX=0.7500;exitY=1.0000;exitPerimeter=0;entryX=0.3333;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-supapi" target="n-queues">
+            <mxGeometry as="geometry" relative="1" x="-0.1067">
+              <Array as="points">
+                <mxPoint x="1555.9" y="1283.8" />
+                <mxPoint x="1640.1" y="1283.8" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-9" label="goods-in images, corrections&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6; AD-15&lt;/font&gt;" cite="AD-6; AD-15" tooltip="Source: AD-6; AD-15">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.3333;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-staffapi" target="n-blob">
+            <mxGeometry as="geometry" relative="1" x="-0.5192">
+              <mxPoint x="72.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1795.1" y="1330.5" />
+                <mxPoint x="1513.4" y="1330.5" />
+                <mxPoint x="1513.4" y="2054.0" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-10" label="enqueues next stage&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-2&lt;/font&gt;" cite="AD-2" tooltip="Source: AD-2">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;dashed=1;exitX=0.5000;exitY=1.0000;exitPerimeter=0;entryX=0.6667;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-staffapi" target="n-queues">
+            <mxGeometry as="geometry" relative="1" x="0.2003">
+              <Array as="points">
+                <mxPoint x="1823.4" y="1377.2" />
+                <mxPoint x="1696.7" y="1377.2" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-11" label="admin actions, dashboards&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-3; AD-11&lt;/font&gt;" cite="AD-3; AD-11" tooltip="Source: AD-3; AD-11">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.6667;exitY=1.0000;exitPerimeter=0;entryX=0.2000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-staffapi" target="n-pg">
+            <mxGeometry as="geometry" relative="1" x="-0.5691">
+              <mxPoint x="72.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1851.7" y="1423.9" />
+                <mxPoint x="1416.4" y="1423.9" />
+                <mxPoint x="1416.4" y="2690.8" />
+                <mxPoint x="1617.4" y="2690.8" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-12" label="private key to decrypt bank&lt;br&gt;details&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-11&lt;/font&gt;" cite="AD-11" tooltip="Source: AD-11">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.8333;exitY=1.0000;exitPerimeter=0;entryX=0.3333;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-staffapi" target="n-kv">
+            <mxGeometry as="geometry" relative="1" x="-0.3668">
+              <mxPoint x="8.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1880.1" y="1477.1" />
+                <mxPoint x="2105.1" y="1477.1" />
+                <mxPoint x="2105.1" y="2066.0" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-13" label="triggers stages&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-2&lt;/font&gt;" cite="AD-2" tooltip="Source: AD-2">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;dashed=1;exitX=0.5000;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-queues" target="n-pipeline">
+            <mxGeometry as="geometry" relative="1" x="-0.5421">
+              <mxPoint x="51.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1668.4" y="1751.2" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-14" label="invoice state, results,&lt;br&gt;analytics&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-3; AD-13&lt;/font&gt;" cite="AD-3; AD-13" tooltip="Source: AD-3; AD-13">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.1250;exitY=1.0000;exitPerimeter=0;entryX=0.4000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-pipeline" target="n-pg">
+            <mxGeometry as="geometry" relative="1" x="0.1426">
+              <mxPoint x="73.4" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1604.7" y="2101.9" />
+                <mxPoint x="1651.4" y="2101.9" />
+                <mxPoint x="1651.4" y="2702.8" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-15" label="reads images&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.2500;exitY=1.0000;exitPerimeter=0;entryX=0.7500;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-pipeline" target="n-blob">
+            <mxGeometry as="geometry" relative="1" x="-0.2722">
+              <Array as="points">
+                <mxPoint x="1625.9" y="2155.1" />
+                <mxPoint x="1555.9" y="2155.1" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-16" label="writes and clears reminders&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6; AD-13&lt;/font&gt;" cite="AD-6; AD-13" tooltip="Source: AD-6; AD-13">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.3750;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-pipeline" target="n-tables">
+            <mxGeometry as="geometry" relative="1" x="-0.0342">
+              <mxPoint x="-72.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1647.2" y="2201.8" />
+                <mxPoint x="1203.4" y="2201.8" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-17" label="public and HMAC keys&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-11&lt;/font&gt;" cite="AD-11" tooltip="Source: AD-11">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.5000;exitY=1.0000;exitPerimeter=0;entryX=0.6667;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-pipeline" target="n-kv">
+            <mxGeometry as="geometry" relative="1" x="0.0245">
+              <mxPoint x="-56.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1668.4" y="2248.5" />
+                <mxPoint x="2161.7" y="2248.5" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-18" label="analyze invoice [HTTPS,&lt;br&gt;managed identity]&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-8&lt;/font&gt;" cite="AD-8" tooltip="Source: AD-8">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.6250;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-pipeline" target="n-di">
+            <mxGeometry as="geometry" relative="1" x="0.0602">
+              <Array as="points">
+                <mxPoint x="1689.7" y="2301.7" />
+                <mxPoint x="105.0" y="2301.7" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-19" label="posts invoice [HTTPS XML&lt;br&gt;(invoice-v1.xsd), MI token]&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-10&lt;/font&gt;" cite="AD-10" tooltip="Source: AD-10">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.7500;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-pipeline" target="n-accsim">
+            <mxGeometry as="geometry" relative="1" x="0.3726">
+              <mxPoint x="48.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1710.9" y="2361.3" />
+                <mxPoint x="1823.4" y="2361.3" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-20" label="alert emails&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-16&lt;/font&gt;" cite="AD-16" tooltip="Source: AD-16">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.8750;exitY=1.0000;exitPerimeter=0;entryX=0.5000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-pipeline" target="n-acs">
+            <mxGeometry as="geometry" relative="1" x="0.1871">
+              <Array as="points">
+                <mxPoint x="1732.2" y="2414.5" />
+                <mxPoint x="415.0" y="2414.5" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-21" label="sim_accounts&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-10; AD-11&lt;/font&gt;" cite="AD-10; AD-11" tooltip="Source: AD-10; AD-11">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=0.5000;exitY=1.0000;exitPerimeter=0;entryX=0.6000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-accsim" target="n-pg">
+            <mxGeometry as="geometry" relative="1" x="0.0816">
+              <Array as="points">
+                <mxPoint x="1823.4" y="2732.1" />
+                <mxPoint x="1685.4" y="2732.1" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-22" label="loads suppliers (master)&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6; AD-11&lt;/font&gt;" cite="AD-6; AD-11" tooltip="Source: AD-6; AD-11">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.3333;exitPerimeter=0;entryX=0.8000;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-operator" target="n-pg">
+            <mxGeometry as="geometry" relative="1" x="-0.6122">
+              <mxPoint x="24.0" y="0.0" as="offset" />
+              <Array as="points">
+                <mxPoint x="1207.2" y="107.3" />
+                <mxPoint x="1207.2" y="406.9" />
+                <mxPoint x="1920.4" y="406.9" />
+                <mxPoint x="1920.4" y="2761.5" />
+                <mxPoint x="1719.4" y="2761.5" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="e-23" label="issues, revokes links&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-6&lt;/font&gt;" cite="AD-6" tooltip="Source: AD-6">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.6667;exitPerimeter=0;entryX=0.7500;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-operator" target="n-tables">
+            <mxGeometry as="geometry" relative="1" x="-0.6717">
+              <Array as="points">
+                <mxPoint x="1213.2" y="124.7" />
+                <mxPoint x="1213.2" y="453.5" />
+                <mxPoint x="1245.9" y="453.5" />
+                <mxPoint x="1245.9" y="2443.9" />
+              </Array>
+            </mxGeometry>
+          </mxCell>
+        </object>
+        <object id="title" label="&lt;b&gt;C4 containers: OCR Invoice Automation PoC: containers (one environment)&lt;/b&gt;">
+          <mxCell style="text;html=1;align=left;verticalAlign=top;fontSize=16;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="20" y="10" width="2214.4" height="28" />
+          </mxCell>
+        </object>
+        <object id="stamp" label="Drawn 2026-09-28 from _bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md modified 2026-09-28 (not in git)">
+          <mxCell style="text;html=1;align=left;verticalAlign=top;fontSize=10;fontColor=#555555;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="20" y="38" width="2214.4" height="20" />
+          </mxCell>
+        </object>
+        <object id="notes" label="&lt;b&gt;Gaps (not drawn):&lt;/b&gt;&lt;br&gt;• The pipeline also enqueues each next stage (AD-2); drawn once as queues -&amp;gt; pipeline to keep the diagram acyclic.&lt;br&gt;• Production accounts system and PO/GRN database (Q9) are not drawn: only the simulations exist in the PoC (AD-10, Deferred).&lt;br&gt;&lt;br&gt;Each element's source is in grey under its name and in its tooltip.">
+          <mxCell style="text;html=1;align=left;verticalAlign=top;whiteSpace=wrap;fontSize=11;strokeColor=#CCCCCC;fillColor=#FAFAFA;spacing=8;" parent="1" vertex="1">
+            <mxGeometry as="geometry" x="20" y="2997.4" width="2214.4" height="105.2" />
+          </mxCell>
+        </object>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,64 @@
+# Scrooge's token ledger (Org Kit)
+docs/costing/token_usage/
+
+# Scratch work (never commit)
+.work/
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
+
+# Local environment files (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Terraform (terraform.md rule 35): state and plans never go into git.
+# .terraform.lock.hcl files ARE committed (rule 10).
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
+*.tfplan
+# Plan JSON holds sensitive values; write it under .work/ (infra/bootstrap/README.md).
+plan.json
+*.plan.json
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.secret.tfvars
+
+# Key material must never reach git (AD-17 step 4b)
+*.asc
+*.gpg
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node
+node_modules/
+dist/
+coverage/
+
+# Lock files are committed for the Terraform roots only (terraform.md rule 10);
+# `terraform test` in a module directory creates one that is not needed.
+infra/modules/**/.terraform.lock.hcl
+
+# Local Claude Code state and generated BMad renders (never commit)
+.claude/settings.local.json
+.claude/*.lock
+_bmad/render/

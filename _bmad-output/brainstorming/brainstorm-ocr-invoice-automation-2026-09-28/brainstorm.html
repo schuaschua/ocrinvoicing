@@ -1,0 +1,855 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Invoice Shoebox</title>
+<meta name="description" content="Keepsake of a brainstorming session, 28 September 2026: automating supplier invoice intake for a sport-shoe retail chain.">
+<style>
+:root{
+  --bg:#e7d8bf; --bg-fibre:rgba(120,86,40,.06); --box:#d4bd96; --box-edge:#a88a5c;
+  --paper:#fcf9f2; --paper-2:#f3eee2; --ink:#1e222b; --muted:#6a6152; --rule:#d8ccb4;
+  --user:#e2471a; --user-ink:#ffffff; --user-soft:#fde4d8;
+  --coach:#35678a; --coach-soft:#e1ebf2;
+  --void:#b3261e; --could:#a86a0f; --ok:#2c7a4b; --scope:#6b5a8e;
+  --shadow:rgba(60,40,10,.18);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#17130f; --bg-fibre:rgba(255,230,190,.025); --box:#2b231b; --box-edge:#4a3c2c;
+    --paper:#241f19; --paper-2:#2c261f; --ink:#efe6d6; --muted:#a99c87; --rule:#40362b;
+    --user:#ff7440; --user-ink:#1b0e08; --user-soft:#43210f;
+    --coach:#8dbadb; --coach-soft:#1b2a35;
+    --void:#ff6a5c; --could:#e9b14f; --ok:#6fc692; --scope:#b9a6e6;
+    --shadow:rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#17130f; --bg-fibre:rgba(255,230,190,.025); --box:#2b231b; --box-edge:#4a3c2c;
+  --paper:#241f19; --paper-2:#2c261f; --ink:#efe6d6; --muted:#a99c87; --rule:#40362b;
+  --user:#ff7440; --user-ink:#1b0e08; --user-soft:#43210f;
+  --coach:#8dbadb; --coach-soft:#1b2a35;
+  --void:#ff6a5c; --could:#e9b14f; --ok:#6fc692; --scope:#b9a6e6;
+  --shadow:rgba(0,0,0,.45);
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; color:var(--ink); background-color:var(--bg);
+  background-image:
+    repeating-linear-gradient(83deg, var(--bg-fibre) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(-12deg, var(--bg-fibre) 0 1px, transparent 1px 11px);
+  font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  overflow-x:hidden;
+}
+.wrap{max-width:1060px;margin:0 auto;padding:0 16px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+.display{font-family:"Avenir Next Condensed","Roboto Condensed","Arial Narrow","Helvetica Neue",system-ui,sans-serif;font-stretch:condensed;font-weight:800;text-transform:uppercase;letter-spacing:-.005em;line-height:.95}
+h1,h2,h3,h4{margin:0}
+p{margin:.4em 0}
+ul{margin:0;padding:0}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- theme toggle ---------- */
+.theme-btn{position:fixed;right:12px;top:12px;z-index:10;background:var(--paper);color:var(--ink);border:2px solid var(--ink);border-radius:999px;padding:6px 12px;font:700 .72rem/1 ui-monospace,Menlo,monospace;letter-spacing:.1em;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+
+/* ---------- shoebox lid ---------- */
+.lid{margin:56px 0 28px;background:var(--box);border:3px solid var(--ink);box-shadow:10px 10px 0 var(--box-edge);position:relative;display:grid;grid-template-columns:1.5fr 1fr}
+.lid::before{content:"";position:absolute;left:0;right:0;top:0;height:14px;background:repeating-linear-gradient(-45deg,var(--user) 0 10px,transparent 10px 20px);border-bottom:3px solid var(--ink)}
+.lid-main{padding:40px 28px 26px;border-right:3px solid var(--ink)}
+.lid-kicker{font-size:.75rem;letter-spacing:.22em;text-transform:uppercase;color:var(--muted)}
+.lid h1{font-size:clamp(2.6rem,8vw,5.4rem);margin:.15em 0 .1em}
+.lid h1 span{color:var(--user)}
+.lid-goal{max-width:36em;font-size:1.05rem}
+.lid-label{padding:30px 20px 18px;background:var(--paper);font-size:.8rem}
+.lid-label dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0}
+.lid-label dt{color:var(--muted);letter-spacing:.14em;text-transform:uppercase;font-size:.66rem;padding-top:3px}
+.lid-label dd{margin:0;font-weight:700}
+.barcode{height:54px;margin-top:16px;background:
+  repeating-linear-gradient(90deg,var(--ink) 0 2px,transparent 2px 4px,var(--ink) 4px 5px,transparent 5px 8px,var(--ink) 8px 11px,transparent 11px 12px,var(--ink) 12px 13px,transparent 13px 17px);}
+.barcode-num{text-align:center;letter-spacing:.35em;font-size:.72rem;margin-top:4px}
+.size-tag{position:absolute;right:-10px;bottom:-22px;background:var(--ink);color:var(--paper);padding:8px 14px;transform:rotate(3deg);font:800 .8rem/1.1 ui-monospace,Menlo,monospace;letter-spacing:.14em}
+
+/* ---------- legend ---------- */
+.legend{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;margin:34px 0 8px;font-size:.85rem}
+.legend .idea{display:inline-block}
+
+/* ---------- ideas ---------- */
+.ideas{list-style:none;display:grid;gap:10px}
+.idea{list-style:none;position:relative;padding:10px 12px;border-radius:3px}
+.idea.u{background:var(--paper);border:2px solid var(--user);box-shadow:4px 4px 0 var(--user);font-weight:650;font-size:1.03rem}
+.idea.c{background:var(--coach-soft);border:1px dashed var(--coach);font-size:.92rem;color:var(--ink)}
+.who{display:inline-block;font:800 .62rem/1 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;padding:4px 6px 3px;margin-right:8px;border-radius:2px;vertical-align:2px}
+.u .who{background:var(--user);color:var(--user-ink)}
+.c .who{color:var(--coach);border:1px solid var(--coach)}
+.idea.insight .who::after{content:" · insight"}
+.idea.void{padding-right:78px}
+.idea.void .txt{text-decoration:line-through;text-decoration-thickness:2px;text-decoration-color:var(--void);opacity:.72}
+.idea.void::after{content:"VOID";position:absolute;right:10px;top:50%;transform:translateY(-50%) rotate(-11deg);border:2px solid var(--void);color:var(--void);font:800 .78rem/1 ui-monospace,Menlo,monospace;padding:4px 6px;letter-spacing:.2em;background:var(--paper)}
+.idea.could{padding-right:96px}
+.idea.could::after{content:"COULD-HAVE";position:absolute;right:8px;top:50%;transform:translateY(-50%) rotate(-6deg);border:2px dashed var(--could);color:var(--could);font:800 .66rem/1 ui-monospace,Menlo,monospace;padding:4px 5px;letter-spacing:.12em;background:var(--paper)}
+
+.note{font:500 .82rem/1.45 ui-monospace,Menlo,monospace;color:var(--muted);border-left:3px solid var(--rule);padding:4px 0 4px 10px;margin:10px 0}
+.note b{color:var(--ink)}
+.q{font-style:italic;color:var(--muted);font-size:.9rem;padding:6px 10px 6px 30px;position:relative}
+.q::before{content:"?";position:absolute;left:4px;top:2px;width:20px;height:20px;border:2px solid var(--muted);border-radius:50%;font:800 .8rem/16px ui-monospace,Menlo,monospace;text-align:center;font-style:normal}
+.decision{display:inline-flex;gap:8px;align-items:baseline;font:600 .82rem/1.4 ui-monospace,Menlo,monospace;background:var(--paper-2);border:1px solid var(--rule);padding:6px 10px;border-radius:3px;margin:6px 0}
+.decision::before{content:"DECIDED";color:var(--ok);font-weight:800;letter-spacing:.14em;font-size:.66rem}
+
+/* ---------- section heads ---------- */
+section{margin:72px 0}
+.act{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;border-bottom:3px solid var(--ink);padding-bottom:10px;margin-bottom:22px}
+.act-no{font:800 .78rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;background:var(--ink);color:var(--paper);padding:6px 9px}
+.act h2{font-size:clamp(2rem,6vw,3.4rem)}
+.act p{flex-basis:100%;margin:0;color:var(--muted);max-width:44em}
+h3.sub{font:800 .78rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;text-transform:uppercase;margin:40px 0 14px;display:flex;align-items:center;gap:10px}
+h3.sub::after{content:"";flex:1;border-top:2px dotted var(--rule)}
+
+/* ---------- receipt ---------- */
+.receipt{background:var(--paper);position:relative;padding:26px 24px;margin:18px 0 28px;box-shadow:0 6px 18px var(--shadow)}
+.receipt::before,.receipt::after{content:"";position:absolute;left:0;right:0;height:10px}
+.receipt::before{top:-10px;background:conic-gradient(from 135deg at 50% 0,var(--paper) 90deg,transparent 0) 0 0/20px 10px repeat-x}
+.receipt::after{bottom:-10px;background:conic-gradient(from -45deg at 50% 100%,var(--paper) 90deg,transparent 0) 0 0/20px 10px repeat-x}
+
+/* ---------- packing slip / before ---------- */
+.slip{display:grid;grid-template-columns:1.1fr 1fr;gap:24px;align-items:center}
+.slip h3{font-size:1.6rem}
+.stack{position:relative;height:190px}
+.stack i{position:absolute;left:50%;top:50%;width:120px;height:150px;margin:-75px 0 0 -60px;background:var(--paper-2);border:1px solid var(--rule);box-shadow:0 2px 4px var(--shadow)}
+.stack i::before{content:"";position:absolute;left:12px;right:12px;top:16px;height:70px;background:repeating-linear-gradient(var(--rule) 0 2px,transparent 2px 10px)}
+.stack i:nth-child(1){transform:rotate(-14deg) translate(-30px,6px)}
+.stack i:nth-child(2){transform:rotate(-6deg) translate(-12px,-2px)}
+.stack i:nth-child(3){transform:rotate(5deg) translate(10px,4px)}
+.stack i:nth-child(4){transform:rotate(12deg) translate(30px,-4px);background:var(--paper)}
+.stack b{position:absolute;right:4%;bottom:6px;font:800 .72rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:.12em;background:var(--ink);color:var(--paper);padding:5px 8px;transform:rotate(-3deg)}
+.oldway{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:14px;font:600 .78rem/1.2 ui-monospace,Menlo,monospace}
+.oldway span{border:1px solid var(--muted);padding:6px 8px;border-radius:3px;background:var(--paper-2)}
+.oldway em{font-style:normal;color:var(--muted)}
+
+/* ---------- flips ---------- */
+.flips{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:22px}
+.flip{background:var(--paper);border:1px solid var(--rule);box-shadow:0 4px 12px var(--shadow);display:flex;flex-direction:column}
+.flip .was{padding:16px 16px 12px;color:var(--muted);text-align:center;background:var(--paper-2);position:relative}
+.flip .was .lbl{display:block;font:800 .6rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;margin-bottom:8px}
+.flip .was q{display:inline-block;transform:rotate(180deg);font:700 1rem/1.3 ui-monospace,Menlo,monospace;quotes:none;text-decoration:line-through;text-decoration-color:var(--void);transition:transform .5s ease}
+.flip:hover .was q,.flip:focus-within .was q{transform:rotate(0)}
+.flip .fold{display:flex;align-items:center;gap:8px;padding:0 12px;font:800 .62rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;color:var(--user)}
+.flip .fold::before,.flip .fold::after{content:"";flex:1;border-top:2px dashed var(--user)}
+.flip .now{padding:12px 16px 16px;display:grid;gap:10px}
+.flip .now h4{font-size:1.45rem}
+.hint{font-size:.78rem;color:var(--muted);margin-top:-6px;margin-bottom:16px}
+
+/* ---------- threat ledger ---------- */
+.ledger{display:grid;gap:0;border:2px solid var(--ink);background:var(--paper)}
+.ledger-row{display:grid;grid-template-columns:150px 1fr 1fr;border-top:1px solid var(--rule)}
+.ledger-row:first-child{border-top:0}
+.ledger-row.head{background:var(--ink);color:var(--paper);font:800 .66rem/1 ui-monospace,Menlo,monospace;letter-spacing:.18em}
+.ledger-row.head div{padding:10px 12px}
+.ledger-row > div{padding:12px}
+.ledger-row .kind{font:800 .72rem/1.3 ui-monospace,Menlo,monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-right:1px dashed var(--rule)}
+.ledger-row .kind strong{display:block;color:var(--ink);font-size:.95rem;letter-spacing:.02em;margin-top:4px}
+.ledger-row .ideas{align-content:start}
+.margin-note{margin:18px 0 0 auto;max-width:560px;background:var(--coach-soft);border:2px solid var(--coach);padding:14px 16px;position:relative;transform:rotate(-.6deg)}
+.margin-note .money{font:800 1.35rem/1.15 "Avenir Next Condensed","Arial Narrow",system-ui,sans-serif;text-transform:uppercase;color:var(--coach);display:block;margin-top:6px}
+
+/* ---------- detour ---------- */
+.trails{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.trail{border:2px dashed var(--rule);padding:16px;position:relative;background:color-mix(in srgb,var(--paper) 55%,transparent)}
+.trail h4{font-size:1.3rem;margin-bottom:10px}
+.trail .ideas{position:relative;padding-left:18px}
+.trail .ideas::before{content:"";position:absolute;left:5px;top:8px;bottom:8px;border-left:3px dotted var(--muted)}
+.trail .roadblock{margin-top:12px;display:flex;gap:10px;align-items:center;font:700 .82rem/1.35 ui-monospace,Menlo,monospace;color:var(--void)}
+.trail .roadblock i{flex:none;width:44px;height:16px;background:repeating-linear-gradient(-45deg,var(--void) 0 6px,var(--paper) 6px 12px);border:1px solid var(--void)}
+.rule-banner{margin:26px 0;text-align:center;border-top:3px double var(--ink);border-bottom:3px double var(--ink);padding:14px 10px}
+.rule-banner .display{font-size:clamp(1.6rem,5vw,2.6rem)}
+.rule-banner small{display:block;font:600 .74rem/1.4 ui-monospace,Menlo,monospace;color:var(--muted);letter-spacing:.1em;margin-top:4px}
+
+/* ---------- price ideas ---------- */
+.price-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+.quad{position:relative;aspect-ratio:1/1;max-width:340px;width:100%;margin:0 auto;border-left:2px solid var(--ink);border-bottom:2px solid var(--ink);background:
+  linear-gradient(var(--rule),var(--rule)) 50% 0/1px 100% no-repeat,
+  linear-gradient(var(--rule),var(--rule)) 0 50%/100% 1px no-repeat,var(--paper)}
+.quad span{position:absolute;font:700 .66rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+.quad .ax-x{bottom:-24px;right:0}
+.quad .ax-y{top:0;left:6px}
+.quad .best{top:10px;right:10px;color:var(--ok)}
+.quad .worst{bottom:10px;left:12px;color:var(--void)}
+.quad .box{position:absolute;width:30px;height:20px;border:2px solid var(--ink);background:var(--box);transform:translate(-50%,50%)}
+.quad .box::after{content:"";position:absolute;left:-2px;right:-2px;top:-7px;height:6px;border:2px solid var(--ink);background:var(--box-edge)}
+.quad-cap{font-size:.78rem;color:var(--muted);text-align:center;margin-top:30px}
+
+/* ---------- matrix ---------- */
+.matrix{border:3px solid var(--ink);background:var(--box);position:relative}
+.mrow{display:grid;grid-template-columns:190px 1fr;border-top:3px solid var(--ink)}
+.mrow:first-child{border-top:0}
+.mlabel{background:var(--ink);color:var(--paper);padding:16px 14px;display:flex;flex-direction:column;gap:6px}
+.mlabel .n{font:800 .66rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;opacity:.7}
+.mlabel .display{font-size:1.7rem}
+.mlabel small{font-size:.74rem;opacity:.75;line-height:1.35}
+.mcells{padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;align-content:start;background:var(--paper-2)}
+.mcells .ideas{display:contents}
+.ref{border:1px solid var(--muted);border-radius:999px;padding:6px 12px;font:600 .78rem/1.3 ui-monospace,Menlo,monospace;color:var(--muted);background:transparent;align-self:start}
+.ref::before{content:"from Act I \2192  ";font-weight:800;letter-spacing:.06em}
+.constraint{grid-column:1/-1;border:2px solid var(--ink);background:var(--paper);padding:8px 12px;font:700 .82rem/1.4 ui-monospace,Menlo,monospace;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.constraint b{background:var(--ink);color:var(--paper);padding:2px 6px;letter-spacing:.14em;font-size:.66rem}
+.challenge{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.challenge > span{font:800 .64rem/1 ui-monospace,Menlo,monospace;letter-spacing:.18em;color:var(--muted);margin-right:4px}
+.challenge .ideas{display:flex;flex-wrap:wrap;gap:8px}
+.challenge .idea.u{font-size:.92rem;padding:6px 10px;box-shadow:3px 3px 0 var(--user)}
+.allin{position:absolute;right:-8px;top:-26px;background:var(--paper);border:4px double var(--ok);color:var(--ok);padding:8px 12px;transform:rotate(5deg);font:800 .9rem/1.05 ui-monospace,Menlo,monospace;letter-spacing:.14em;text-align:center;box-shadow:3px 3px 0 var(--shadow)}
+.allin small{display:block;font-size:.58rem;letter-spacing:.1em;font-weight:700}
+.path-note{margin:12px 0 30px;font-size:.9rem;color:var(--muted);max-width:44em}
+
+/* tripwires */
+.trip{grid-column:1/-1;display:grid;grid-template-columns:1fr auto 1fr;gap:14px;align-items:center;padding:14px;border:2px solid var(--ink);background:var(--paper)}
+.trip-rules .ideas{gap:8px}
+.trip-arrow{font:800 1.6rem/1 ui-monospace,Menlo,monospace;color:var(--user);text-align:center}
+.trip-arrow small{display:block;font-size:.58rem;letter-spacing:.16em;color:var(--muted)}
+.watch{display:grid;gap:8px}
+.watch-tag{justify-self:start;background:var(--void);color:var(--paper);font:800 .72rem/1 ui-monospace,Menlo,monospace;letter-spacing:.16em;padding:7px 12px 7px 20px;clip-path:polygon(10px 0,100% 0,100% 100%,10px 100%,0 50%);}
+.trip-title{font:800 .64rem/1 ui-monospace,Menlo,monospace;letter-spacing:.18em;color:var(--muted);margin-bottom:8px}
+
+/* ---------- returns counter ---------- */
+.returns{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px}
+.rslip{background:var(--paper);border:1px solid var(--rule);padding:16px 16px 18px;position:relative;box-shadow:0 3px 8px var(--shadow)}
+.rslip:nth-child(odd){transform:rotate(-.8deg)}
+.rslip:nth-child(even){transform:rotate(.7deg)}
+.rslip .tag{font:800 .64rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;display:inline-block;padding:4px 7px;border:2px solid currentColor;margin-bottom:10px}
+.rslip h4{font-size:1.02rem;line-height:1.3;margin-bottom:6px}
+.rslip p{font-size:.86rem;color:var(--muted)}
+.rslip.ret .tag{color:var(--void)}
+.rslip.ret h4{text-decoration:line-through;text-decoration-color:var(--void);text-decoration-thickness:2px}
+.rslip.hold{border:2px dashed var(--could)}
+.rslip.hold .tag{color:var(--could)}
+.rslip.oos{border:2px solid var(--scope);background:repeating-linear-gradient(-45deg,transparent 0 12px,color-mix(in srgb,var(--scope) 7%,transparent) 12px 24px),var(--paper)}
+.rslip.oos .tag{color:var(--scope)}
+.rslip .ideas{margin-top:10px}
+.rslip .survived{margin-top:10px;font:600 .78rem/1.4 ui-monospace,Menlo,monospace;color:var(--ok)}
+.three-dates{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:10px}
+.three-dates span{border:1px dashed var(--could);text-align:center;font:700 .62rem/1.25 ui-monospace,Menlo,monospace;padding:6px 2px;color:var(--could)}
+
+/* ---------- climax ---------- */
+.climax{background:var(--ink);color:var(--paper);margin:90px -16px 0;padding:70px 0 90px;position:relative}
+.climax::before{content:"";position:absolute;left:0;right:0;top:0;height:14px;background:repeating-linear-gradient(-45deg,var(--user) 0 10px,transparent 10px 20px)}
+.climax .act{border-color:var(--paper)}
+.climax .act-no{background:var(--user);color:var(--user-ink)}
+.climax .act p{color:color-mix(in srgb,var(--paper) 70%,var(--ink))}
+.conn{background:var(--paper);color:var(--ink);padding:26px 22px 24px;margin:0 0 34px;position:relative;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.conn::after{content:"";position:absolute;left:0;right:0;bottom:-10px;height:10px;background:conic-gradient(from -45deg at 50% 100%,var(--paper) 90deg,transparent 0) 0 0/20px 10px repeat-x}
+.conn-head{display:flex;gap:16px;align-items:flex-start;margin-bottom:18px}
+.conn-no{flex:none;font:800 2.6rem/.85 "Avenir Next Condensed","Arial Narrow",system-ui,sans-serif;color:var(--user)}
+.conn-head h3{font-size:clamp(1.5rem,4.2vw,2.3rem)}
+.conn-head p{color:var(--muted);margin-top:6px;max-width:42em}
+
+/* hub */
+.hub{display:grid;grid-template-columns:1fr auto 1fr;grid-template-rows:auto auto;gap:14px;align-items:center}
+.hub-core{grid-row:1/3;grid-column:2;width:150px;height:150px;border-radius:50%;border:4px solid var(--user);display:grid;place-items:center;text-align:center;background:var(--user-soft);font:800 .8rem/1.25 ui-monospace,Menlo,monospace;letter-spacing:.06em;padding:12px}
+.hub-core svg{width:36px;height:36px;display:block;margin:0 auto 4px}
+.spoke{border:2px solid var(--ink);padding:10px 12px;background:var(--paper-2);font-size:.92rem}
+.spoke b{display:block;font:800 .66rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;color:var(--user);margin-bottom:3px}
+.spoke.l{text-align:right}
+
+/* spine */
+.spine{position:relative;padding-top:10px}
+.spine-bar{background:var(--ink);color:var(--paper);display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;font:800 .9rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em}
+.spine-bar .big{font:800 2rem/1 "Avenir Next Condensed","Arial Narrow",system-ui,sans-serif;letter-spacing:.02em}
+.ribs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.rib{position:relative;padding-top:26px}
+.rib::before{content:"";position:absolute;left:50%;top:0;height:26px;border-left:3px solid var(--ink)}
+.rib div{border:2px solid var(--ink);background:var(--paper-2);padding:10px 12px;font-size:.9rem}
+.rib b{display:block;font:800 .64rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;margin-bottom:4px}
+.spine-dep{margin-top:16px;display:flex;align-items:center;gap:10px;font:700 .8rem/1.4 ui-monospace,Menlo,monospace;color:var(--void)}
+.spine-dep i{flex:none;width:22px;height:22px;border:2px dashed var(--void);border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:800}
+
+/* timeline */
+.tl{position:relative;height:118px;margin:14px 8px 0}
+.tl-track{position:absolute;left:0;right:0;top:48px;height:6px;background:var(--rule)}
+.tl-late{position:absolute;left:30%;right:0;top:48px;height:6px;background:repeating-linear-gradient(90deg,var(--void) 0 8px,transparent 8px 14px)}
+.tl-m{position:absolute;top:0;transform:translateX(-50%);text-align:center;font:700 .72rem/1.25 ui-monospace,Menlo,monospace;width:110px}
+.tl-m::after{content:"";display:block;width:16px;height:16px;border-radius:50%;background:var(--paper);border:3px solid var(--ink);margin:6px auto 0}
+.tl-m.exp::after{border-color:var(--ok)}
+.tl-m.now::after{border-color:var(--void);background:var(--void)}
+.tl-m span{display:block;color:var(--muted);font-weight:500;margin-top:30px}
+.tl-m.first{transform:none;text-align:left}
+.tl-m.first::after{margin-left:0}
+.tl-m.last{transform:translateX(-100%);text-align:right}
+.tl-m.last::after{margin-right:0}
+.tl-gap{position:absolute;left:30%;right:0;top:66px;text-align:center;font:800 .7rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:.14em;color:var(--void)}
+.lenses{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.lens{border:2px solid var(--ink);padding:12px 14px;background:var(--paper-2);font-size:.9rem}
+.lens b{display:block;font:800 .66rem/1.2 ui-monospace,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase;margin-bottom:4px}
+.lens.a b{color:var(--void)} .lens.b b{color:var(--coach)}
+.eq{text-align:center;font:800 .74rem/1 ui-monospace,Menlo,monospace;letter-spacing:.2em;color:var(--muted);margin-top:12px}
+
+/* belt */
+.belt{display:grid;grid-template-columns:repeat(5,1fr);gap:0;position:relative}
+.station{border:2px solid var(--ink);margin-left:-2px;background:var(--paper-2);padding:10px 8px 12px;text-align:center;position:relative}
+.station:first-child{margin-left:0}
+.station b{display:block;font:800 .62rem/1 ui-monospace,Menlo,monospace;letter-spacing:.18em;color:var(--muted);margin-bottom:4px}
+.station strong{font:800 1.05rem/1.1 "Avenir Next Condensed","Arial Narrow",system-ui,sans-serif;text-transform:uppercase}
+.station:not(:last-child)::after{content:"";position:absolute;right:-9px;top:50%;width:14px;height:14px;background:var(--paper-2);border-top:2px solid var(--ink);border-right:2px solid var(--ink);transform:translateY(-50%) rotate(45deg);z-index:1}
+.station.out{background:var(--ok);color:var(--paper);border-color:var(--ok)}
+.station.out b{color:var(--paper);opacity:.85}
+.drops{display:grid;grid-template-columns:repeat(5,1fr);height:auto}
+.drop{display:flex;flex-direction:column;align-items:center;padding-top:0}
+.drop i{display:block;width:0;height:30px;border-left:3px dashed var(--void)}
+.drop span{font:700 .66rem/1.2 ui-monospace,Menlo,monospace;color:var(--void);text-align:center;padding:4px 4px 6px;letter-spacing:.04em}
+.drop.none i,.drop.none span{visibility:hidden}
+.bin{border:3px solid var(--void);background:color-mix(in srgb,var(--void) 8%,var(--paper));padding:14px 16px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.bin .display{font-size:1.6rem;color:var(--void)}
+.bin p{margin:0;font-size:.9rem;flex:1;min-width:200px}
+.belt-cap{font:600 .78rem/1.4 ui-monospace,Menlo,monospace;color:var(--muted);margin-top:10px}
+
+.direction{margin:0 0 50px;padding:22px;border:2px dashed var(--paper);text-align:center}
+.direction .display{font-size:clamp(1.5rem,4.5vw,2.4rem);color:var(--paper)}
+.direction p{color:color-mix(in srgb,var(--paper) 70%,var(--ink));font-family:ui-monospace,Menlo,monospace;font-size:.84rem}
+
+/* open question */
+.openq{background:var(--paper);color:var(--ink);border:4px solid var(--user);padding:36px 26px 30px;position:relative;box-shadow:12px 12px 0 var(--user)}
+.openq .bigq{position:absolute;right:18px;top:-58px;font:800 9rem/1 "Avenir Next Condensed","Arial Narrow",system-ui,sans-serif;color:var(--user);opacity:.95}
+.openq .kick{font:800 .72rem/1 ui-monospace,Menlo,monospace;letter-spacing:.24em;color:var(--user)}
+.openq h3{font-size:clamp(1.8rem,5.5vw,3.2rem);margin:12px 0 18px;max-width:14em}
+.po-form{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font:700 .8rem/1.3 ui-monospace,Menlo,monospace}
+.po-form div{border-bottom:2px solid var(--ink);padding:6px 0 18px;position:relative}
+.po-form div::after{content:"_ _ _ _ _";position:absolute;left:0;bottom:2px;color:var(--muted);letter-spacing:.2em;font-weight:500}
+.sources{display:flex;flex-wrap:wrap;gap:18px;margin-top:22px;font:600 .88rem/1.2 ui-monospace,Menlo,monospace}
+.sources span::before{content:"";display:inline-block;width:14px;height:14px;border:2px solid var(--ink);vertical-align:-2px;margin-right:8px}
+.awaiting{display:inline-block;margin-top:22px;border:3px double var(--void);color:var(--void);padding:6px 12px;transform:rotate(-3deg);font:800 .8rem/1 ui-monospace,Menlo,monospace;letter-spacing:.22em}
+
+/* tally */
+.tally{max-width:420px;margin:70px auto 0;font:500 .86rem/1.6 ui-monospace,Menlo,monospace}
+.tally h4{text-align:center;letter-spacing:.3em;font-size:.8rem;margin-bottom:10px}
+.tally .row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dotted var(--rule)}
+.tally .row.big{font-weight:800;font-size:1rem;border-bottom:2px solid var(--ink);border-top:2px solid var(--ink);margin-top:8px;padding:4px 0}
+.tally .row.u b{color:var(--user)}
+.tally .row.c b{color:var(--coach)}
+.tally .thanks{text-align:center;margin-top:14px;letter-spacing:.14em;font-size:.74rem;color:var(--muted)}
+footer{padding:40px 0 60px}
+
+@media (max-width:760px){
+  .lid{grid-template-columns:1fr;box-shadow:6px 6px 0 var(--box-edge)}
+  .lid-main{border-right:0;border-bottom:3px solid var(--ink);padding:34px 18px 22px}
+  .size-tag{right:6px}
+  .slip,.trails,.price-grid,.lenses{grid-template-columns:1fr}
+  .ledger-row{grid-template-columns:1fr}
+  .ledger-row.head{display:none}
+  .ledger-row .kind{border-right:0;border-bottom:1px dashed var(--rule)}
+  .mrow{grid-template-columns:1fr}
+  .mlabel{flex-direction:row;align-items:baseline;flex-wrap:wrap;gap:4px 12px}
+  .mcells{grid-template-columns:1fr}
+  .trip{grid-template-columns:1fr}
+  .trip-arrow{transform:rotate(90deg)}
+  .trip-arrow small{transform:rotate(-90deg)}
+  .hub{grid-template-columns:1fr;grid-template-rows:none}
+  .hub-core{grid-row:auto;grid-column:auto;justify-self:center}
+  .spoke.l{text-align:left}
+  .ribs{grid-template-columns:1fr}
+  .rib{padding-top:16px}
+  .rib::before{left:20px;height:16px}
+  .belt,.drops{grid-template-columns:1fr}
+  .station{margin-left:0;margin-top:-2px}
+  .station:not(:last-child)::after{right:auto;left:50%;top:auto;bottom:-9px;transform:translateX(-50%) rotate(135deg)}
+  .drops{display:none}
+  .belt .station[data-drop]::before{content:attr(data-drop);display:block;font:700 .64rem/1.2 ui-monospace,Menlo,monospace;color:var(--void);margin-top:6px;order:3}
+  .belt .station[data-drop]{display:flex;flex-direction:column}
+  .belt .station[data-drop] b{order:1}.belt .station[data-drop] strong{order:2}
+  .po-form{grid-template-columns:1fr}
+  .openq .bigq{font-size:6rem;top:-40px}
+  .climax{margin:80px -16px 0}
+  .allin{right:4px}
+  .idea.void{padding-right:12px;padding-top:30px}
+  .idea.void::after{top:8px;transform:rotate(-6deg);right:8px}
+  .idea.could{padding-right:12px;padding-top:32px}
+  .idea.could::after{top:8px;transform:rotate(-4deg)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<button class="theme-btn" type="button" id="themeBtn" aria-label="Toggle light or dark theme">LIGHT / DARK</button>
+
+<div class="wrap">
+
+<!-- ================= LID ================= -->
+<header class="lid">
+  <div class="lid-main">
+    <div class="lid-kicker mono">Brainstorm keepsake &middot; 28 Sep 2026</div>
+    <h1 class="display">The Invoice <span>Shoebox</span></h1>
+    <p class="lid-goal">Everything that came out of one session on turning WhatsApp photos of supplier invoices into clean data for the accounts system, and on spotting the vendors who ship slow.</p>
+  </div>
+  <div class="lid-label mono">
+    <dl>
+      <dt>Style</dt><dd>OCR-INVOICE-INTAKE</dd>
+      <dt>Size</dt><dd>Thousands / month</dd>
+      <dt>Colour</dt><dd>Photo &rarr; data &rarr; XML</dd>
+      <dt>Fit</dt><dd>Creative partner</dd>
+      <dt>Lasts</dt><dd>2 techniques</dd>
+      <dt>Status</dt><dd>Complete</dd>
+    </dl>
+    <div class="barcode" aria-hidden="true"></div>
+    <div class="barcode-num">2026 0928 1815</div>
+  </div>
+  <div class="size-tag">1 PAIR OF TECHNIQUES</div>
+</header>
+
+<div class="legend" aria-label="Legend">
+  <span class="idea u"><span class="who">You</span>the user's ideas, printed in bold ink</span>
+  <span class="idea c"><span class="who">Coach</span>the coach's ideas, pencilled in</span>
+  <span class="mono" style="color:var(--void);font-weight:800">&#9587; VOID = rejected or dropped</span>
+</div>
+
+<!-- ================= PACKING SLIP ================= -->
+<section aria-labelledby="slip-h">
+  <div class="receipt slip">
+    <div>
+      <div class="mono" style="font-size:.7rem;letter-spacing:.2em;color:var(--muted)">PACKING SLIP &middot; WHAT CAME IN THE BOX</div>
+      <h3 id="slip-h" class="display" style="margin:8px 0 10px">A sport-shoe chain, buried in paper</h3>
+      <p>A retail sport-shoe chain gets <b>thousands of supplier material invoices every month</b>. Many of them arrive as phone photos shared on WhatsApp. Someone reads each one, keys the fields by hand, and sends them on to the existing accounts system.</p>
+      <p><b>Goal:</b> pull the invoice data out automatically, push it into the accounts system, and add analytics that show which vendors ship slower.</p>
+      <div class="oldway" aria-label="The current manual process">
+        <span>WhatsApp photo</span><em>&rarr;</em><span>human eyes</span><em>&rarr;</em><span>hand keying</span><em>&rarr;</em><span>accounts system</span>
+      </div>
+      <p class="note"><b>Set-up:</b> the coach worked as a Creative Partner and picked two techniques. First Assumption Reversal, then Morphological Analysis.</p>
+    </div>
+    <div class="stack" aria-hidden="true"><i></i><i></i><i></i><i></i><b>&times; THOUSANDS / MO</b></div>
+  </div>
+</section>
+
+<!-- ================= ACT I ================= -->
+<section aria-labelledby="act1">
+  <div class="act">
+    <span class="act-no">ACT I</span>
+    <h2 id="act1" class="display">Assumption Reversal</h2>
+    <p>Take something everyone treats as obviously true, turn it upside down, and see what falls out. Each card below shows the assumption printed upside down and struck through, then the reversal read the right way up.</p>
+  </div>
+  <p class="hint mono">Hover or tap a card to turn the old assumption back the right way up.</p>
+
+  <div class="flips">
+    <article class="flip" tabindex="0">
+      <div class="was"><span class="lbl">ASSUMED</span><q>The invoice is genuine.</q></div>
+      <div class="fold">FLIPPED</div>
+      <div class="now">
+        <h4 class="display">Any invoice could be fake</h4>
+        <ul class="ideas">
+          <li class="idea u"><span class="who">You</span><span class="txt">Reverse &ldquo;the invoice is genuine&rdquo;: assume any invoice could be fake and build fraud and authenticity checks into intake.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Zero-trust intake: accept an invoice only if it matches a real PO and a goods-received record. The photo proves nothing on its own.</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="flip" tabindex="0">
+      <div class="was"><span class="lbl">ASSUMED</span><q>Invoices come in over WhatsApp.</q></div>
+      <div class="fold">FLIPPED</div>
+      <div class="now">
+        <h4 class="display">Each supplier gets their own door</h4>
+        <ul class="ideas">
+          <li class="idea u"><span class="who">You</span><span class="txt">Replace WhatsApp with a mobile web page where suppliers upload the invoice photo.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">A personal upload link or login for each supplier solves impersonation. Identity comes from the link, not from a phone number.</span></li>
+        </ul>
+        <div class="decision">You liked the personal per-supplier upload link.</div>
+      </div>
+    </article>
+
+    <article class="flip" tabindex="0">
+      <div class="was"><span class="lbl">ASSUMED</span><q>The supplier ID on the invoice is right.</q></div>
+      <div class="fold">FLIPPED</div>
+      <div class="now">
+        <h4 class="display">The system decides who sent it</h4>
+        <ul class="ideas">
+          <li class="idea c"><span class="who">Coach</span><span class="txt">The system works out the supplier ID from the registered sender plus a vendor-master match. It never takes the ID written on the invoice.</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="flip" tabindex="0">
+      <div class="was"><span class="lbl">ASSUMED</span><q>A person keys every invoice.</q></div>
+      <div class="fold">FLIPPED</div>
+      <div class="now">
+        <h4 class="display">Nobody touches it unless it's unclear</h4>
+        <div class="decision">Every invoice posts to the accounts system automatically unless OCR confidence in the extraction is low.</div>
+        <ul class="ideas">
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Per-field confidence: the admin sees only a crop of the photo and the uncertain field or fields to fix, not the whole invoice.</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="flip" tabindex="0">
+      <div class="was"><span class="lbl">ASSUMED</span><q>You spot a late shipment when it arrives.</q></div>
+      <div class="fold">FLIPPED</div>
+      <div class="now">
+        <h4 class="display">The missing invoice is the signal</h4>
+        <ul class="ideas">
+          <li class="idea u"><span class="who">You</span><span class="txt">The PO has an expected date (PO on 1 Jan, expected 7 Jan). If no invoice photo turns up until much later, a missing invoice past its expected date probably means a late delivery.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Overdue-invoice list: a daily list of POs past their expected date with no invoice yet, grouped by supplier. The slow-vendor analysis comes for free.</span></li>
+          <li class="idea u"><span class="who">You</span><span class="txt">The overdue list automatically sends the supplier a reminder through the supplier upload app.</span></li>
+        </ul>
+      </div>
+    </article>
+  </div>
+
+  <!-- threat ledger -->
+  <h3 class="sub">The suspicious-invoice ledger</h3>
+  <p style="max-width:44em">Once &ldquo;genuine&rdquo; was off the table, you listed the ways an invoice can go wrong. The coach pencilled in a counter-move next to each one.</p>
+  <div class="ledger" role="table" aria-label="Fraud and error vectors with countermeasures">
+    <div class="ledger-row head" role="row"><div role="columnheader">VECTOR</div><div role="columnheader">SPOTTED BY YOU</div><div role="columnheader">COUNTER-MOVE</div></div>
+    <div class="ledger-row" role="row">
+      <div class="kind" role="cell">Fraud<strong>Edited photo</strong></div>
+      <div role="cell"><ul class="ideas"><li class="idea u"><span class="who">You</span><span class="txt">The photo gets edited before it's sent, with amounts or details tampered.</span></li></ul></div>
+      <div role="cell"><ul class="ideas"><li class="idea c"><span class="who">Coach</span><span class="txt">Compare the extracted amounts with PO price &times; received quantity and flag a mismatch, instead of trying to detect pixel edits.</span></li></ul></div>
+    </div>
+    <div class="ledger-row" role="row">
+      <div class="kind" role="cell">Fraud<strong>Duplicate</strong></div>
+      <div role="cell"><ul class="ideas"><li class="idea u"><span class="who">You</span><span class="txt">The same invoice gets submitted more than once.</span></li></ul></div>
+      <div role="cell"><ul class="ideas"><li class="idea c"><span class="who">Coach</span><span class="txt">Fingerprint each invoice by supplier, invoice number, amount and date, and add a perceptual image hash to catch copies that were photographed again.</span></li></ul></div>
+    </div>
+    <div class="ledger-row" role="row">
+      <div class="kind" role="cell">Honest error<strong>Wrong supplier ID</strong></div>
+      <div role="cell"><ul class="ideas"><li class="idea u"><span class="who">You</span><span class="txt">The supplier gives the wrong supplier ID and manual keying doesn't catch it.</span></li></ul></div>
+      <div role="cell"><p class="note" style="margin:0">Answered by the flip &ldquo;the system decides who sent it&rdquo;, and later by the personal upload link.</p></div>
+    </div>
+    <div class="ledger-row" role="row">
+      <div class="kind" role="cell">Impersonation<strong>Fake WhatsApp sender</strong></div>
+      <div role="cell"><ul class="ideas"><li class="idea u"><span class="who">You</span><span class="txt">Fake or hijacked WhatsApp accounts send fake invoice data.</span></li></ul></div>
+      <div role="cell"><ul class="ideas"><li class="idea c"><span class="who">Coach</span><span class="txt">A bank-detail change on an invoice never posts automatically. It triggers a call-back to the supplier's number on file.</span></li></ul></div>
+    </div>
+  </div>
+  <p class="q">You weren't sure how edited photos or duplicates could be detected.</p>
+  <p class="q">You weren't sure what an attacker would gain from fake WhatsApp invoices.</p>
+  <aside class="margin-note">
+    <ul class="ideas"><li class="idea c insight" style="background:transparent;border:0;padding:0"><span class="who">Coach</span><span class="txt">For an impersonator, the main payoff is</span><span class="money">payment redirection</span><span class="txt">The invoice shows changed bank details, so the real supplier's payment goes to the fraudster.</span></li></ul>
+  </aside>
+
+  <!-- detours -->
+  <h3 class="sub">Two detours that ended in roadblocks</h3>
+  <div class="trails">
+    <div class="trail">
+      <h4 class="display">Let the supplier fix it?</h4>
+      <ul class="ideas">
+        <li class="idea c void"><span class="who">Coach</span><span class="txt">The upload page shows the extracted fields back to the supplier straight away, so they can fix errors such as a wrong supplier ID before submitting.</span></li>
+        <li class="idea u insight"><span class="who">You</span><span class="txt">Supplier self-correction is a risk: suppliers could lie when they &lsquo;fix&rsquo; the extracted data.</span></li>
+        <li class="idea c void"><span class="who">Coach</span><span class="txt">Keep the original OCR read and the supplier's edits side by side. Any supplier change to amounts, bank details or quantity gets flagged for review, and cosmetic fixes pass.</span></li>
+      </ul>
+      <div class="roadblock"><i></i>Rejected: suppliers can't edit. The system trusts what it reads from the photo.</div>
+    </div>
+    <div class="trail">
+      <h4 class="display">Which date do we believe?</h4>
+      <ul class="ideas">
+        <li class="idea u"><span class="who">You</span><span class="txt">The invoice should carry a delivery date.</span></li>
+        <li class="idea u"><span class="who">You</span><span class="txt">Compare the date the photo was taken with the delivery date. If they don't match, send a message.</span></li>
+        <li class="idea c void"><span class="who">Coach</span><span class="txt">Use the server-side upload timestamp as the trusted &lsquo;photo taken&rsquo; time, not only the photo's EXIF data, which can be stripped or faked.</span></li>
+        <li class="idea c could"><span class="who">Coach</span><span class="txt">Three-date truth for vendor speed: the promised date (PO) vs the delivery date on the invoice vs the goods-received date from our own warehouse.</span></li>
+      </ul>
+      <div class="note"><b>Correction:</b> a date-mismatch message goes to an <b>admin review queue</b>, not to the supplier or the user.</div>
+      <div class="roadblock"><i></i>Rejected: upload timestamp over EXIF. Trust the photo date.</div>
+    </div>
+  </div>
+
+  <div class="rule-banner">
+    <div class="display">Keep it simple.</div>
+    <small>YOUR HOUSE RULE: AVOID OVER-COMPLICATED MECHANISMS. IT ALSO RETIRED THE &ldquo;PREDICT LATE SHIPMENTS&rdquo; DIRECTION.</small>
+  </div>
+
+  <!-- price -->
+  <h3 class="sub">Price enters the story</h3>
+  <div class="price-grid">
+    <ul class="ideas">
+      <li class="idea u"><span class="who">You</span><span class="txt">Use posted invoice data to compare vendors on price for the same materials.</span></li>
+      <li class="idea c"><span class="who">Coach</span><span class="txt">Price-creep alert: flag it when a supplier's unit price for the same material rises against their own last N invoices.</span></li>
+      <li class="idea c"><span class="who">Coach</span><span class="txt">A supplier scorecard that combines price and speed for each material, to show who's cheapest and who's fastest.</span></li>
+    </ul>
+    <div>
+      <div class="quad" role="img" aria-label="Sketch of the scorecard idea: speed on one axis, price on the other. Illustration only, no real data.">
+        <span class="ax-y">&uarr; faster</span><span class="ax-x">cheaper &rarr;</span>
+        <span class="best">cheap + fast</span><span class="worst">pricey + slow</span>
+        <i class="box" style="left:78%;bottom:74%"></i>
+        <i class="box" style="left:30%;bottom:62%"></i>
+        <i class="box" style="left:66%;bottom:24%"></i>
+        <i class="box" style="left:22%;bottom:18%"></i>
+      </div>
+      <p class="quad-cap mono">Scorecard sketch: every box is a supplier. Illustration only, no data.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= ACT II ================= -->
+<section aria-labelledby="act2">
+  <div class="act">
+    <span class="act-no">ACT II</span>
+    <h2 id="act2" class="display">Morphological Analysis</h2>
+    <p>Break the system into its parameters, one shelf each, and stock every shelf with options. Five shelves: capture, extraction, validation, integration, analytics and alerts.</p>
+  </div>
+  <p class="path-note">Normally you pick one option per row and trace a single path through the matrix. This session didn't. <b>You chose to build every option on every shelf</b>, with no minimal-first slice, minus the logo idea that got dropped.</p>
+
+  <div class="matrix">
+    <div class="allin">ALL IN<small>EVERY ROW &middot; EVERY CELL</small></div>
+
+    <div class="mrow">
+      <div class="mlabel"><span class="n">SHELF 1</span><span class="display">Capture</span><small>How invoices get in</small></div>
+      <div class="mcells">
+        <span class="ref">personal supplier upload link</span>
+        <ul class="ideas">
+          <li class="idea u"><span class="who">You</span><span class="txt">Paper invoices must be supported.</span></li>
+          <li class="idea u"><span class="who">You</span><span class="txt">Scanned PDF invoices must be supported.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Warehouse scan station: a paper invoice that arrives with the goods is photographed or scanned at goods-in and linked to the delivery on the spot.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">The upload page accepts PDFs as well as photos. Everything lands in one intake queue, so extraction doesn't care which channel it came from.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mlabel"><span class="n">SHELF 2</span><span class="display">Extraction</span><small>Reading the paper</small></div>
+      <div class="mcells">
+        <div class="challenge"><span>YOUR CHALLENGES</span>
+          <ul class="ideas">
+            <li class="idea u"><span class="who">You</span><span class="txt">Handwriting</span></li>
+            <li class="idea u"><span class="who">You</span><span class="txt">Blurry phone photos</span></li>
+            <li class="idea u"><span class="who">You</span><span class="txt">Company logos (to identify the supplier and avoid misreads)</span></li>
+            <li class="idea u"><span class="who">You</span><span class="txt">Many different invoice formats and layouts</span></li>
+          </ul>
+        </div>
+        <ul class="ideas">
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Blur check at upload: the page rejects a photo that's too blurry, dark or cropped straight away and asks for a retake before submitting.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Use an AI vision model that reads the layout like a person does, rather than template OCR, so new supplier formats work without set-up.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Learn from admin fixes: each correction improves how that supplier's format gets read next time.</span></li>
+          <li class="idea u void"><span class="who">You</span><span class="txt">Use the company logo on the invoice to recognise the supplier automatically.</span></li>
+        </ul>
+        <span class="ref">per-field confidence for the admin</span>
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mlabel"><span class="n">SHELF 3</span><span class="display">Validation</span><small>Built mostly in Act I</small></div>
+      <div class="mcells">
+        <span class="ref">zero-trust: PO + goods received</span>
+        <span class="ref">duplicate fingerprint + image hash</span>
+        <span class="ref">amount vs PO price &times; qty</span>
+        <span class="ref">system-derived supplier ID</span>
+        <span class="ref">bank change &rarr; call-back</span>
+        <span class="ref">photo date vs delivery date &rarr; admin queue</span>
+        <span class="ref">low confidence &rarr; admin</span>
+        <ul class="ideas">
+          <li class="idea c void"><span class="who">Coach</span><span class="txt">Logo vs upload-link cross-check: the logo says supplier A but it came through supplier B's link, so flag it to an admin.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mlabel"><span class="n">SHELF 4</span><span class="display">Integration</span><small>Into the accounts system</small></div>
+      <div class="mcells">
+        <div class="constraint"><b>CONSTRAINT</b> The existing accounts system has an API we call to pass data. It accepts XML only.</div>
+        <ul class="ideas">
+          <li class="idea c"><span class="who">Coach</span><span class="txt">A translator layer converts the validated invoice (internal JSON) into the accounts XML and calls the API. The rest of the pipeline never touches XML.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Retry queue: if the accounts API is down or rejects an invoice, it waits and retries. After N failures it goes to the admin queue along with the API error.</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="mrow">
+      <div class="mlabel"><span class="n">SHELF 5</span><span class="display">Analytics &amp; alerts</span><small>Audience: finance team and procurement</small></div>
+      <div class="mcells">
+        <ul class="ideas">
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Procurement view: before placing a PO, show the supplier's on-time rate and price trend for that material right in the ordering flow.</span></li>
+          <li class="idea c"><span class="who">Coach</span><span class="txt">Finance view: monthly spend by supplier, price-creep alerts, and counts of duplicate and flagged invoices.</span></li>
+        </ul>
+        <div class="trip">
+          <div class="trip-rules">
+            <div class="trip-title">WHAT MAKES A SUPPLIER &lsquo;BAD&rsquo;: YOUR THREE TRIPWIRES</div>
+            <ul class="ideas">
+              <li class="idea u"><span class="who">You</span><span class="txt">Several price increases within a year.</span></li>
+              <li class="idea u"><span class="who">You</span><span class="txt">Slow service (late deliveries).</span></li>
+              <li class="idea u"><span class="who">You</span><span class="txt">A big price gap against other suppliers for the same material.</span></li>
+            </ul>
+          </div>
+          <div class="trip-arrow" aria-hidden="true">&rarr;<small>ANY ONE</small></div>
+          <div class="watch">
+            <span class="watch-tag">WATCHLIST</span>
+            <ul class="ideas">
+              <li class="idea c"><span class="who">Coach</span><span class="txt">Supplier watchlist: a supplier is added automatically when any of the three rules trips, and procurement and management get notified with the evidence (invoices, dates, price history).</span></li>
+              <li class="idea u"><span class="who">You</span><span class="txt">A bad supplier score triggers a conversation with that supplier.</span></li>
+              <li class="idea u"><span class="who">You</span><span class="txt">At the same time, management looks for alternative suppliers.</span></li>
+              <li class="idea c"><span class="who">Coach</span><span class="txt">Alternative-supplier shortlist: when a supplier lands on the watchlist, show other suppliers already invoicing the same material, ranked by price and speed.</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:18px"><b>Scope:</b> build every option across all five rows. Logo-based recognition is dropped. The three-date check stays a could-have. Every other idea matters and is in scope.</p>
+</section>
+
+<!-- ================= RETURNS COUNTER ================= -->
+<section aria-labelledby="returns-h">
+  <div class="act">
+    <span class="act-no">RETURNS</span>
+    <h2 id="returns-h" class="display">The returns counter</h2>
+    <p>Ideas that went back on the shelf, one that's on hold, and one question that was never this project's to answer.</p>
+  </div>
+  <div class="returns">
+    <div class="rslip ret">
+      <span class="tag">RETURNED</span>
+      <h4>Suppliers editing or confirming the extracted data</h4>
+      <p>Suppliers can't edit. The system trusts what it reads from the photo. Your own warning, that suppliers could lie when they &lsquo;fix&rsquo; the data, is what sank it.</p>
+    </div>
+    <div class="rslip ret">
+      <span class="tag">RETURNED</span>
+      <h4>Upload timestamp over photo EXIF</h4>
+      <p>Trust the photo date.</p>
+    </div>
+    <div class="rslip ret">
+      <span class="tag">RETURNED</span>
+      <h4>Early warning: predicting late shipments</h4>
+      <p>Too complicated.</p>
+      <div class="survived">&#10003; What survived is the simple version: a missing invoice past the PO's expected date.</div>
+    </div>
+    <div class="rslip ret">
+      <span class="tag">DROPPED</span>
+      <h4>Logo-based supplier recognition</h4>
+      <p>The logo-vs-link cross-check went with it.</p>
+    </div>
+    <div class="rslip hold">
+      <span class="tag">COULD-HAVE</span>
+      <h4>The three-date check</h4>
+      <p>Kept, but not a must.</p>
+      <div class="three-dates" aria-label="The three dates"><span>PROMISED<br>(PO)</span><span>DELIVERED<br>(invoice)</span><span>RECEIVED<br>(warehouse)</span></div>
+    </div>
+    <div class="rslip oos">
+      <span class="tag">NOT IN THIS BOX</span>
+      <h4>What happens to the admins who get freed up</h4>
+      <ul class="ideas">
+        <li class="idea u"><span class="who">You</span><span class="txt">Move freed-up admins to other manual work such as sales, and keep a small team for flagged invoices.</span></li>
+      </ul>
+      <p style="margin-top:10px">Decision: out of scope. Whether they're redeployed or let go isn't a concern of this project.</p>
+    </div>
+  </div>
+</section>
+
+</div><!-- /wrap -->
+
+<!-- ================= CLIMAX ================= -->
+<section class="climax" aria-labelledby="synth">
+  <div class="wrap">
+    <div class="act">
+      <span class="act-no">TOTAL</span>
+      <h2 id="synth" class="display">What the box adds up to</h2>
+      <p>Four connections run under all the ideas. Put them together and fifty-odd slips of paper become one system.</p>
+    </div>
+
+    <!-- 1 -->
+    <article class="conn">
+      <div class="conn-head"><span class="conn-no">01</span><div><h3 class="display">The personal upload link carries the most weight</h3><p>One idea, three jobs. Take it away and three other parts of the design fall over.</p></div></div>
+      <div class="hub">
+        <div class="spoke l"><b>Identity</b>Fixes impersonation and wrong supplier IDs</div>
+        <div class="hub-core">
+          <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>ONE LINK PER SUPPLIER</div>
+        </div>
+        <div class="spoke"><b>Reminders</b>The channel for overdue-invoice nudges</div>
+        <div class="spoke l"><b>Arrival time</b>Records when each invoice arrives</div>
+        <div class="spoke" style="border-style:dashed;color:var(--muted)"><b style="color:var(--muted)">Replaces</b>WhatsApp as the way in</div>
+      </div>
+    </article>
+
+    <!-- 2 -->
+    <article class="conn">
+      <div class="conn-head"><span class="conn-no">02</span><div><h3 class="display">The PO holds the whole thing up</h3><p>Three of the most important checks all hang off purchase-order data.</p></div></div>
+      <div class="spine">
+        <div class="spine-bar"><span class="big">PO</span><span>ITEMS &middot; PRICES &middot; EXPECTED DATES</span></div>
+        <div class="ribs">
+          <div class="rib"><div><b>Amount check</b>Extracted amount vs PO price &times; received qty catches edited photos</div></div>
+          <div class="rib"><div><b>Expected date</b>Feeds the overdue list</div></div>
+          <div class="rib"><div><b>Price baseline</b>The basis for comparing prices and spotting creep</div></div>
+        </div>
+        <div class="spine-dep"><i>!</i>That makes access to PO data the key dependency.</div>
+      </div>
+    </article>
+
+    <!-- 3 -->
+    <article class="conn">
+      <div class="conn-head"><span class="conn-no">03</span><div><h3 class="display">One dataset serves both goals</h3><p>Invoice arrival against the PO's expected date is both the chase list and the vendor-speed analytics.</p></div></div>
+      <div class="tl" role="img" aria-label="Timeline: PO raised on 1 January, expected 7 January, no invoice yet by today.">
+        <div class="tl-track"></div><div class="tl-late"></div>
+        <div class="tl-m first" style="left:0">PO raised<span>1 Jan</span></div>
+        <div class="tl-m exp" style="left:30%">Expected<span>7 Jan</span></div>
+        <div class="tl-m now last" style="left:100%">Today<span>no invoice</span></div>
+        <div class="tl-gap">OVERDUE</div>
+      </div>
+      <div class="lenses">
+        <div class="lens a"><b>Read it today</b>Chase list: it's on the overdue list, and a reminder goes out through the upload app.</div>
+        <div class="lens b"><b>Read it over months</b>Vendor speed: the same gaps add up to that supplier's on-time record.</div>
+      </div>
+      <div class="eq">SAME ROWS &middot; TWO ANSWERS</div>
+    </article>
+
+    <!-- 4 -->
+    <article class="conn">
+      <div class="conn-head"><span class="conn-no">04</span><div><h3 class="display">One admin queue is the only place a person steps in</h3><p>Everything else flows straight through to the accounts XML API.</p></div></div>
+      <div class="belt">
+        <div class="station"><b>1</b><strong>Capture</strong></div>
+        <div class="station" data-drop="&darr; low confidence"><b>2</b><strong>Extraction</strong></div>
+        <div class="station" data-drop="&darr; duplicates &middot; date mismatch"><b>3</b><strong>Validation</strong></div>
+        <div class="station" data-drop="&darr; API failures"><b>4</b><strong>JSON &rarr; XML</strong></div>
+        <div class="station out"><b>DONE</b><strong>Accounts API</strong></div>
+      </div>
+      <div class="drops" aria-hidden="true">
+        <div class="drop none"><i></i><span>&nbsp;</span></div>
+        <div class="drop"><i></i><span>low confidence</span></div>
+        <div class="drop"><i></i><span>duplicates &middot; date mismatch</span></div>
+        <div class="drop"><i></i><span>API failures</span></div>
+        <div class="drop none"><i></i><span>&nbsp;</span></div>
+      </div>
+      <div class="bin"><span class="display">Admin queue</span><p>A single inbox for people. Low-confidence reads, duplicates, date mismatches and API failures all land here. Nothing else needs a human.</p></div>
+    </article>
+
+    <div class="direction">
+      <div class="display">Chosen direction: build all of it</div>
+      <p>MINUS LOGO RECOGNITION &middot; THREE-DATE CHECK AS A COULD-HAVE</p>
+    </div>
+
+    <!-- open question -->
+    <div class="openq" aria-labelledby="oq">
+      <span class="bigq" aria-hidden="true">?</span>
+      <div class="kick">OPEN QUESTION &middot; STILL IN THE BOX</div>
+      <h3 id="oq" class="display">Can we get at the PO data?</h3>
+      <p>Everything above assumes we can match invoices against purchase orders. Is this data available from the accounts system or from another system?</p>
+      <div class="po-form" style="margin-top:18px">
+        <div>ITEMS</div><div>PRICES</div><div>EXPECTED DATES</div>
+      </div>
+      <div class="sources"><span>Accounts system</span><span>Another system</span></div>
+      <div class="awaiting">AWAITING ANSWER</div>
+    </div>
+
+    <div class="tally receipt" style="color:var(--ink)">
+      <h4>SESSION RECEIPT</h4>
+      <div class="row u"><span>Ideas from you</span><b id="t-u">24</b></div>
+      <div class="row c"><span>Ideas from the coach</span><b id="t-c">26</b></div>
+      <div class="row"><span>Techniques</span><b>2</b></div>
+      <div class="row"><span>Returned / dropped</span><b>4</b></div>
+      <div class="row"><span>Could-have</span><b>1</b></div>
+      <div class="row"><span>Out of scope</span><b>1</b></div>
+      <div class="row big"><span>Open questions</span><b>1</b></div>
+      <div class="thanks">28 SEP 2026 &middot; STATUS: COMPLETE<br>KEEP THIS SLIP</div>
+    </div>
+  </div>
+</section>
+
+<footer></footer>
+
+<script>
+(function(){
+  var btn=document.getElementById('themeBtn'), root=document.documentElement;
+  var saved=null; try{saved=localStorage.getItem('shoebox-theme')}catch(e){}
+  if(saved){root.setAttribute('data-theme',saved)}
+  btn.addEventListener('click',function(){
+    var cur=root.getAttribute('data-theme');
+    if(!cur){cur=window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}
+    var next=cur==='dark'?'light':'dark';
+    root.setAttribute('data-theme',next);
+    try{localStorage.setItem('shoebox-theme',next)}catch(e){}
+  });
+  // tally is counted from the ideas actually on the page (legend excluded)
+  var u=document.querySelectorAll('li.idea.u:not(.insight)').length, c=document.querySelectorAll('li.idea.c:not(.insight)').length;
+  document.getElementById('t-u').textContent=u;
+  document.getElementById('t-c').textContent=c;
+})();
+</script>
+</body>
+</html>

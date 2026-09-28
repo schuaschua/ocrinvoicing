@@ -1,0 +1,21 @@
+# gitleaks config: the default rules plus allowlists for known false positives.
+# security.md rule 30 (secret scanning) is met by gitleaks as a required PR check (AD-17).
+title = "ocrinvoicing gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated BMad file manifest (content hashes) and vendored BMad skill docs with example keys"
+paths = [
+  '''^_bmad/_config/files-manifest\.csv$''',
+  '''^\.claude/skills/[^/]+/resources/knowledge/api-testing-patterns\.md$''',
+]
+
+[[allowlists]]
+description = "Azure built-in role definition ids (public GUIDs, not secrets)"
+regexTarget = "line"
+regexes = [
+  '''^\s*(readonly\s+)?ROLE_[A-Z_]+="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\s*$''',
+  '''^\s*[A-Z_]+ = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\s*$''',
+]

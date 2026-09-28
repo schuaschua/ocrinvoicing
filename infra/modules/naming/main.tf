@@ -1,0 +1,48 @@
+# Single source of P-16 names and P-17 tags. The bootstrap scripts
+# (infra/bootstrap/lib.sh) mirror these rules; keep the two in step.
+#
+# P-16: babaloo-sea-lng-<type>-<nn>. Numbers count up from the environment's base
+# within each type (Dev 01-09, Prod 11-19, shared 21-29). Storage accounts drop
+# the hyphens. Type abbreviations follow CAF.
+
+locals {
+  prefix         = "babaloo-sea-lng"
+  storage_prefix = replace(local.prefix, "-", "")
+
+  # name(type, offset) = "<prefix>-<type>-<base + offset, two digits>"
+  first = { for type in local.types : type => format("%s-%s-%02d", local.prefix, type, var.number_base) }
+  types = ["rg", "psql", "di", "acs", "ecs", "kv", "log", "appi", "ag", "budget"]
+
+  # Runtime identities, numbered in this order from the base (plan Design Notes).
+  app_identity_order = ["supplier_api", "staff_api", "pipeline", "accounts_sim"]
+
+  names = {
+    resource_group         = local.first["rg"]
+    postgres_server        = local.first["psql"]
+    document_intelligence  = local.first["di"]
+    communication_service  = local.first["acs"]
+    email_service          = local.first["ecs"]
+    key_vault              = local.first["kv"]
+    log_analytics          = local.first["log"]
+    application_insights   = local.first["appi"]
+    action_group           = local.first["ag"]
+    budget                 = local.first["budget"]
+    storage_account        = format("%sst%02d", local.storage_prefix, var.number_base)
+    action_group_shortname = format("lng-ag-%02d", var.number_base)
+  }
+
+  # None for shared: its id-21..23 are the bootstrap's deploy identities.
+  identities = {
+    for index, app in local.app_identity_order :
+    app => format("%s-id-%02d", local.prefix, var.number_base + index)
+    if var.environment != "shared"
+  }
+
+  tags = {
+    owner              = var.owner
+    costCentre         = var.cost_centre
+    environment        = var.environment
+    application        = var.application
+    dataClassification = var.data_classification
+  }
+}

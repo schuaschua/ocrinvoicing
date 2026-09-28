@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Test double for `psql` on the shared server. Never contacts a database.
+
+Logins map to environments (id-01..04 and id-22 are dev; id-11..14 and id-23 are
+prod). With FAKE_PSQL_CROSS_ENV=refuse (default) a login is refused on the other
+environment's database, as step 5 intends; with =allow it gets in (the broken case).
+Answers the verify-db-isolation.sh queries the same way; FAKE_PSQL_MISSING_DB names
+a database that does not exist.
+"""
+
+import os
+import re
+import sys
+
+DEV = {f"babaloo-sea-lng-id-{n:02d}" for n in (1, 2, 3, 4, 22)}
+PROD = {f"babaloo-sea-lng-id-{n:02d}" for n in (11, 12, 13, 14, 23)}
+allow_cross = os.environ.get("FAKE_PSQL_CROSS_ENV", "refuse") == "allow"
+
+
+def env_of_login(login: str) -> str | None:
+    return "dev" if login in DEV else "prod" if login in PROD else None
+
+
+def allowed(login: str, db: str) -> bool:
+    env = env_of_login(login)
+    return env is None or db == f"invoicing_{env}" or allow_cross
+
+
+args = sys.argv[1:]
+conninfo = next((a for a in args if a.startswith("host=")), "")
+fields = dict(re.findall(r"(\w+)=(\S+)", conninfo))
+variables = dict(args[i + 1].split("=", 1) for i, a in enumerate(args) if a == "-v" and "=" in args[i + 1])
+
+user, dbname = fields.get("user", ""), fields.get("dbname", "")
+if dbname != "postgres" and not allowed(user, dbname):
+    print(f'psql: error: connection to server failed: FATAL:  permission denied for database "{dbname}"', file=sys.stderr)
+    print("DETAIL:  User does not have CONNECT privilege.", file=sys.stderr)
+    sys.exit(2)
+
+sql = sys.stdin.read() if "-f" in args and args[args.index("-f") + 1] == "-" else " ".join(args)
+if "has_database_privilege" in sql:
+    print("t" if allowed(variables["login"], variables["db"]) else "f")
+elif "aclexplode" in sql:
+    print("f")
+elif "pg_database" in sql:
+    missing = os.environ.get("FAKE_PSQL_MISSING_DB", "")
+    print("f" if variables.get("db") == missing else "t")
+elif "pg_roles" in sql:
+    print("t")
+else:
+    print("1")
+sys.exit(0)

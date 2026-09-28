@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""Test double for `az` where every resource already exists.
+
+Records each invocation (one JSON array per line) to $FAKE_AZ_LOG and answers
+show/list/lookup calls as if the resource were there. Never contacts Azure.
+
+Knobs for failure cases (each a substring matched against the joined arguments):
+  FAKE_AZ_FAIL_MATCH       fail with a non-NotFound error (AuthorizationFailed)
+  FAKE_AZ_NOT_FOUND_MATCH  fail with a NotFound error (the resource is absent)
+Other knobs:
+  FAKE_AZ_STAFF_ROLES      how many of the 5 staff-api app roles already exist
+  FAKE_AZ_FED_STALE=1      existing federated credentials have an old issuer/subject
+  FAKE_AZ_DUPLICATE_APPS=1 a display-name lookup returns two app registrations
+Files passed as @path are copied into $FAKE_AZ_LOG.files (JSON lines) before the
+script can delete them.
+"""
+
+import json
+import os
+import sys
+
+ROLE_NAMES = {
+    "b24988ac-6180-42a0-ab88-20f7382dd24c": "Contributor",
+    "f58310d9-a9f6-439a-9e8d-f62e7b41a168": "Role Based Access Control Administrator",
+    "ba92f5b4-2d11-453d-a403-e96b0029c9fe": "Storage Blob Data Contributor",
+    "b7e6dc6d-f1e8-4753-8033-0f276bb0955b": "Storage Blob Data Owner",
+    "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1": "Storage Blob Data Reader",
+    "974c5e8b-45b9-4653-ba55-5f855dd0fb88": "Storage Queue Data Contributor",
+    "c6a89b2d-59bc-44d0-9896-0f6e12d7b80a": "Storage Queue Data Message Sender",
+    "0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3": "Storage Table Data Contributor",
+    "4633458b-17de-408a-b874-0445c86b69e6": "Key Vault Secrets User",
+    "b86a8fe4-44ce-4948-aee5-eccb2c155cd7": "Key Vault Secrets Officer",
+    "3913510d-42f4-4e42-8a64-420c390055eb": "Monitoring Metrics Publisher",
+    "a97b65f3-24c7-4388-baec-2e87135dc908": "Cognitive Services User",
+}
+STAFF_ROLES = ["admin", "finance", "procurement", "management", "goods_in"]
+FAKE_GUID = "55555555-5555-5555-5555-555555555555"
+
+args = sys.argv[1:]
+log_path = os.environ["FAKE_AZ_LOG"]
+with open(log_path, "a", encoding="utf-8") as log:
+    log.write(json.dumps(args) + "\n")
+for arg in args:
+    if arg.startswith("@") and os.path.isfile(arg[1:]):
+        with open(arg[1:], encoding="utf-8") as src, open(log_path + ".files", "a", encoding="utf-8") as out:
+            out.write(json.dumps({"args": args, "content": src.read()}) + "\n")
+
+joined = " ".join(args)
+if os.environ.get("FAKE_AZ_FAIL_MATCH") and os.environ["FAKE_AZ_FAIL_MATCH"] in joined:
+    print("ERROR: (AuthorizationFailed) The client does not have authorization to perform action.", file=sys.stderr)
+    sys.exit(1)
+if os.environ.get("FAKE_AZ_NOT_FOUND_MATCH") and os.environ["FAKE_AZ_NOT_FOUND_MATCH"] in joined:
+    print("ERROR: (NotFound) The resource could not be found.", file=sys.stderr)
+    sys.exit(3)
+
+
+def opt(name: str) -> str:
+    return args[args.index(name) + 1] if name in args else ""
+
+
+def has(*words: str) -> bool:
+    return list(words) == args[: len(words)]
+
+
+if has("role", "definition", "list"):
+    name = opt("--name")
+    print(FAKE_GUID if "--custom-role-only" in args else ROLE_NAMES.get(name, ""))
+elif has("role", "assignment", "list"):
+    print("1")
+elif has("account", "show"):
+    print(os.environ.get("ARM_TENANT_ID", ""))
+elif has("account", "get-access-token"):
+    print("fake-token")
+elif has("identity", "federated-credential", "show") and "--query" in args:
+    if os.environ.get("FAKE_AZ_FED_STALE"):
+        print("https://vstoken.dev.azure.com/old-org-id|sc://old-org/old-project/old-connection")
+    else:
+        owner = opt("--name").removeprefix("ado-")
+        issuer = f"https://vstoken.dev.azure.com/{os.environ.get('ADO_ORG_ID', '')}"
+        subject = f"sc://{os.environ.get('ADO_ORG', '')}/{os.environ.get('ADO_PROJECT', '')}/azure-{owner}"
+        print(f"{issuer}|{subject}")
+elif has("identity", "show"):
+    print(FAKE_GUID)
+elif has("ad", "app", "list"):
+    print(FAKE_GUID)
+    if os.environ.get("FAKE_AZ_DUPLICATE_APPS"):
+        print("66666666-6666-6666-6666-666666666666")
+elif has("ad", "app", "create"):
+    print("77777777-7777-7777-7777-777777777777")
+elif has("ad", "app", "show"):
+    roles = [
+        {"allowedMemberTypes": ["User"], "description": r, "displayName": r, "id": FAKE_GUID, "isEnabled": True, "value": r}
+        for r in STAFF_ROLES[: int(os.environ.get("FAKE_AZ_STAFF_ROLES", "5"))]
+    ]
+    print(json.dumps(roles))
+elif has("ad", "user", "show"):
+    print(FAKE_GUID)
+elif has("rest") and opt("--method") == "get":
+    print("{}")
+# Every other call (show, create, update, register, set) succeeds silently.
+sys.exit(0)

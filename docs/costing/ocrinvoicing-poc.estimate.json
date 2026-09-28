@@ -1,0 +1,350 @@
+{
+  "name": "ocrinvoicing-poc",
+  "title": "OCR Invoice Automation PoC: build and 5-year run",
+  "currency": "USD",
+  "pricing_region": "southeastasia",
+  "price_date": "2026-09-28",
+  "assumptions": {
+    "delivery_days": 32,
+    "working_days_per_month": 21,
+    "hours_per_month": 730,
+    "horizon_years": 5,
+    "cost_escalation_pct": 0,
+    "contingency_pct": 0
+  },
+  "environments": [
+    {
+      "name": "Shared",
+      "delivery_months": null,
+      "run_months_per_year": 12,
+      "items": [
+        {
+          "component": "PostgreSQL Flexible Server compute",
+          "service": "Azure Database for PostgreSQL",
+          "sku": "Burstable B1ms",
+          "unit": "1 Hour",
+          "unit_price": 0.026,
+          "quantity": 1,
+          "usage": 261,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-12",
+          "price_source": "Azure Retail Prices API, Azure Database for PostgreSQL Flexible Server Burstable BS Series Compute / B1MS, southeastasia, USD per 1 Hour, meterId caa13868-6d59-5b82-ae7a-765904be9712, fetched 2026-09-28",
+          "note": "AD-12 [ASSUMPTION] up-hours weekdays 09:00-21:00 SGT = ~261 h/month; stopped by hand otherwise"
+        },
+        {
+          "component": "PostgreSQL storage",
+          "service": "Azure Database for PostgreSQL",
+          "sku": "Flex Server Storage",
+          "unit": "1 GB/Month",
+          "unit_price": 0.138,
+          "quantity": 32,
+          "usage": 1,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-12",
+          "price_source": "Azure Retail Prices API, Azure Database for PostgreSQL Flex Server Storage / Storage Data Stored, southeastasia, USD per 1 GB/Month, meterId 3dc8bdb7-8a94-5ffe-8836-6e80a540f61f, fetched 2026-09-28",
+          "note": "32 GB, billed while stopped; 7-day LRS backup within free allowance"
+        },
+        {
+          "component": "Document Intelligence",
+          "service": "Cognitive Services",
+          "sku": "F0 (free)",
+          "unit": "1K pages",
+          "unit_price": 0.0,
+          "quantity": 1,
+          "usage": 0.5,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-8",
+          "price_source": "Free tier F0: $0 per AD-8; S0 would be $10 per 1,000 pages (not looked up)",
+          "note": "500 pages/month cap shared by Dev and Prod"
+        },
+        {
+          "component": "ACS Email",
+          "service": "Email",
+          "sku": "Basic, sent email",
+          "unit": "1",
+          "unit_price": 0.00025,
+          "quantity": 1,
+          "usage": 250,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-16",
+          "price_source": "Azure Retail Prices API, Email / Basic Sent Email, southeastasia, USD per 1, meterId 91348e14-8d9f-561e-ba5e-06be5a2c7a89, fetched 2026-09-28",
+          "note": "assumption: ~250 alert emails a month across Dev and Prod"
+        }
+      ]
+    },
+    {
+      "name": "Dev",
+      "delivery_months": null,
+      "run_months_per_year": 12,
+      "items": [
+        {
+          "component": "Stage queues",
+          "service": "Storage",
+          "sku": "Queues v2 Standard LRS, Class 1 operations",
+          "unit": "10K",
+          "unit_price": 0.004,
+          "quantity": 1,
+          "usage": 30,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-2",
+          "price_source": "Azure Retail Prices API, Queues v2 / LRS Class 1 Operations, southeastasia, USD per 10K, meterId a7193db3-642b-4d6f-ad03-ed5f00153bbd, fetched 2026-09-28",
+          "note": "assumption: ~300K ops/month from queue-trigger polling, matching AD-2's ~$0.12/month"
+        },
+        {
+          "component": "Blobs: images, corrections (30-day)",
+          "service": "Storage",
+          "sku": "Block Blob v2 Hot LRS",
+          "unit": "1 GB/Month",
+          "unit_price": 0.02,
+          "quantity": 1,
+          "usage": 1,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-15",
+          "price_source": "Azure Retail Prices API, General Block Blob v2 / Hot LRS Data Stored, southeastasia, USD per 1 GB/Month, meterId fc203689-76e7-4fbe-86b9-968d73231c00, fetched 2026-09-28",
+          "note": "assumption: 1 GB held under 30-day lifecycle (DI page cap bounds volume, AD-8)"
+        },
+        {
+          "component": "Tables: links, keys, reminders",
+          "service": "Storage",
+          "sku": "Tables Standard LRS",
+          "unit": "1 GB/Month",
+          "unit_price": 0.045,
+          "quantity": 1,
+          "usage": 0.1,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-6",
+          "price_source": "Azure Retail Prices API, Tables / LRS Data Stored, southeastasia, USD per 1 GB/Month, meterId 3f2b1e1c-c886-4ec6-ad6f-dd0ef38819c9, fetched 2026-09-28",
+          "note": "assumption: under 0.1 GB"
+        },
+        {
+          "component": "Key Vault",
+          "service": "Key Vault",
+          "sku": "Standard, operations",
+          "unit": "10K",
+          "unit_price": 0.03,
+          "quantity": 1,
+          "usage": 0.5,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-11",
+          "price_source": "Azure Retail Prices API, Key Vault / Operations, southeastasia, USD per 10K, meterId 0f824807-2376-435c-95c9-f992b67a07b0, fetched 2026-09-28",
+          "note": "assumption: ~5K secret reads a month"
+        },
+        {
+          "component": "Metric alerts",
+          "service": "Azure Monitor",
+          "sku": "Alerts Metric Monitored, beyond first 10 free",
+          "unit": "1/Month",
+          "unit_price": 0.1,
+          "quantity": 5,
+          "usage": 1,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-17",
+          "price_source": "Azure Retail Prices API, Azure Monitor / Alerts Metric Monitored, southeastasia, USD per 1/Month, meterId 6860c782-bbcc-41ed-a218-fb308dd0942e, fetched 2026-09-28",
+          "note": "assumption: ~10 time series per env (poison_message x 8 queues, stuck_invoices, di_pages_used_pct); first 10 per subscription free, half billed here"
+        },
+        {
+          "component": "Log Analytics + App Insights",
+          "service": "Log Analytics",
+          "sku": "Analytics Logs ingestion, within 5 GB free",
+          "unit": "1 GB",
+          "unit_price": 0.0,
+          "quantity": 1,
+          "usage": 2.4,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-17",
+          "price_source": "Azure Retail Prices API, Log Analytics / Analytics Logs Data Ingestion, southeastasia, USD per 1 GB, meterId 7a4feecb-f730-49f8-a801-efe03d15b862, fetched 2026-09-28",
+          "note": "0.08 GB/day cap = 2.4 GB/month; both envs 4.8 GB, inside the 5 GB free tier (AD-17)"
+        }
+      ]
+    },
+    {
+      "name": "Prod",
+      "delivery_months": null,
+      "run_months_per_year": 12,
+      "items": [
+        {
+          "component": "Stage queues",
+          "service": "Storage",
+          "sku": "Queues v2 Standard LRS, Class 1 operations",
+          "unit": "10K",
+          "unit_price": 0.004,
+          "quantity": 1,
+          "usage": 30,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-2",
+          "price_source": "Azure Retail Prices API, Queues v2 / LRS Class 1 Operations, southeastasia, USD per 10K, meterId a7193db3-642b-4d6f-ad03-ed5f00153bbd, fetched 2026-09-28",
+          "note": "assumption: ~300K ops/month from queue-trigger polling, matching AD-2's ~$0.12/month"
+        },
+        {
+          "component": "Blobs: images, corrections (30-day)",
+          "service": "Storage",
+          "sku": "Block Blob v2 Hot LRS",
+          "unit": "1 GB/Month",
+          "unit_price": 0.02,
+          "quantity": 2,
+          "usage": 1,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-15",
+          "price_source": "Azure Retail Prices API, General Block Blob v2 / Hot LRS Data Stored, southeastasia, USD per 1 GB/Month, meterId fc203689-76e7-4fbe-86b9-968d73231c00, fetched 2026-09-28",
+          "note": "assumption: 2 GB held under 30-day lifecycle (DI page cap bounds volume, AD-8)"
+        },
+        {
+          "component": "Tables: links, keys, reminders",
+          "service": "Storage",
+          "sku": "Tables Standard LRS",
+          "unit": "1 GB/Month",
+          "unit_price": 0.045,
+          "quantity": 1,
+          "usage": 0.1,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-6",
+          "price_source": "Azure Retail Prices API, Tables / LRS Data Stored, southeastasia, USD per 1 GB/Month, meterId 3f2b1e1c-c886-4ec6-ad6f-dd0ef38819c9, fetched 2026-09-28",
+          "note": "assumption: under 0.1 GB"
+        },
+        {
+          "component": "Key Vault",
+          "service": "Key Vault",
+          "sku": "Standard, operations",
+          "unit": "10K",
+          "unit_price": 0.03,
+          "quantity": 1,
+          "usage": 0.5,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-11",
+          "price_source": "Azure Retail Prices API, Key Vault / Operations, southeastasia, USD per 10K, meterId 0f824807-2376-435c-95c9-f992b67a07b0, fetched 2026-09-28",
+          "note": "assumption: ~5K secret reads a month"
+        },
+        {
+          "component": "Metric alerts",
+          "service": "Azure Monitor",
+          "sku": "Alerts Metric Monitored, beyond first 10 free",
+          "unit": "1/Month",
+          "unit_price": 0.1,
+          "quantity": 5,
+          "usage": 1,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-17",
+          "price_source": "Azure Retail Prices API, Azure Monitor / Alerts Metric Monitored, southeastasia, USD per 1/Month, meterId 6860c782-bbcc-41ed-a218-fb308dd0942e, fetched 2026-09-28",
+          "note": "assumption: ~10 time series per env (poison_message x 8 queues, stuck_invoices, di_pages_used_pct); first 10 per subscription free, half billed here"
+        },
+        {
+          "component": "Log Analytics + App Insights",
+          "service": "Log Analytics",
+          "sku": "Analytics Logs ingestion, within 5 GB free",
+          "unit": "1 GB",
+          "unit_price": 0.0,
+          "quantity": 1,
+          "usage": 2.4,
+          "cite": "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md AD-17",
+          "price_source": "Azure Retail Prices API, Log Analytics / Analytics Logs Data Ingestion, southeastasia, USD per 1 GB, meterId 7a4feecb-f730-49f8-a801-efe03d15b862, fetched 2026-09-28",
+          "note": "0.08 GB/day cap = 2.4 GB/month; both envs 4.8 GB, inside the 5 GB free tier (AD-17)"
+        }
+      ]
+    }
+  ],
+  "team": [
+    {
+      "role": "Team member (blended)",
+      "employees": 2,
+      "days": null,
+      "allocation": 1,
+      "cite": "assumption: 2 people for 32 days (30 stories at ~1 story/day, AI-assisted, plus 2 days slack); Dj to confirm"
+    }
+  ],
+  "support": [
+    {
+      "role": "Team member (blended)",
+      "mandays_per_year": 12,
+      "cite": "assumption: 1 day a month for patching, dependency upgrades, DB start/stop and alert triage; Dj to confirm"
+    }
+  ],
+  "epics": [
+    {
+      "number": 1,
+      "epic": "Suppliers can upload invoices by link",
+      "deliverables": [
+        "Stories 1.1-1.9: Terraform, CI/CD, API and web skeletons, monitoring, supplier links, upload, device quality check"
+      ],
+      "days": 9,
+      "cite": "_bmad-output/planning-artifacts/epics.md Epic 1: Suppliers can upload invoices by link",
+      "api_budget": 54
+    },
+    {
+      "number": 2,
+      "epic": "Invoices are read and checked automatically",
+      "deliverables": [
+        "Stories 2.1-2.11: quality stage, pipeline recovery, DI extraction, PO sim, validation, staff sign-in, admin queue"
+      ],
+      "days": 11,
+      "cite": "_bmad-output/planning-artifacts/epics.md Epic 2: Invoices are read and checked automatically",
+      "api_budget": 66
+    },
+    {
+      "number": 3,
+      "epic": "Clean invoices post to the accounts system",
+      "deliverables": [
+        "Stories 3.1-3.4: accounts sim, auto-post, admin approve, search"
+      ],
+      "days": 4,
+      "cite": "_bmad-output/planning-artifacts/epics.md Epic 3: Clean invoices post to the accounts system automatically",
+      "api_budget": 24
+    },
+    {
+      "number": 4,
+      "epic": "Deliveries tracked, overdue suppliers reminded",
+      "deliverables": [
+        "Stories 4.1-4.4: goods-in scan, overdue list, reminders, delivery dates page"
+      ],
+      "days": 3,
+      "cite": "_bmad-output/planning-artifacts/epics.md Epic 4: Deliveries are tracked, and overdue suppliers are reminded",
+      "api_budget": 30
+    },
+    {
+      "number": 5,
+      "epic": "Supplier price and speed insights",
+      "deliverables": [
+        "Stories 5.1-5.6: analytics refresh, alert emails, price comparison, watchlist, scorecard, finance view"
+      ],
+      "days": 5,
+      "cite": "_bmad-output/planning-artifacts/epics.md Epic 5: Finance and procurement see supplier price and speed insights",
+      "api_budget": 36
+    }
+  ],
+  "gaps": [
+    "Team size and days: proposed 2 people x 32 days; Dj has not set them.",
+    "Run support mandays: proposed 12 a year; not set.",
+    "Revenue or counted savings: none given, so no payback or ROI (SPEC says it removes manual keying of thousands of invoices a month).",
+    "Contingency: 0% until Dj sets one.",
+    "Delivery start date: not given, so epics and sprints are undated.",
+    "Azure DevOps: assumed within the free tier (5 Basic users, 1 free Microsoft-hosted pipeline job); not priced.",
+    "Actual cloud spend: the solution is not deployed yet (no babaloo-sea-lng-* resource groups in subscription Babaloo on 2026-09-28), so there is nothing to compare.",
+    "Production volumes: F0 caps DI at 500 pages a month; SPEC's 'thousands a month' needs S0 (~$10 per 1,000 pages) and breaks P-2.",
+    "Functions Flex on-demand: within the free 100K GB-s and 250K executions a month (AD-1), so no line is priced; the billed rate beyond that is $0.000037 per GB-s."
+  ],
+  "stamp": {
+    "built": "2026-09-28T22:52:18",
+    "files": {
+      "_bmad-output/planning-artifacts/architecture/architecture-ocrinvoicing-2026-09-28/ARCHITECTURE-SPINE.md": "0772124ce4c6350b49eda8aca58e8253bad9013f72002ea7f72bb0a2942a11b6",
+      "_bmad-output/planning-artifacts/epics.md": "ba1900bf6060dbeec8806d1a5d68a37010076d54554aabd7750352f1b31fd90c",
+      "_bmad/memory/agent-scrooge/rate-card.json": "86a802068a377cdbf8487156928a13e4dbe4fc94748d06a0c6d14d0a87b9c80f"
+    },
+    "workbook_mtime": 1790607138.1721518
+  },
+  "phase_budgets": [
+    {
+      "phase": "planning changes (correct course)",
+      "api_budget": 10,
+      "cite": "owner: Dj, 2026-09-28"
+    },
+    {
+      "phase": "test design",
+      "api_budget": 8,
+      "cite": "owner: Dj, 2026-09-28"
+    },
+    {
+      "phase": "merges, promotions & deploys",
+      "api_budget": 5,
+      "cite": "owner: Dj, 2026-09-28"
+    },
+    {
+      "phase": "governance (Jules)",
+      "api_budget": 5,
+      "cite": "owner: Dj, 2026-09-28"
+    },
+    {
+      "phase": "architecture docs (Da Vinci)",
+      "api_budget": 4,
+      "cite": "owner: Dj, 2026-09-28"
+    },
+    {
+      "phase": "token reporting",
+      "api_budget": 2,
+      "cite": "owner: Dj, 2026-09-28"
+    }
+  ]
+}

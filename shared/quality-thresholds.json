@@ -1,0 +1,12 @@
+{
+  "status": "[ASSUMPTION] uncalibrated placeholder values; calibrate on sample photos before relying on them (spine AD-6, Open Questions)",
+  "blur": {
+    "measure": "variance_of_laplacian",
+    "min_variance": 100.0
+  },
+  "darkness": {
+    "measure": "mean_luminance_0_255",
+    "min_mean_luminance": 60.0
+  },
+  "max_device_check_failures_before_send_anyway": 2
+}

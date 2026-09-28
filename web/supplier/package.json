@@ -1,0 +1,7 @@
+{
+  "name": "@babaloo/web-supplier",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Supplier upload page (Vite + React + TS); scaffolded in Story 1.4, packaged into supplier-api",
+  "license": "UNLICENSED"
+}

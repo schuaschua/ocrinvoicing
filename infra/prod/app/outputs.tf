@@ -12,3 +12,8 @@ output "metric_alerts" {
   description = "The AD-17 metric alert rules (poison_message, stuck_invoices): name, resource id, scopes, action group ids and tags."
   value       = module.app.metric_alerts
 }
+
+output "staff_api_auth" {
+  description = "staff-api's built-in auth (AD-14): client id, issuer, sign-in required, signed-out action, excluded paths, token store."
+  value       = module.app.staff_api_auth
+}

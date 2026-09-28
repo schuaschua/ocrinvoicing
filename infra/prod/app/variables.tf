@@ -30,3 +30,8 @@ variable "telemetry_sampling_ratio" {
   # [ASSUMPTION] Half the traces until calibrated against the 0.08 GB/day cap.
   default = 0.5
 }
+
+variable "staff_api_client_id" {
+  description = "Client id of babaloo-sea-lng-staff-api-<env>, printed by infra/bootstrap/app-registrations.sh (AD-14). Not a secret."
+  type        = string
+}

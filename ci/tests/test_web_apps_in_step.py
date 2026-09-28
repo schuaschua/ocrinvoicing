@@ -17,8 +17,8 @@ SUPPLIER = REPO_ROOT / "web" / "supplier"
 # (name), playwright.config.ts (port), e2e/screens.ts (each app's screens),
 # src/App*.tsx, src/strings*.ts, src/main.tsx, and each app's own screens and API
 # calls (e.g. the supplier page's src/screens/, src/link*.ts, src/upload*.ts,
-# src/api/link*.ts, src/api/upload*.ts, src/test/fakeXhr.ts and
-# src/components/ui/skeleton.tsx, which only the supplier page uses so far).
+# src/api/link*.ts, src/api/upload*.ts and src/test/fakeXhr.ts; the staff app's
+# src/api/me*.ts, src/surfaces*.ts, src/router*.ts, src/shell/ and its other screens).
 SHARED_FILES = [
     ".npmrc",
     ".prettierignore",
@@ -43,6 +43,9 @@ SHARED_FILES = [
     "src/api/index.ts",
     "src/components/ui/button.tsx",
     "src/components/ui/button.test.tsx",
+    # Story 2.7: the staff app now uses these too.
+    "src/components/ui/skeleton.tsx",
+    "src/screens/usePageHeading.ts",
     "src/lib/utils.ts",
     "src/test/setup.ts",
 ]

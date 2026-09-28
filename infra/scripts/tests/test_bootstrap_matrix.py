@@ -119,6 +119,18 @@ def test_app_registrations_rerun_keeps_existing_roles(work_dir: Path) -> None:
     assert not any(_starts_with(call, ["ad", "app", "update"]) and "--app-roles" in call for call in calls)
 
 
+def test_app_registrations_turn_group_claims_off_on_staff_api(work_dir: Path) -> None:
+    # Story 2.7: no group claims, so the built-in auth principal stays small.
+    result, calls = _run("app-registrations.sh", work_dir)
+    assert result.returncode == 0, result.stderr
+    updates = [
+        call
+        for call in calls
+        if _starts_with(call, ["ad", "app", "update"]) and "groupMembershipClaims=None" in call
+    ]
+    assert len(updates) == 2  # one per environment's staff-api registration
+
+
 def test_cross_env_connection_refused_reports_pass(work_dir: Path) -> None:
     result, _ = _run(
         "verify-db-isolation.sh",

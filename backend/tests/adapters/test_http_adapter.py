@@ -108,7 +108,7 @@ def test_story_1_3_unhandled_error_is_a_500_without_internals(
         (NotFoundError("No such invoice."), 404),
         (DatabaseOfflineError(), 503),
         (DomainError(ErrorCode.VALIDATION_FAILED, "Bad file."), 400),
-        (DomainError(ErrorCode.UNAUTHORIZED, "Sign in."), 401),
+        (DomainError(ErrorCode.UNAUTHENTICATED, "Sign in."), 401),
         (DomainError(ErrorCode.FORBIDDEN, "Not allowed."), 403),
         (DomainError(ErrorCode.CONFLICT, "Already done."), 409),
         (DomainError(ErrorCode.PAYLOAD_TOO_LARGE, "Too big."), 413),

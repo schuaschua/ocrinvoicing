@@ -81,14 +81,25 @@ describe("1.4 API client", () => {
     const { listener, stop } = listen(SESSION_EXPIRED);
     fetchMock.mockResolvedValue(
       jsonResponse(
-        { code: "UNAUTHORIZED", message: "Sign in.", correlation_id: "c-1" },
+        { code: "UNAUTHENTICATED", message: "Sign in.", correlation_id: "c-1" },
         401,
       ),
     );
     await expect(apiRequest("/api/me")).rejects.toMatchObject({
       status: 401,
-      code: "UNAUTHORIZED",
+      code: "UNAUTHENTICATED",
     });
+    expect(listener).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("reads a redirect to sign in as an expired session, never following it", async () => {
+    const { listener, stop } = listen(SESSION_EXPIRED);
+    const redirect = Response.error();
+    Object.defineProperty(redirect, "type", { value: "opaqueredirect" });
+    fetchMock.mockResolvedValue(redirect);
+    await expect(apiRequest("/api/me")).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock.mock.calls[0]![1]!.redirect).toBe("manual");
     expect(listener).toHaveBeenCalledTimes(1);
     stop();
   });

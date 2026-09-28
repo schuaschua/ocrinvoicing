@@ -12,7 +12,12 @@ class ErrorCode(StrEnum):
 
     INTERNAL_ERROR = "INTERNAL_ERROR"
     VALIDATION_FAILED = "VALIDATION_FAILED"
-    UNAUTHORIZED = "UNAUTHORIZED"
+    # A staff-api call with no valid built-in auth principal (AD-14): HTTP 401.
+    UNAUTHENTICATED = "UNAUTHENTICATED"
+    # staff-api runs in Azure with built-in auth off, so no principal can be trusted
+    # (AD-14): every staff route fails closed with HTTP 401.
+    AUTH_DISABLED = "AUTH_DISABLED"
+    # A signed-in staff user without a role the route allows (AD-14): HTTP 403.
     FORBIDDEN = "FORBIDDEN"
     NOT_FOUND = "NOT_FOUND"
     CONFLICT = "CONFLICT"
@@ -109,3 +114,31 @@ class IdempotencyKeyConflictError(DomainError):
             ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
             "This upload can't be accepted. Choose the file again and send it.",
         )
+
+
+class UnauthenticatedError(DomainError):
+    """No signed-in staff user: the built-in auth principal is missing or malformed
+    (AD-14). The staff app answers with its session-ended dialog."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            ErrorCode.UNAUTHENTICATED,
+            "Your session ended. Sign in again to continue.",
+        )
+
+
+class AuthDisabledError(DomainError):
+    """staff-api is running in Azure without built-in auth: fail closed (AD-14)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            ErrorCode.AUTH_DISABLED,
+            "Sign-in is not set up for this app. Contact your administrator.",
+        )
+
+
+class ForbiddenError(DomainError):
+    """The signed-in staff user has none of the roles the route allows (AD-14)."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.FORBIDDEN, "You don't have access to that page.")

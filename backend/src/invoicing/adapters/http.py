@@ -55,7 +55,8 @@ SECURITY_HEADERS: Mapping[str, str] = {
 STATUS_BY_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.INTERNAL_ERROR: 500,
     ErrorCode.VALIDATION_FAILED: 400,
-    ErrorCode.UNAUTHORIZED: 401,
+    ErrorCode.UNAUTHENTICATED: 401,
+    ErrorCode.AUTH_DISABLED: 401,
     ErrorCode.FORBIDDEN: 403,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.CONFLICT: 409,

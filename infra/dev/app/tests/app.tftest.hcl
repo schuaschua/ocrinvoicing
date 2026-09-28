@@ -139,6 +139,7 @@ variables {
   cost_centre         = "test-cc"
   application         = "test-app"
   data_classification = "test-class"
+  staff_api_client_id = "30000000-0000-0000-0000-0000000000a1"
 }
 
 run "dev_app" {
@@ -245,5 +246,17 @@ run "dev_app" {
   assert {
     condition     = module.app.telemetry_sampling_ratio == 0.5
     error_message = "dev apps must sample at telemetry_sampling_ratio (default 0.5)."
+  }
+
+  # Story 2.7: built-in auth on staff-api, through the bootstrap's app registration.
+  assert {
+    condition = (
+      output.staff_api_auth.client_id == "30000000-0000-0000-0000-0000000000a1" &&
+      output.staff_api_auth.site_id == output.function_apps["staff_api"].resource_id &&
+      output.staff_api_auth.site_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Web/sites/babaloo-sea-lng-func-02" &&
+      output.staff_api_auth.require_authentication &&
+      output.staff_api_auth.open_id_issuer == "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
+    )
+    error_message = "dev staff-api must require Entra sign-in through staff_api_client_id, single tenant (AD-14)."
   }
 }

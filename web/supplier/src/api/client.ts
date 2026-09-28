@@ -118,6 +118,10 @@ export async function apiRequest<T>(
     method: options.method ?? "GET",
     headers,
     credentials: "same-origin",
+    // An expired staff session may be answered with a redirect to the Entra login.
+    // Followed, it fails as a cross-origin request and would read as "network"; kept
+    // manual, it arrives as an opaque redirect, handled below as 401.
+    redirect: "manual",
     signal: options.signal,
   };
   if (options.json !== undefined) {
@@ -134,6 +138,11 @@ export async function apiRequest<T>(
       throw options.signal.reason;
     }
     throw new ApiError(strings.errors.network, 0, null, null);
+  }
+
+  if (response.type === "opaqueredirect") {
+    apiEvents.dispatchEvent(new Event(SESSION_EXPIRED));
+    throw new ApiError(strings.errors.generic, 401, null, null);
   }
 
   if (response.ok) {

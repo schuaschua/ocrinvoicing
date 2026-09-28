@@ -47,6 +47,16 @@ variable "identities" {
   }
 }
 
+variable "staff_api_client_id" {
+  description = "Client (application) id of this environment's staff-api app registration, babaloo-sea-lng-staff-api-<env>, as infra/bootstrap/app-registrations.sh prints it (AD-14, AD-17 step 1). Not a secret."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.staff_api_client_id))
+    error_message = "staff_api_client_id must be the app registration's client id: a lowercase UUID."
+  }
+}
+
 variable "storage_account" {
   description = "The environment's storage account from <env>/foundation (name and resource id)."
   type = object({

@@ -77,14 +77,55 @@ export function statusLabel(
   return statusLabels[status] ?? FALLBACK_STATUS;
 }
 
+/** A page title: the page's own words, then the company name (UX-DR21). */
+export function pageTitle(text: string): string {
+  return `${text} – Babaloo`;
+}
+
 export const strings = {
   appName: "Babaloo",
   errors: {
     generic: "Something went wrong. Try again later.",
     network: "Couldn't reach Babaloo. Check your connection and try again.",
+    tryAgain: "Try again",
   },
   // EXPERIENCE.md State Patterns, shown on the API client's events (UX-DR3).
   sessionExpired: "Your session ended. Sign in again to continue.",
+  signIn: "Sign in",
+  signOut: "Sign out",
   offline:
     "The system is offline outside working hours (weekdays 9am–9pm). Supplier uploads still arrive and will be processed when it's back.",
+  offlineHeading: "System offline",
+  /** Skeleton rows, then this line after 3 s (UX-DR20: the app scales to zero when idle). */
+  loading: {
+    label: "Loading",
+    wakingUp: "Waking up, one moment…",
+  },
+  /** EXPERIENCE.md State Patterns "Not allowed": an inline Alert on the landing page. */
+  notAllowed: "You don't have access to that page.",
+  /** Signed in, but with no app role (Story 2.7). */
+  noAccess: {
+    heading: "No access yet",
+    body: "You're signed in, but you haven't been given a role in Babaloo. Ask your administrator to add one, then sign in again.",
+  },
+  nav: {
+    label: "Pages",
+    menu: "Menu",
+    close: "Close menu",
+  },
+  /** Screens not built yet show their heading and this line. */
+  placeholder: "This page isn't ready yet.",
+  /** EXPERIENCE.md staff surface table, one name per surface. */
+  surfaces: {
+    admin_queue: "Admin queue",
+    admin_item: "Admin item",
+    goods_in_scan: "Goods-in scan",
+    invoices: "Invoices",
+    overdue_pos: "Overdue POs",
+    suppliers: "Suppliers",
+    supplier_scorecard: "Supplier scorecard",
+    price_comparison: "Price comparison",
+    watchlist: "Watchlist",
+    finance_month: "Finance month",
+  },
 } as const;

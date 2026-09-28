@@ -137,6 +137,10 @@ for env in dev prod; do
       fi
     fi
   fi
+  # No group claims (Story 2.7): staff-api reads only app roles, and a user in many
+  # groups would otherwise swell the session and the X-MS-CLIENT-PRINCIPAL header.
+  # Setting it again is harmless, so a re-run keeps it off.
+  run az ad app update --id "$staff_app_id" --set groupMembershipClaims=None
   ensure_service_principal "$staff_app_id"
   run az ad sp update --id "$staff_app_id" --set appRoleAssignmentRequired=true
 

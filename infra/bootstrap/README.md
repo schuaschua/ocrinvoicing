@@ -56,7 +56,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | 4b | operator with Key Vault Secrets Officer on the vault | `ENVIRONMENT=dev ./pgp-step4b.sh`, then `ENVIRONMENT=prod ./pgp-step4b.sh` |
 | 5 | operator as PostgreSQL Entra admin | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
 | 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
-| 8 | operator | `staff-api` redirect URI (Story 1.3) |
+| 8 | operator | `staff-api` redirect URI, then the sign-in check (Story 2.7, below) |
 | Purchasing seed | operator, signed in as the env deploy identity | after the environment's migrations: the synthetic PO and goods-received data (below) |
 | Alert check | operator | `./test-alerts.sh` once the stacks are applied, then check that Dj received every test email (below) |
 | Pipeline check | operator | after the first Dev code deploy: the metric namespace and the stopped-database wait (below) |
@@ -69,7 +69,7 @@ Try each script with `--dry-run` first.
 - Deploy identity rights (azure.md rule 31 and AD-17 "Deploy identity rights"):
   - every deploy identity: Contributor on its own stack's resource group (`rg-21`, `rg-01` or `rg-11`, never `rg-22`), and Storage Blob Data Contributor on its own state container;
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `shared` state container.
-- `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs. The redirect URI is step 8.
+- `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs: put the `staff-api` one in `infra/<env>/app/terraform.tfvars` as `staff_api_client_id` (Story 2.7; not a secret) before `<env>/app` is planned. The redirect URI is step 8.
 - `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine) and the $8 subscription budget with an alert to `ALERT_EMAIL`. With `SHARED_ACTION_GROUP_ID` set, the alert also goes through the shared action group `ag-21`. An existing budget keeps its amount, start date and thresholds; the only change the script makes to it is adding `ag-21` to its notifications (once). The first run comes before `ag-21` exists, so run it again after step 2.
 
 ### Step 1 (ADO): service connections, environments, pipelines and branch policy
@@ -130,6 +130,30 @@ It then gives Dj's user Key Vault Secrets User on the vault and Storage Table Da
 `verify-db-isolation.sh` checks, as the admin, that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it inside a Dev pipeline job signed in as the dev deploy identity with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
 
 Dj's user is one login on the shared server and is granted `CONNECT` by both environments, so it is left out of the cross-check.
+
+### Step 8: staff-api redirect URI and sign-in check (once per environment, Story 2.7)
+
+**Before the next pipeline run:** `infra/dev/app` and `infra/prod/app` now need `staff_api_client_id` in their `terraform.tfvars` (the client id `app-registrations.sh` prints; not a secret), or their plan stops asking for it. Re-run `app-registrations.sh` too, so group claims are turned off on the `staff-api` registrations.
+
+`<env>/app` turns on built-in auth for `staff-api` (Entra, single tenant, ID tokens only, no client secret, token store off; only `/api/health` is anonymous). Entra refuses the sign-in until the app registration knows where to send the user back, and the host name exists only after `<env>/app` is applied. So, after the first `<env>/app` apply:
+
+1. Read the host name: `terraform output -json function_apps` in `infra/<env>/app`, key `staff_api.host_name` (Dev `babaloo-sea-lng-func-02.azurewebsites.net`, Prod `-func-12`).
+2. Add the redirect URI to `babaloo-sea-lng-staff-api-<env>` (ID tokens stay on, no secret):
+
+   ```sh
+   app_id="$(az ad app list --display-name babaloo-sea-lng-staff-api-<env> --query '[0].appId' -o tsv)"
+   az ad app update --id "$app_id" --web-redirect-uris "https://<staff-api host>/.auth/login/aad/callback" --enable-id-token-issuance true
+   ```
+
+   `--web-redirect-uris` replaces the list, so include any URI already there (`az ad app show --id "$app_id" --query web.redirectUris`).
+3. Assign each staff user their app role(s) on the Enterprise application `babaloo-sea-lng-staff-api-<env>` (Users and groups > Add user/group). "Assignment required" is on, so an unassigned user is refused by Entra.
+4. **Check sign-in** (verified offline only until now):
+   - open `https://<staff-api host>/` in a private window: it redirects to the Entra login, and after sign-in the staff app shows the user's sidebar and landing page;
+   - `curl -i -H 'X-Requested-With: XMLHttpRequest' https://<staff-api host>/api/me` answers `401`, not a redirect (AD-14; an open question in the spine);
+   - `curl -i https://<staff-api host>/api/health` answers `200` without signing in;
+   - sign in as a tenant user who has **no** role assignment on the Enterprise application: Entra must refuse with `AADSTS50105` ("assignment required" is working);
+   - `/api/me` never touches the database, so while PostgreSQL is stopped the sign-in and the landing page still load; the full-page offline notice appears on the first call that reads data (from the screen stories on), not on landing;
+   - in the browser's developer tools, the `AppServiceAuthSession` cookie is `Secure` and `HttpOnly`; note its `SameSite` value. AD-14 asks for `Lax`, and `authsettingsV2` has no setting for it: if the platform sets another value, record it as a departure from AD-14 for Dj to accept (the CSRF defence is the `X-Requested-With` header either way).
 
 ### Purchasing seed: synthetic PO and goods-received data (Story 2.4)
 

@@ -129,6 +129,7 @@ variables {
     stuck_invoices = "babaloo-sea-lng-ar-02"
   }
   telemetry_sampling_ratio               = 0.5
+  staff_api_client_id                    = "30000000-0000-0000-0000-0000000000a1"
   application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
   tags = {
     owner              = "test-owner"
@@ -464,4 +465,82 @@ run "metric_alert_names_must_be_exactly_the_two_metrics" {
   }
 
   expect_failures = [var.metric_alert_names]
+}
+
+# Story 2.7: staff-api signs in with Entra through built-in auth (AD-14).
+run "staff_api_built_in_auth" {
+  command = apply
+
+  assert {
+    condition = (
+      azapi_update_resource.staff_api_auth.type == "Microsoft.Web/sites/config@2025-03-01" &&
+      azapi_update_resource.staff_api_auth.name == "authsettingsV2" &&
+      azapi_update_resource.staff_api_auth.parent_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Web/sites/babaloo-sea-lng-func-02"
+    )
+    error_message = "built-in auth v2 must be configured on the staff-api site (func-02) only."
+  }
+  assert {
+    condition = (
+      azapi_update_resource.staff_api_auth.body.properties.platform.enabled &&
+      azapi_update_resource.staff_api_auth.body.properties.globalValidation.requireAuthentication &&
+      azapi_update_resource.staff_api_auth.body.properties.globalValidation.unauthenticatedClientAction == "RedirectToLoginPage" &&
+      azapi_update_resource.staff_api_auth.body.properties.globalValidation.redirectToProvider == "azureactivedirectory" &&
+      azapi_update_resource.staff_api_auth.body.properties.globalValidation.excludedPaths == ["/api/health"]
+    )
+    error_message = "staff-api must require sign-in, redirect pages to Entra (401 for XHR calls) and leave only /api/health anonymous (AD-14)."
+  }
+  assert {
+    condition = (
+      azapi_update_resource.staff_api_auth.body.properties.identityProviders.azureActiveDirectory.enabled &&
+      azapi_update_resource.staff_api_auth.body.properties.identityProviders.azureActiveDirectory.registration == {
+        clientId     = "30000000-0000-0000-0000-0000000000a1"
+        openIdIssuer = "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
+      }
+    )
+    error_message = "staff-api must sign in through its own app registration, single tenant, with no client secret (ID tokens only)."
+  }
+  assert {
+    condition     = keys(azapi_update_resource.staff_api_auth.body.properties.identityProviders) == ["azureActiveDirectory"]
+    error_message = "Entra must be the only identity provider."
+  }
+  assert {
+    condition     = !azapi_update_resource.staff_api_auth.body.properties.login.tokenStore.enabled && azapi_update_resource.staff_api_auth.body.properties.httpSettings.requireHttps
+    error_message = "the token store must be off and HTTPS required."
+  }
+  assert {
+    condition = (
+      azapi_update_resource.staff_api_auth.body.properties.login.cookieExpiration == {
+        convention       = "FixedTime"
+        timeToExpiration = "08:00:00"
+      } &&
+      azapi_update_resource.staff_api_auth.body.properties.login.preserveUrlFragmentsForLogins
+    )
+    error_message = "the staff session must end 8 hours after sign-in (FixedTime) and sign-in must keep URL fragments."
+  }
+  assert {
+    condition     = !can(regex("(?i)secret", jsonencode(azapi_update_resource.staff_api_auth.body)))
+    error_message = "built-in auth must use no client secret (AD-14)."
+  }
+  assert {
+    condition = output.staff_api_auth == {
+      client_id                     = "30000000-0000-0000-0000-0000000000a1"
+      open_id_issuer                = "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
+      require_authentication        = true
+      unauthenticated_client_action = "RedirectToLoginPage"
+      excluded_paths                = ["/api/health"]
+      token_store_enabled           = false
+      site_id                       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Web/sites/babaloo-sea-lng-func-02"
+    }
+    error_message = "the staff_api_auth output must report the configured auth."
+  }
+}
+
+run "staff_api_client_id_must_be_a_uuid" {
+  command = plan
+
+  variables {
+    staff_api_client_id = "babaloo-sea-lng-staff-api-dev"
+  }
+
+  expect_failures = [var.staff_api_client_id]
 }

@@ -6,3 +6,7 @@
 # cost_centre         = ""
 # application         = ""
 # data_classification = ""
+#
+# Story 2.7: the client id of babaloo-sea-lng-staff-api-dev, which
+# infra/bootstrap/app-registrations.sh prints (not a secret):
+# staff_api_client_id = ""

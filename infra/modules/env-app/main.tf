@@ -1,10 +1,10 @@
 # AD-17 step 7: one environment's four Flex Consumption apps (AD-1), each in its own
 # plan with its own user-assigned identity from <env>/foundation, their deployment
 # containers, app settings (no secrets) and the AD-17 runtime role assignments.
-# Built-in auth (Story 2.7), the DI Cognitive Services User assignment (2.3), the
-# ACS Email Sender assignment (5.2) and the di_pages_used_pct alert (2.3) are added
-# later; Story 1.5 added the telemetry settings and Story 2.2 the pipeline's
-# poison_message and stuck_invoices metric alerts.
+# The DI Cognitive Services User assignment (2.3), the ACS Email Sender assignment
+# (5.2) and the di_pages_used_pct alert (2.3) are added later; Story 1.5 added the
+# telemetry settings, Story 2.2 the pipeline's poison_message and stuck_invoices
+# metric alerts and Story 2.7 staff-api's built-in auth.
 
 locals {
   apps = toset(keys(var.app_names))
@@ -246,6 +246,76 @@ resource "azurerm_role_assignment" "runtime" {
   principal_type       = "ServicePrincipal"
 
   depends_on = [azurerm_storage_container.deployment]
+}
+
+# --- Built-in auth on staff-api (AD-14, Story 2.7) ---------------------------------------
+#
+# Entra sign-in, single tenant, through the bootstrap's `staff-api` app registration
+# (assignment required, app roles, ID tokens on; infra/bootstrap/app-registrations.sh).
+# ID tokens only, so there is no client secret. The redirect URI is operator step 8
+# (infra/bootstrap/README.md). accounts-sim's auth comes with its XML route (AD-10).
+
+data "azapi_client_config" "current" {}
+
+locals {
+  staff_api_auth = {
+    platform = {
+      enabled        = true
+      runtimeVersion = "~1"
+    }
+    globalValidation = {
+      requireAuthentication = true
+      # A browser page is redirected to Entra; a call carrying
+      # `X-Requested-With: XMLHttpRequest` (the staff app sends it on every call) gets
+      # 401 instead, which the app shows as its session-ended dialog (AD-14). That
+      # split is the platform's own behaviour for this action. [ASSUMPTION] To confirm
+      # on the first Dev deploy (spine Open Questions; bootstrap README step 8 check).
+      unauthenticatedClientAction = "RedirectToLoginPage"
+      redirectToProvider          = "azureactivedirectory"
+      # The only anonymous route: liveness (Story 1.3).
+      excludedPaths = ["/api/health"]
+    }
+    identityProviders = {
+      azureActiveDirectory = {
+        enabled = true
+        registration = {
+          clientId = var.staff_api_client_id
+          # Single tenant: only this tenant's issuer is accepted.
+          openIdIssuer = "https://login.microsoftonline.com/${data.azapi_client_config.current.tenant_id}/v2.0"
+        }
+      }
+    }
+    login = {
+      # The API reads only the platform's X-MS-CLIENT-PRINCIPAL header, never stored
+      # tokens, so no token is kept server side. The session cookie's SameSite
+      # (AD-14: Lax) is the platform's; authsettingsV2 has no setting for it.
+      tokenStore = { enabled = false }
+      # A working day: the session ends 8 hours after sign-in, whatever the activity,
+      # and the staff app then shows its session-ended dialog.
+      cookieExpiration = {
+        convention       = "FixedTime"
+        timeToExpiration = "08:00:00"
+      }
+      # A deep link (e.g. an alert email's) keeps its #fragment through the sign-in.
+      preserveUrlFragmentsForLogins = true
+    }
+    httpSettings = {
+      requireHttps = true
+      routes       = { apiPrefix = "/.auth" }
+      forwardProxy = { convention = "NoProxy" }
+    }
+  }
+}
+
+# azapi, not azurerm: the sites are AVM azapi resources on Flex Consumption, and azurerm
+# has no standalone auth-settings resource for them (auth_settings_v2 exists only
+# inside its own site resources). authsettingsV2 is a site config child that always
+# exists and can't be deleted, so it is updated in place, like the AVM's own submodule.
+resource "azapi_update_resource" "staff_api_auth" {
+  type      = "Microsoft.Web/sites/config@2025-03-01"
+  name      = "authsettingsV2"
+  parent_id = module.function_apps["staff_api"].resource_id
+  body      = { properties = local.staff_api_auth }
 }
 
 # --- Metric alerts (AD-17): the pipeline's custom metrics, sent to Dj ---------------------

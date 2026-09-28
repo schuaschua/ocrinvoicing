@@ -50,3 +50,16 @@ output "metric_alerts" {
     }
   }
 }
+
+output "staff_api_auth" {
+  description = "staff-api's built-in auth (AD-14): Entra client id, OpenID issuer, whether sign-in is required, the action for signed-out requests, the excluded paths and whether the token store is on."
+  value = {
+    client_id                     = local.staff_api_auth.identityProviders.azureActiveDirectory.registration.clientId
+    open_id_issuer                = local.staff_api_auth.identityProviders.azureActiveDirectory.registration.openIdIssuer
+    require_authentication        = local.staff_api_auth.globalValidation.requireAuthentication
+    unauthenticated_client_action = local.staff_api_auth.globalValidation.unauthenticatedClientAction
+    excluded_paths                = local.staff_api_auth.globalValidation.excludedPaths
+    token_store_enabled           = local.staff_api_auth.login.tokenStore.enabled
+    site_id                       = azapi_update_resource.staff_api_auth.parent_id
+  }
+}

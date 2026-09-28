@@ -24,11 +24,12 @@ output "storage_account" {
 }
 
 output "key_vault" {
-  description = "Key Vault name, id and URI."
+  description = "Key Vault name, id, URI and the workspace its AuditEvent log goes to."
   value = {
-    name        = var.names.key_vault
-    resource_id = module.key_vault.resource_id
-    uri         = module.key_vault.uri
+    name                   = var.names.key_vault
+    resource_id            = module.key_vault.resource_id
+    uri                    = module.key_vault.uri
+    audit_log_workspace_id = local.key_vault_diagnostic_settings.audit.workspace_resource_id
   }
 }
 
@@ -38,10 +39,12 @@ output "log_analytics_workspace_id" {
 }
 
 output "application_insights" {
-  description = "Application Insights resource id and name."
+  description = "Application Insights name, id, ingestion sampling percentage (100: the apps sample) and custom-metric dimension setting."
   value = {
-    name        = var.names.application_insights
-    resource_id = module.application_insights.resource_id
+    name                         = var.names.application_insights
+    resource_id                  = module.application_insights.resource_id
+    sampling_percentage          = local.app_insights_ingestion_sampling_percentage
+    custom_metrics_opted_in_type = azapi_update_resource.application_insights_custom_metric_dimensions.body.properties.CustomMetricsOptedInType
   }
 }
 
@@ -49,6 +52,11 @@ output "application_insights_connection_string" {
   description = "Application Insights connection string (not a secret with local auth off, but kept out of logs)."
   value       = module.application_insights.connection_string
   sensitive   = true
+}
+
+output "budget_contact_groups" {
+  description = "Action groups the resource-group budget notifies (every notification)."
+  value       = tolist(distinct(flatten([for n in azurerm_consumption_budget_resource_group.this.notification : n.contact_groups])))
 }
 
 output "action_group_id" {

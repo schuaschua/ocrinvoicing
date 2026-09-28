@@ -74,16 +74,6 @@ variable "budget_amount" {
   }
 }
 
-variable "app_insights_sampling_percentage" {
-  description = "Application Insights ingestion sampling percentage; below 100 means sampling is on (AD-17)."
-  type        = number
-
-  validation {
-    condition     = var.app_insights_sampling_percentage > 0 && var.app_insights_sampling_percentage < 100
-    error_message = "app_insights_sampling_percentage must be between 0 and 100 (exclusive) so sampling is on."
-  }
-}
-
 variable "blob_soft_delete_days" {
   description = "Blob and container soft-delete retention in days (AD-15)."
   type        = number

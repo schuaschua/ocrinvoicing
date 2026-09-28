@@ -2,11 +2,15 @@
 Conventions: Logging; security.md rule 31).
 
 Every field goes through an allow-list, so a token, header or field value passed by
-mistake is dropped before it reaches Application Insights.
+mistake is dropped before it reaches Application Insights. The kept fields are set on
+the log record as plain attributes, which the OpenTelemetry handler (Story 1.5,
+adapters/telemetry.py) exports as custom dimensions; nothing else on a record is ours.
 """
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from enum import Enum
 from uuid import UUID
 
@@ -39,12 +43,33 @@ MAX_VALUE_LENGTH = 64
 
 type LogValue = str | int | float | bool
 
+# Set on a record when fields were dropped, so a leak attempt is visible.
+DROPPED_FIELDS_KEY = "dropped_fields"
 
-def safe_fields(fields: Mapping[str, object]) -> dict[str, LogValue]:
-    """Keep only allow-listed keys with short scalar values; drop everything else."""
+# The correlation id of the request or message being handled (Story 1.5): every
+# log_event inside `bind_correlation_id` carries it, so one id is one trace (AD-17).
+_correlation_id: ContextVar[UUID | None] = ContextVar(
+    "invoicing_correlation_id", default=None
+)
+
+
+@contextmanager
+def bind_correlation_id(correlation_id: UUID) -> Iterator[None]:
+    """Within this block, log_event adds `correlation_id` when the caller omits it."""
+    token = _correlation_id.set(correlation_id)
+    try:
+        yield
+    finally:
+        _correlation_id.reset(token)
+
+
+def safe_fields(
+    fields: Mapping[str, object], *, allowed: frozenset[str] = ALLOWED_KEYS
+) -> dict[str, LogValue]:
+    """Keep only `allowed` keys with short scalar values; drop everything else."""
     kept: dict[str, LogValue] = {}
     for key, value in fields.items():
-        if key not in ALLOWED_KEYS:
+        if key not in allowed:
             continue
         if isinstance(value, Enum):
             value = value.value
@@ -70,6 +95,18 @@ def log_event(
     kept = safe_fields(fields)
     dropped = len(fields) - len(kept)
     if dropped:
-        kept["dropped_fields"] = dropped
+        kept[DROPPED_FIELDS_KEY] = dropped
+    bound = _correlation_id.get()
+    # Also when the caller's own value was dropped as unsafe.
+    if bound is not None and "correlation_id" not in kept:
+        kept["correlation_id"] = str(bound)
     text = " ".join(f"{key}={value}" for key, value in sorted(kept.items()))
-    logger.log(level, "%s %s", event, text, extra={"custom_dimensions": kept})
+    # Flat attributes, not one dict: the OpenTelemetry handler exports each record
+    # attribute as a custom dimension. None of the allowed keys is a LogRecord field.
+    logger.log(level, "%s %s", event, text, extra=kept)
+
+
+def event_fields(record: logging.LogRecord) -> dict[str, LogValue]:
+    """The safe fields log_event set on `record`."""
+    names = ALLOWED_KEYS | {DROPPED_FIELDS_KEY}
+    return {key: value for key, value in vars(record).items() if key in names}

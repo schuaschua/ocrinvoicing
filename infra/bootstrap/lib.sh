@@ -76,6 +76,8 @@ app_identity_name() { resource_name id "$(($(env_base "$1") + $(app_offset "$2")
 function_app_name() { resource_name func "$(($(env_base "$1") + $(app_offset "$2")))"; }
 
 key_vault_name() { resource_name kv "$(env_base "$1")"; }
+# The Azure Monitor action group of each stack (ag-01 dev, ag-11 prod, ag-21 shared).
+action_group_name() { resource_name ag "$(env_base "$1")"; }
 env_storage_name() { storage_name st "$(env_base "$1")"; }
 env_database_name() { echo "invoicing_$1"; }
 

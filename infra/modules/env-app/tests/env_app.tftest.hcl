@@ -115,6 +115,7 @@ variables {
     uri         = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
   }
   application_insights_id                = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+  telemetry_sampling_ratio               = 0.5
   application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
   tags = {
     owner              = "test-owner"
@@ -219,10 +220,10 @@ run "app_settings_hold_no_secrets" {
 
   assert {
     condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
-      supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
-      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI"])
-      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI"])
-      accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
+      supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
+      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI"])
+      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI"])
+      accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
     }
     error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
   }
@@ -241,6 +242,33 @@ run "app_settings_hold_no_secrets" {
     ]))
     error_message = "app settings must hold no keys, SAS tokens, passwords or secrets."
   }
+}
+
+# Story 1.5: every app exports telemetry with Entra auth and samples (AD-17).
+run "telemetry_settings" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for app, settings in local.app_settings :
+      settings.APPLICATIONINSIGHTS_AUTHENTICATION_STRING == "ClientId=${var.identities[app].client_id};Authorization=AAD" && settings.TELEMETRY_SAMPLING_RATIO == "0.5"
+    ])
+    error_message = "every app must sign in to Application Insights as its own identity and sample at the configured ratio."
+  }
+  assert {
+    condition     = alltrue([for app in local.apps : local.per_app_role_assignments["${app}/monitoring/appi"].role == "Monitoring Metrics Publisher" && local.per_app_role_assignments["${app}/monitoring/appi"].scope == var.application_insights_id])
+    error_message = "every app identity must be Monitoring Metrics Publisher on its Application Insights."
+  }
+}
+
+run "sampling_must_be_on_in_the_apps" {
+  command = plan
+
+  variables {
+    telemetry_sampling_ratio = 1
+  }
+
+  expect_failures = [var.telemetry_sampling_ratio]
 }
 
 run "runtime_roles_are_exactly_ad17" {

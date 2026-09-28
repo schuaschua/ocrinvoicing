@@ -1,6 +1,7 @@
 # AD-17 step 4: one environment's foundation. Four app identities, storage,
-# Key Vault with the HMAC key, Log Analytics, Application Insights, the action
-# group and the resource-group budget. Runtime role assignments belong to
+# Key Vault with the HMAC key and its audit log, Log Analytics, Application Insights
+# with alerting on custom metric dimensions, the action group and the resource-group
+# budget. Runtime role assignments belong to
 # <env>/app (step 7); the PGP key pair is an operator step (4b).
 
 locals {
@@ -24,7 +25,30 @@ locals {
     }
   }
 
+  # Key Vault audit events (every secret read and change) to this environment's
+  # workspace (azure.md rule 15, Story 1.5). Only the category needed: no metrics.
+  key_vault_diagnostic_settings = {
+    audit = {
+      name                           = "diag-${var.names.key_vault}"
+      workspace_resource_id          = module.log_analytics.resource_id
+      log_categories                 = ["AuditEvent"]
+      log_groups                     = []
+      metric_categories              = []
+      log_analytics_destination_type = "Dedicated"
+    }
+  }
+
+  # AD-17: Storage queue metrics have no per-queue breakdown, so the queue and pipeline
+  # alerts use custom metrics, whose dimensions Application Insights drops unless this
+  # is on ("alerting on custom metric dimensions").
+  custom_metrics_opted_in_type = "WithDimensions"
+
+  # No ingestion sampling: the apps already sample in OpenTelemetry (TELEMETRY_SAMPLING_RATIO,
+  # infra/modules/env-app), and sampling twice would compound (0.5 x 0.5 = 25%).
+  app_insights_ingestion_sampling_percentage = 100
+
   # Delete images and corrections 30 days after creation (AD-15, P-11).
+
   lifecycle_rules = {
     retention = {
       enabled = true
@@ -138,6 +162,8 @@ module "key_vault" {
     hmac_key = random_password.hmac_key.result
   }
 
+  diagnostic_settings = local.key_vault_diagnostic_settings
+
   enable_telemetry = true
   tags             = var.tags
 }
@@ -170,11 +196,42 @@ module "application_insights" {
   resource_group_name           = var.resource_group_name
   workspace_id                  = module.log_analytics.resource_id
   application_type              = "web"
-  sampling_percentage           = var.app_insights_sampling_percentage
+  sampling_percentage           = local.app_insights_ingestion_sampling_percentage
   retention_in_days             = var.log_retention_days
   local_authentication_disabled = true
   enable_telemetry              = true
   tags                          = var.tags
+}
+
+# azapi: neither azurerm_application_insights nor the AVM module has an argument for
+# CustomMetricsOptedInType (azurerm issue 6901), so it is patched onto the component
+# the module owns. The property is missing from the published API schema;
+# azapi_update_resource does not validate its body against that schema.
+resource "azapi_update_resource" "application_insights_custom_metric_dimensions" {
+  type        = "Microsoft.Insights/components@2020-02-02"
+  resource_id = module.application_insights.resource_id
+  body = {
+    properties = {
+      CustomMetricsOptedInType = local.custom_metrics_opted_in_type
+    }
+  }
+
+  # An azurerm update of the component PUTs it without this property and can reset it,
+  # so the patch runs again whenever the component's managed settings change.
+  lifecycle {
+    replace_triggered_by = [terraform_data.application_insights_settings]
+  }
+}
+
+# What the AVM module sets on the component; a change means azurerm updated it.
+resource "terraform_data" "application_insights_settings" {
+  input = {
+    resource_id         = module.application_insights.resource_id
+    tags                = var.tags
+    workspace_id        = module.log_analytics.resource_id
+    sampling_percentage = local.app_insights_ingestion_sampling_percentage
+    retention_in_days   = var.log_retention_days
+  }
 }
 
 resource "azurerm_monitor_action_group" "this" {

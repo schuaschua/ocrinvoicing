@@ -5,11 +5,14 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import azure.functions as func
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 from invoicing.adapters.logging import log_event
+from invoicing.adapters.telemetry import correlation_span
 from invoicing.domain.errors import DomainError, ErrorCode
 from invoicing.domain.ids import new_uuid7, parse_uuid
 
@@ -70,9 +73,15 @@ type Endpoint = Callable[[func.HttpRequest], Awaitable[func.HttpResponse]]
 _logger = logging.getLogger("invoicing.http")
 
 
-def correlation_id_for(req: func.HttpRequest) -> UUID:
-    """The caller's `X-Correlation-Id` when it is a valid UUID, else a new UUIDv7."""
-    return parse_uuid(req.headers.get(CORRELATION_HEADER)) or new_uuid7()
+def correlation_id_for(req: func.HttpRequest, *, trust_caller: bool = True) -> UUID:
+    """The caller's `X-Correlation-Id` when trusted and a valid, non-nil UUID, else a
+    new UUIDv7. The id is also the trace id (AD-17), so an anonymous caller must not
+    choose it: supplier-api passes `trust_caller=False`."""
+    if trust_caller:
+        caller = parse_uuid(req.headers.get(CORRELATION_HEADER))
+        if caller is not None and caller.int != 0:
+            return caller
+    return new_uuid7()
 
 
 def json_response(
@@ -104,19 +113,42 @@ def error_response(
 
 
 def http_endpoint(
-    handler: Handler, *, enforced_headers: Mapping[str, str] = SECURITY_HEADERS
+    handler: Handler,
+    *,
+    enforced_headers: Mapping[str, str] = SECURITY_HEADERS,
+    trust_caller_correlation_id: bool = True,
 ) -> Endpoint:
     """Wrap `handler(req, correlation_id)` so domain errors map to their status and any
     other exception becomes a 500 `INTERNAL_ERROR`, logged by correlation id and code only.
 
     `enforced_headers` overwrite the handler's own on every successful response; error
     responses always carry `SECURITY_HEADERS`. Only the static-file adapter narrows them,
-    to set its own Cache-Control."""
+    to set its own Cache-Control. `trust_caller_correlation_id=False` ignores the
+    caller's `X-Correlation-Id` (anonymous apps: supplier-api)."""
 
     # Not functools.wraps: the Functions host binds the trigger by the signature's
     # parameter name (`req`), and wraps would expose the handler's own signature.
     async def endpoint(req: func.HttpRequest) -> func.HttpResponse:
-        correlation_id = correlation_id_for(req)
+        correlation_id = correlation_id_for(
+            req, trust_caller=trust_caller_correlation_id
+        )
+        # One trace per correlation id (AD-17): the request span, and every log inside
+        # it, carries the id; its trace id is the id itself.
+        with correlation_span(
+            handler.__name__, correlation_id, kind=SpanKind.SERVER
+        ) as span:
+            # The path only: never the query string or headers (security.md rule 31).
+            span.set_attribute("http.request.method", req.method or "")
+            span.set_attribute("url.path", urlsplit(req.url or "").path)
+            response = await _respond(req, correlation_id)
+            span.set_attribute("http.response.status_code", response.status_code)
+            if response.status_code >= 500:
+                span.set_status(Status(StatusCode.ERROR))
+            return response
+
+    async def _respond(
+        req: func.HttpRequest, correlation_id: UUID
+    ) -> func.HttpResponse:
         try:
             response = await handler(req, correlation_id)
             if not isinstance(response, func.HttpResponse):

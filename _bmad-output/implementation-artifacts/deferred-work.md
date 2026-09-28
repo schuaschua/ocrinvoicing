@@ -2,8 +2,8 @@
   summary: Decide whether the env deploy identity (Key Vault Secrets Officer) and Dj's load-script user (Secrets User on the vault) should be able to read `pgp-private-key`.
   evidence: AD-17 grants both roles vault-wide; only `staff-api` needs the private key (AD-11). Raise with Dj alongside the open bank-crypto questions before 1.6/2.3.
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-1-repository-and-terraform-foundation.md`
-  summary: Add diagnostic settings (Key Vault AuditEvent, PostgreSQL, DI, ACS) to the environment Log Analytics workspace.
-  evidence: No diagnostic settings exist in 1.1; azure.md rule 15. Belongs with Story 1.5 monitoring.
+  summary: Add diagnostic settings for PostgreSQL, DI and ACS (Key Vault AuditEvent was done in Story 1.5).
+  evidence: azure.md rule 15. They live in `shared`, which has no workspace (rule 14: one per environment); Story 1.5 kept them deferred rather than adding a third workspace (plan-1-5 Design Notes). Revisit if Dj wants a shared workspace or to send them to Prod's.
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-1-repository-and-terraform-foundation.md`
   summary: Execute `database-step5.sql` against a real PostgreSQL 18 (container with a `pgaadauth_create_principal` stub) and assert CONNECT isolation.
   evidence: Unverified (medium): only fakes run today. Would also settle whether PG 16+ lets the Entra admin `GRANT deploy_login TO CURRENT_USER`.

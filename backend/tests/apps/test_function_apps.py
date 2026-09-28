@@ -4,6 +4,7 @@ setting", and the host.json values AD-2 fixes. Story 1.4: the SPA route."""
 import asyncio
 import importlib.util
 import json
+import logging
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -14,6 +15,7 @@ import azure.functions as func
 import pytest
 
 import invoicing
+from invoicing.adapters import telemetry
 from invoicing.adapters.http import CORRELATION_HEADER
 from invoicing.apps.common import SettingsError
 
@@ -254,3 +256,145 @@ def test_story_1_4_the_packaged_app_serves_static_index_html(
         get("assets/index-abc.js").headers["Content-Type"].startswith("text/javascript")
     )
     assert get("api/nothing-here").status_code == 404
+
+
+# --- Story 1.5: every app configures telemetry once, from its settings (AD-17) ----------
+
+AUTH_CLIENT_ID = "00000000-0000-0000-0000-0000000a0000"
+CONNECTION_STRING = (
+    "InstrumentationKey=00000000-0000-0000-0000-00000000abcd;"
+    "IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
+)
+SERVICE_NAMES = {
+    "supplier_api": "supplier-api",
+    "staff_api": "staff-api",
+    "pipeline": "pipeline",
+    "accounts_sim": "accounts-sim",
+}
+
+
+@pytest.mark.parametrize("app", ALL_APPS)
+def test_story_1_5_app_starts_with_telemetry_off_and_one_warning_when_unset(
+    app: str,
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="invoicing.telemetry"):
+        module = load_app(app)
+    assert module.settings.applicationinsights_connection_string is None
+    (record,) = caplog.records
+    assert record.getMessage().startswith("telemetry.disabled ")
+
+
+@pytest.mark.parametrize("app", ALL_APPS)
+def test_story_1_5_app_configures_azure_monitor_with_its_identity_and_sampling(
+    app: str,
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+    credentials: list[str] = []
+    monkeypatch.setattr(
+        telemetry, "_azure_monitor", lambda: lambda **kw: calls.append(kw)
+    )
+    monkeypatch.setattr(telemetry, "_managed_identity", credentials.append)
+    monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", CONNECTION_STRING)
+    monkeypatch.setenv(
+        "APPLICATIONINSIGHTS_AUTHENTICATION_STRING",
+        f"ClientId={AUTH_CLIENT_ID};Authorization=AAD",
+    )
+    monkeypatch.setenv("TELEMETRY_SAMPLING_RATIO", "0.25")
+
+    module = load_app(app)
+    assert CONNECTION_STRING not in repr(module.settings)
+    (options,) = calls
+    assert credentials == [AUTH_CLIENT_ID]
+    assert options["connection_string"] == CONNECTION_STRING
+    assert options["sampling_ratio"] == 0.25
+    assert options["resource"].attributes["service.name"] == SERVICE_NAMES[app]  # type: ignore[attr-defined]  # a Resource
+
+
+def test_story_1_5_without_an_authentication_string_the_app_identity_signs_in(
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    credentials: list[str] = []
+    monkeypatch.setattr(telemetry, "_azure_monitor", lambda: lambda **kw: None)
+    monkeypatch.setattr(telemetry, "_managed_identity", credentials.append)
+    monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", CONNECTION_STRING)
+    load_app("pipeline")
+    assert credentials == [app_settings["AZURE_CLIENT_ID"]]
+
+
+@pytest.mark.parametrize("ratio", ["0", "1", "1.5", "-0.1", "half"])
+def test_story_1_5_sampling_off_or_malformed_stops_the_app(
+    ratio: str,
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEMETRY_SAMPLING_RATIO", ratio)
+    with pytest.raises(SettingsError, match="TELEMETRY_SAMPLING_RATIO"):
+        load_app("staff_api")
+
+
+@pytest.mark.parametrize("app", ALL_APPS)
+def test_story_1_5_the_host_exports_through_opentelemetry(app: str) -> None:
+    host = json.loads((APPS_DIR / app / "host.json").read_text())
+    # The host exports no telemetry of its own beside the app's (no duplicates, no
+    # records that bypass the log allow-list).
+    assert host["telemetryMode"] == "OpenTelemetry"
+
+
+@pytest.mark.parametrize(
+    ("app", "trusted"), [("supplier_api", False), ("staff_api", True)]
+)
+def test_story_1_5_only_signed_in_apps_honour_the_callers_correlation_id(
+    app: str,
+    trusted: bool,
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+) -> None:
+    caller = "0192f0c1-7a2b-7c3d-8e4f-0123456789ab"
+    module = load_app(app)
+    registered = _functions(module)
+    request = func.HttpRequest(
+        method="GET", url="/api/health", headers={CORRELATION_HEADER: caller}, body=b""
+    )
+    response = asyncio.run(registered["health"].get_user_function()(request))
+    assert (response.headers[CORRELATION_HEADER] == caller) is trusted
+    spa_request = func.HttpRequest(
+        method="GET",
+        url="/nothing.js",
+        headers={CORRELATION_HEADER: caller},
+        body=b"",
+        route_params={"path": "nothing.js"},
+    )
+    spa_response = asyncio.run(registered["web_app"].get_user_function()(spa_request))
+    assert (spa_response.headers[CORRELATION_HEADER] == caller) is trusted
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Authorization=AAD",
+        "ClientId=not-a-client-id;Authorization=AAD",
+        "ClientId=zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz;Authorization=AAD",
+        "ClientId=;Authorization=AAD",
+    ],
+)
+def test_story_1_5_a_malformed_authentication_string_stops_the_app_naming_it(
+    value: str,
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APPLICATIONINSIGHTS_AUTHENTICATION_STRING", value)
+    with pytest.raises(
+        SettingsError, match="APPLICATIONINSIGHTS_AUTHENTICATION_STRING"
+    ) as raised:
+        load_app("pipeline")
+    assert value not in str(raised.value)

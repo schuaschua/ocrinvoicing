@@ -275,3 +275,95 @@ def test_missing_database_fails_the_public_check(work_dir: Path) -> None:
     assert "FAIL invoicing_prod does not exist" in result.stdout
     assert "PASS PUBLIC has no CONNECT on invoicing_prod" not in result.stdout
     assert "PASS PUBLIC has no CONNECT on invoicing_dev" in result.stdout
+
+
+# --- Story 1.5: attaching ag-21 to an existing subscription budget ------------------------------
+
+SHARED_AG_ID = (
+    "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21"
+    "/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-21"
+)
+
+
+def _budget_puts(calls: list[list[str]]) -> list[list[str]]:
+    return [call for call in calls if call[:1] == ["rest"] and "put" in call and "Consumption/budgets" in " ".join(call)]
+
+
+def test_story_1_5_existing_budget_gets_the_action_group_and_keeps_the_rest(work_dir: Path) -> None:
+    result, calls = _run("budget-and-roles.sh", work_dir, SHARED_ACTION_GROUP_ID=SHARED_AG_ID)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert len(_budget_puts(calls)) == 1
+    (entry,) = [e for e in _files(work_dir) if e["args"][:1] == ["rest"] and "put" in e["args"]]
+    update = json.loads(entry["content"])
+    properties = update["properties"]
+    assert properties["timePeriod"] == {"startDate": "2026-09-01T00:00:00Z"}
+    assert properties["amount"] == 8
+    (notification,) = properties["notifications"].values()
+    assert notification["contactGroups"] == [SHARED_AG_ID]
+    assert notification["contactEmails"] == ["alerts@example.test"]
+    assert "currentSpend" not in properties and "id" not in update
+    assert update["eTag"] == '"1d34d016a593709"'
+
+
+def test_story_1_5_budget_already_notifying_the_group_is_left_unchanged(work_dir: Path) -> None:
+    result, calls = _run(
+        "budget-and-roles.sh",
+        work_dir,
+        SHARED_ACTION_GROUP_ID=SHARED_AG_ID,
+        FAKE_AZ_BUDGET_GROUPS=SHARED_AG_ID.lower(),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _budget_puts(calls) == []
+    assert "already notifies babaloo-sea-lng-ag-21" in result.stdout
+
+
+def test_story_1_5_alert_test_sends_through_every_existing_action_group(work_dir: Path) -> None:
+    result, calls = _run("test-alerts.sh", work_dir)
+    assert result.returncode == 0, result.stdout + result.stderr
+    sent = [call for call in calls if call[:4] == ["monitor", "action-group", "test-notifications", "create"]]
+    assert [call[call.index("--action-group-name") + 1] for call in sent] == [
+        "babaloo-sea-lng-ag-21",
+        "babaloo-sea-lng-ag-01",
+        "babaloo-sea-lng-ag-11",
+    ]
+    assert "Sent 3 test notification(s)" in result.stdout
+    for call in sent:
+        # Sent to the receiver stored on the group.
+        assert call[call.index("--add-action") :][:5] == [
+            "--add-action",
+            "email",
+            "owner",
+            "alerts@example.test",
+            "usecommonalertschema",
+        ]
+
+
+def _sent(calls: list[list[str]]) -> list[list[str]]:
+    return [call for call in calls if call[:4] == ["monitor", "action-group", "test-notifications", "create"]]
+
+
+def test_story_1_5_alert_test_stops_before_sending_when_an_action_group_is_missing(work_dir: Path) -> None:
+    result, calls = _run("test-alerts.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="babaloo-sea-lng-ag-11")
+    assert result.returncode == 1
+    assert "action group babaloo-sea-lng-ag-11 does not exist" in result.stderr
+    assert _sent(calls) == [], "nothing may be sent when any requested group is missing"
+
+
+def test_story_1_5_alert_test_fails_for_a_group_without_receivers(work_dir: Path) -> None:
+    result, calls = _run("test-alerts.sh", work_dir, FAKE_AZ_NO_RECEIVERS="1")
+    assert result.returncode == 1
+    assert "has no email receiver" in result.stderr
+    assert _sent(calls) == []
+
+
+def test_story_1_5_existing_budget_without_notifications_stops_without_a_put(work_dir: Path) -> None:
+    result, calls = _run(
+        "budget-and-roles.sh",
+        work_dir,
+        SHARED_ACTION_GROUP_ID=SHARED_AG_ID,
+        FAKE_AZ_BUDGET_NO_NOTIFICATIONS="1",
+    )
+    assert result.returncode == 1
+    assert "the existing budget has no notifications" in result.stderr
+    assert "could not add the action group to the existing budget babaloo-sea-lng-budget-22" in result.stderr
+    assert _budget_puts(calls) == []

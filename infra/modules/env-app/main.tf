@@ -2,7 +2,8 @@
 # plan with its own user-assigned identity from <env>/foundation, their deployment
 # containers, app settings (no secrets) and the AD-17 runtime role assignments.
 # Built-in auth (Story 2.7), the DI Cognitive Services User assignment (2.3), the
-# ACS Email Sender assignment (5.2) and the metric alerts (1.5) are added later.
+# ACS Email Sender assignment (5.2) and the metric alert rules (2.2, 2.3) are added
+# later; Story 1.5 added the telemetry settings.
 
 locals {
   apps = toset(keys(var.app_names))
@@ -34,6 +35,10 @@ locals {
       AZURE_CLIENT_ID = var.identities[app].client_id
       # Application Insights has local auth off, so telemetry uses Entra (Monitoring Metrics Publisher).
       APPLICATIONINSIGHTS_AUTHENTICATION_STRING = "ClientId=${var.identities[app].client_id};Authorization=AAD"
+      # OpenTelemetry sampling in the app (azure.md rule 16), the only sampling: the
+      # Application Insights resource samples nothing at ingestion. The connection
+      # string (APPLICATIONINSIGHTS_CONNECTION_STRING) is set by the AVM module.
+      TELEMETRY_SAMPLING_RATIO = tostring(var.telemetry_sampling_ratio)
       # Host storage (AzureWebJobsStorage) through the same identity, never a key.
       AzureWebJobsStorage__accountName = var.storage_account.name
       AzureWebJobsStorage__credential  = "managedidentity"

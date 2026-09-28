@@ -52,3 +52,8 @@ output "email_domain" {
     linked               = var.email_domain_link_enabled
   }
 }
+
+output "action_group_id" {
+  description = "Resource id of the shared action group (ag-21) that emails Dj; pass it to infra/bootstrap/budget-and-roles.sh as SHARED_ACTION_GROUP_ID."
+  value       = azurerm_monitor_action_group.this.id
+}

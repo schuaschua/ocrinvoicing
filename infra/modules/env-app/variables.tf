@@ -73,6 +73,18 @@ variable "application_insights_connection_string" {
   sensitive   = true
 }
 
+variable "telemetry_sampling_ratio" {
+  description = "Fraction of traces each app keeps (TELEMETRY_SAMPLING_RATIO); below 1 so sampling is on (AD-17, azure.md rule 16)."
+  type        = number
+  # [ASSUMPTION] Half the traces until calibrated against the 0.08 GB/day cap (AD-17).
+  default = 0.5
+
+  validation {
+    condition     = var.telemetry_sampling_ratio > 0 && var.telemetry_sampling_ratio < 1
+    error_message = "telemetry_sampling_ratio must be between 0 and 1 (exclusive) so sampling is on."
+  }
+}
+
 variable "tags" {
   description = "The five P-17 tags, from the naming module."
   type        = map(string)

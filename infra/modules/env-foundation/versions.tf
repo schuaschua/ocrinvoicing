@@ -1,7 +1,8 @@
 terraform {
   required_version = ">= 1.9, < 2.0"
 
-  # azapi, time and modtm are used by the AVM modules this module calls.
+  # time and modtm are used by the AVM modules this module calls; azapi by them and by
+  # the custom-metric dimension patch on Application Insights (main.tf).
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"

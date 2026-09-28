@@ -29,3 +29,8 @@ output "role_assignments" {
     }
   }
 }
+
+output "telemetry_sampling_ratio" {
+  description = "Fraction of traces each app keeps (the TELEMETRY_SAMPLING_RATIO app setting)."
+  value       = var.telemetry_sampling_ratio
+}

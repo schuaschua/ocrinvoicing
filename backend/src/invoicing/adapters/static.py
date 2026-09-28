@@ -86,7 +86,9 @@ async def _file_response(file: Path, cache_control: str) -> func.HttpResponse:
     )
 
 
-def spa_endpoint(static_dir: Path) -> Endpoint:
+def spa_endpoint(
+    static_dir: Path, *, trust_caller_correlation_id: bool = True
+) -> Endpoint:
     """GET handler for the catch-all route: a file under `static_dir`, or `index.html`
     for a client-side path. `/api/*`, traversal and missing assets are 404s, never the
     SPA, and so are the host-reserved `admin/*` and `runtime/*` (never use them as
@@ -129,4 +131,8 @@ def spa_endpoint(static_dir: Path) -> Endpoint:
             raise NotFoundError(NOT_FOUND_MESSAGE)
         return await _file_response(index, REVALIDATE)
 
-    return http_endpoint(spa, enforced_headers=STATIC_HEADERS)
+    return http_endpoint(
+        spa,
+        enforced_headers=STATIC_HEADERS,
+        trust_caller_correlation_id=trust_caller_correlation_id,
+    )

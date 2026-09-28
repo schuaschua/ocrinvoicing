@@ -34,5 +34,7 @@ module "app" {
   }
   application_insights_id                = local.foundation.application_insights.resource_id
   application_insights_connection_string = local.foundation.application_insights_connection_string
-  tags                                   = local.tags
+  # The only sampling (Application Insights samples nothing at ingestion).
+  telemetry_sampling_ratio = var.telemetry_sampling_ratio
+  tags                     = local.tags
 }

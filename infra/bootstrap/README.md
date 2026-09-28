@@ -23,7 +23,9 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | `ADO_SC_SHARED`, `ADO_SC_DEV`, `ADO_SC_PROD` | `state-backend.sh`, `ado-setup.sh` (optional) | service connection names; default `azure-shared`, `azure-dev`, `azure-prod`, which `pipelines/deploy.yml` uses. Change them only in all three places |
 | `ADO_APPROVER` | `ado-setup.sh` | Dj's Azure DevOps sign-in: the approver on the `shared` and `prod` environments |
 | `ADO_REPO` | `ado-setup.sh` (optional) | Azure Repos repository; default `ADO_PROJECT` |
-| `ALERT_EMAIL` | `budget-and-roles.sh` | where the $8 subscription budget alert goes |
+| `ALERT_EMAIL` | `budget-and-roles.sh` | where the $8 subscription budget alert goes (same as the stacks' `alert_email`) |
+| `SHARED_ACTION_GROUP_ID` | `budget-and-roles.sh` (optional) | resource id of the shared action group `ag-21` (`terraform output action_group_id` in `infra/shared/foundation`). Unset: the subscription budget alerts by email only, with a warning |
+| `STACKS` | `test-alerts.sh` (optional) | which action groups to test; default `shared dev prod`; repeats are ignored |
 | `ENVIRONMENT` | `pgp-step4b.sh`, `database-step5.sh` | `dev` or `prod` |
 | `DJ_USER_UPN` | `database-step5.sh` | Dj's Entra UPN: the load-script login |
 | `PG_ADMIN_USER` | `database-step5.sh`, `verify-db-isolation.sh` | the PostgreSQL Entra admin used to connect. Required, and it must be a separate principal from `DJ_USER_UPN` (e.g. an Entra group whose members are the operators): the load script never runs as server admin. `database-step5.sh` stops if the two are equal |
@@ -40,6 +42,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 `rg-22` is created and managed only by these scripts. No Terraform stack manages it and no deploy identity holds Contributor on it; each deploy identity has only its container-scoped state roles there. So no stack's identity can change another identity's federated credentials or another stack's state.
 | App registrations | `babaloo-sea-lng-staff-api-<env>`, `babaloo-sea-lng-accounts-sim-<env>` |
 | Subscription budget | `babaloo-sea-lng-budget-22` ($8) |
+| Action groups (all email Dj) | `babaloo-sea-lng-ag-21` (shared: the `shared` and subscription budgets), `-ag-01` (dev), `-ag-11` (prod) |
 
 ## Run order
 
@@ -47,13 +50,14 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | --- | --- | --- |
 | 1 | operator with Owner | `./state-backend.sh`, then `./app-registrations.sh`, then `./budget-and-roles.sh` |
 | 1 (ADO) | operator, Project Administrator in the ADO project | `./ado-setup.sh` (after `state-backend.sh`, which creates the deploy identities it binds). Then merge to `main` to start the deploy pipeline |
-| 2 | `shared` deploy identity (pipeline) | `infra/shared/foundation`: fill `terraform.tfvars`; the deploy pipeline plans it, Dj approves the `shared` stage, it applies the saved plan. Then add the email domain's DNS records (below) |
+| 2 | `shared` deploy identity (pipeline) | `infra/shared/foundation`: fill `terraform.tfvars`; the deploy pipeline plans it, Dj approves the `shared` stage, it applies the saved plan. Then add the email domain's DNS records (below), and re-run `SHARED_ACTION_GROUP_ID=<ag-21 id> ./budget-and-roles.sh` so the subscription budget notifies through `ag-21` |
 | 3 | operator | `./rbac-step3.sh` |
 | 4 | env deploy identity (pipeline) | `infra/dev/foundation` (applies automatically), then `infra/prod/foundation` (after Dj approves the `prod` stage) |
 | 4b | operator with Key Vault Secrets Officer on the vault | `ENVIRONMENT=dev ./pgp-step4b.sh`, then `ENVIRONMENT=prod ./pgp-step4b.sh` |
 | 5 | operator as PostgreSQL Entra admin | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
 | 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
 | 8 | operator | `staff-api` redirect URI (Story 1.3) |
+| Alert check | operator | `./test-alerts.sh` once the stacks are applied, then check that Dj received every test email (below) |
 
 Try each script with `--dry-run` first.
 
@@ -64,7 +68,7 @@ Try each script with `--dry-run` first.
   - every deploy identity: Contributor on its own stack's resource group (`rg-21`, `rg-01` or `rg-11`, never `rg-22`), and Storage Blob Data Contributor on its own state container;
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `shared` state container.
 - `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs. The redirect URI is step 8.
-- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine) and the $8 subscription budget with an alert to `ALERT_EMAIL`. An existing budget is left unchanged.
+- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine) and the $8 subscription budget with an alert to `ALERT_EMAIL`. With `SHARED_ACTION_GROUP_ID` set, the alert also goes through the shared action group `ag-21`. An existing budget keeps its amount, start date and thresholds; the only change the script makes to it is adding `ag-21` to its notifications (once). The first run comes before `ag-21` exists, so run it again after step 2.
 
 ### Step 1 (ADO): service connections, environments, pipelines and branch policy
 
@@ -124,6 +128,16 @@ It then gives Dj's user Key Vault Secrets User on the vault and Storage Table Da
 `verify-db-isolation.sh` checks, as the admin, that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it inside a Dev pipeline job signed in as the dev deploy identity with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
 
 Dj's user is one login on the shared server and is granted `CONNECT` by both environments, so it is left out of the cross-check.
+
+### Alert check: prove an alert reaches Dj (Story 1.5)
+
+Every alert goes through an action group that emails Dj: `ag-21` for the `shared` and subscription budgets, `ag-01` and `ag-11` for the Dev and Prod budgets and their metric alerts (AD-17). After the stacks are applied (and after any change to an action group):
+
+1. Run `./test-alerts.sh` (try `--dry-run` first; `STACKS="shared dev"` before Prod exists). It first checks that every requested action group exists and has an email receiver, and stops before sending anything if one doesn't. Then it sends one test notification through each group with `az monitor action-group test-notifications create`, to the email receivers stored on that group (so it tests what Terraform configured, not an address typed on the command line). It changes nothing.
+2. **Check that Dj received it:** one test email per action group at each address the script lists, each naming its group. Look in the spam folder too, and mark the sender as safe.
+3. If one is missing, check that group's email receiver in its stack's `terraform.tfvars` (`alert_email`) and re-run. An alert that doesn't reach Dj is not an alert.
+
+Application Insights in each environment has alerting on custom metric dimensions on, so `poison_message{queue}` keeps its queue; the alert rules themselves arrive with Stories 2.2 and 2.3. There is no separate log-cap alert: the 0.08 GB daily cap bounds ingestion (AD-17).
 
 ## Tag gate (P-17)
 

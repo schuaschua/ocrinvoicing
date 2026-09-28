@@ -33,8 +33,3 @@ variable "budget_amount" {
   description = "Monthly resource-group budget in the billing currency."
   type        = number
 }
-
-variable "app_insights_sampling_percentage" {
-  description = "Application Insights ingestion sampling percentage (below 100 = sampling on)."
-  type        = number
-}

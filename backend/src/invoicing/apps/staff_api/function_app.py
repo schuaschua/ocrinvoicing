@@ -6,11 +6,13 @@ from pathlib import Path
 import azure.functions as func
 
 from invoicing.adapters.static import spa_endpoint
-from invoicing.apps.common import health_endpoint, load_settings
+from invoicing.apps.common import health_endpoint, load_settings, start_telemetry
 from invoicing.apps.staff_api.settings import StaffApiSettings
 
 # Fails at start-up, naming any missing setting.
 settings = load_settings(StaffApiSettings)
+# Once per app, before any function runs (AD-17); off, with one warning, when unset.
+start_telemetry(settings, "staff-api")
 
 # Sign-in is enforced by built-in auth at the platform (AD-14, Story 2.7), so the
 # functions themselves need no keys.

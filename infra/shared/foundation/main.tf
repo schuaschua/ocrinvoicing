@@ -147,6 +147,24 @@ resource "azurerm_communication_service_email_domain_association" "custom" {
   email_service_domain_id  = module.email.domain_resource_ids["custom"]
 }
 
+# --- Alerts (AD-17, Story 1.5) ----------------------------------------------------------------
+
+# ag-21: emails Dj. The shared resource-group budget below and the $8 subscription
+# budget (infra/bootstrap/budget-and-roles.sh, given this group's id) notify through it.
+resource "azurerm_monitor_action_group" "this" {
+  name                = local.names.action_group
+  resource_group_name = azurerm_resource_group.this.name
+  short_name          = local.names.action_group_shortname
+
+  email_receiver {
+    name                    = "owner"
+    email_address           = var.alert_email
+    use_common_alert_schema = true
+  }
+
+  tags = local.tags
+}
+
 # --- Cost (azure.md rule 17) ------------------------------------------------------------------
 
 # Budgets start on the first day of the month they are created in; Azure rejects
@@ -176,6 +194,7 @@ resource "azurerm_consumption_budget_resource_group" "this" {
       threshold      = notification.value.threshold
       threshold_type = notification.value.threshold_type
       contact_emails = [var.alert_email]
+      contact_groups = [azurerm_monitor_action_group.this.id]
     }
   }
 

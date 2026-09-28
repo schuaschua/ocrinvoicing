@@ -25,15 +25,14 @@ resource "azurerm_resource_group" "this" {
 module "foundation" {
   source = "../../modules/env-foundation"
 
-  location                         = var.location
-  resource_group_name              = azurerm_resource_group.this.name
-  resource_group_id                = azurerm_resource_group.this.id
-  names                            = local.names
-  identity_names                   = local.identity_names
-  tags                             = local.tags
-  tenant_id                        = data.azurerm_client_config.current.tenant_id
-  deploy_principal_id              = data.azurerm_client_config.current.object_id
-  alert_email                      = var.alert_email
-  budget_amount                    = var.budget_amount
-  app_insights_sampling_percentage = var.app_insights_sampling_percentage
+  location            = var.location
+  resource_group_name = azurerm_resource_group.this.name
+  resource_group_id   = azurerm_resource_group.this.id
+  names               = local.names
+  identity_names      = local.identity_names
+  tags                = local.tags
+  tenant_id           = data.azurerm_client_config.current.tenant_id
+  deploy_principal_id = data.azurerm_client_config.current.object_id
+  alert_email         = var.alert_email
+  budget_amount       = var.budget_amount
 }

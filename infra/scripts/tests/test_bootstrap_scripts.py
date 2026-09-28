@@ -118,6 +118,7 @@ def test_unknown_argument_fails(script: str) -> None:
         ("state-backend.sh", "TAG_COST_CENTRE"),
         ("app-registrations.sh", "ARM_TENANT_ID"),
         ("budget-and-roles.sh", "ALERT_EMAIL"),
+        ("test-alerts.sh", "ARM_SUBSCRIPTION_ID"),
         ("rbac-step3.sh", "ARM_SUBSCRIPTION_ID"),
         ("pgp-step4b.sh", "ENVIRONMENT"),
         ("database-step5.sh", "DJ_USER_UPN"),
@@ -297,6 +298,95 @@ def test_budget_and_role_content() -> None:
     assert notification["contactEmails"] == ["alerts@example.test"]
     assert notification["threshold"] == 100 and notification["thresholdType"] == "Actual"
     assert "Microsoft.Consumption/budgets/babaloo-sea-lng-budget-22?" in result.stdout
+    # Story 1.5: without the shared action group, email only, and a warning.
+    assert "contactGroups" not in notification
+    assert "SHARED_ACTION_GROUP_ID is not set" in result.stderr
+
+
+SHARED_AG_ID = (
+    "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21"
+    "/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-21"
+)
+
+
+def test_story_1_5_subscription_budget_notifies_through_the_shared_action_group() -> None:
+    result = _run("budget-and-roles.sh", "--dry-run", SHARED_ACTION_GROUP_ID=SHARED_AG_ID)
+    assert result.returncode == 0, result.stderr
+    _, budget = _json_blocks(result.stdout)
+    (notification,) = budget["properties"]["notifications"].values()
+    assert notification["contactGroups"] == [SHARED_AG_ID]
+    assert notification["contactEmails"] == ["alerts@example.test"]
+    assert "SHARED_ACTION_GROUP_ID is not set" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "babaloo-sea-lng-ag-21",
+        SHARED_AG_ID.replace("babaloo-sea-lng-ag-21", 'ag-21"],"x":["y'),
+        SHARED_AG_ID.replace("babaloo-sea-lng-rg-21", "rg 21"),
+        "/subscriptions/x/resourceGroups/rg/providers/Microsoft.Insights/components/appi",
+        SHARED_AG_ID + "/extra",
+    ],
+)
+def test_story_1_5_a_malformed_action_group_id_stops_the_budget_script(value: str) -> None:
+    result = _run("budget-and-roles.sh", "--dry-run", SHARED_ACTION_GROUP_ID=value)
+    assert result.returncode == 1
+    assert "SHARED_ACTION_GROUP_ID must be an action group resource id" in result.stderr
+    assert "[dry-run] az" not in result.stdout
+
+
+# --- Story 1.5: test-alerts.sh -----------------------------------------------------------
+
+
+def _test_notification_calls(stdout: str) -> list[str]:
+    return [line for line in stdout.splitlines() if "action-group test-notifications create" in line]
+
+
+def test_story_1_5_alert_test_dry_run_prints_one_call_per_action_group() -> None:
+    result = _run("test-alerts.sh", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    calls = _test_notification_calls(result.stdout)
+    expected = [
+        ("babaloo-sea-lng-ag-21", "babaloo-sea-lng-rg-21", "actualcostbudget"),
+        ("babaloo-sea-lng-ag-01", "babaloo-sea-lng-rg-01", "metricstaticthreshold"),
+        ("babaloo-sea-lng-ag-11", "babaloo-sea-lng-rg-11", "metricstaticthreshold"),
+    ]
+    assert len(calls) == len(expected)
+    for call, (group, rg, alert_type) in zip(calls, expected, strict=True):
+        assert call.startswith("[dry-run] az monitor action-group test-notifications create")
+        assert f"--action-group-name {group}" in call and f"--resource-group {rg}" in call
+        assert f"--alert-type {alert_type}" in call
+        # The receivers stored on the group, not an address from the command line.
+        assert f"--add-action email owner '<email-receiver-of-{group}>' usecommonalertschema" in call
+        assert "alerts@example.test" not in call
+    assert "check that each address received one test email per action group" in result.stdout
+    # Every group is checked before the first notification is planned.
+    output = result.stdout
+    assert output.rindex("==> Check") < output.index("==> Test notification")
+
+
+def test_story_1_5_alert_test_can_be_limited_to_some_stacks() -> None:
+    result = _run("test-alerts.sh", "--dry-run", STACKS="shared dev")
+    assert result.returncode == 0, result.stderr
+    assert len(_test_notification_calls(result.stdout)) == 2
+    assert "babaloo-sea-lng-ag-11" not in result.stdout
+
+
+def test_story_1_5_alert_test_ignores_repeated_stacks() -> None:
+    result = _run("test-alerts.sh", "--dry-run", STACKS="dev shared dev dev")
+    assert result.returncode == 0, result.stderr
+    calls = _test_notification_calls(result.stdout)
+    assert len(calls) == 2
+    assert "babaloo-sea-lng-ag-01" in calls[0] and "babaloo-sea-lng-ag-21" in calls[1]
+
+
+@pytest.mark.parametrize("stacks", ["staging", "dev qa", " "])
+def test_story_1_5_alert_test_rejects_unknown_stacks(stacks: str) -> None:
+    result = _run("test-alerts.sh", "--dry-run", STACKS=stacks)
+    assert result.returncode == 1
+    assert "STACKS" in result.stderr
+    assert "[dry-run] az" not in result.stdout
 
 
 # --- Separate PostgreSQL admin ---------------------------------------------------------
@@ -323,7 +413,8 @@ printf '%s\\n' \
   "$(app_identity_name dev supplier-api)" "$(app_identity_name dev accounts-sim)" \
   "$(app_identity_name prod pipeline)" \
   "$(deploy_identity_name shared)" "$(deploy_identity_name dev)" "$(deploy_identity_name prod)" \
-  "$(postgres_server_name)" "$(document_intelligence_name)" "$(communication_service_name)"
+  "$(postgres_server_name)" "$(document_intelligence_name)" "$(communication_service_name)" \
+  "$(action_group_name shared)" "$(action_group_name dev)" "$(action_group_name prod)"
 """
     result = subprocess.run(
         ["bash", "-c", script, "bash", str(BOOTSTRAP)], capture_output=True, text=True, check=False
@@ -348,4 +439,7 @@ printf '%s\\n' \
         "babaloo-sea-lng-psql-21",
         "babaloo-sea-lng-di-21",
         "babaloo-sea-lng-acs-21",
+        "babaloo-sea-lng-ag-21",
+        "babaloo-sea-lng-ag-01",
+        "babaloo-sea-lng-ag-11",
     ]

@@ -20,6 +20,11 @@ mock_provider "azurerm" {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.OperationalInsights/workspaces/babaloo-sea-lng-log-01"
     }
   }
+  mock_resource "azurerm_application_insights" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+    }
+  }
   mock_resource "azurerm_monitor_action_group" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"
@@ -130,8 +135,26 @@ run "dev_foundation" {
     error_message = "dev must read its database name from the shared stack's remote state."
   }
   assert {
-    condition     = var.budget_amount == 2 && var.app_insights_sampling_percentage < 100
-    error_message = "terraform.tfvars must set the dev budget and turn sampling on."
+    condition     = var.budget_amount == 2
+    error_message = "terraform.tfvars must set the dev budget."
+  }
+
+  # Story 1.5: dimension alerting, Key Vault audit logs, budget through the action group.
+  assert {
+    condition     = output.application_insights.custom_metrics_opted_in_type == "WithDimensions"
+    error_message = "dev Application Insights must have alerting on custom metric dimensions on (AD-17)."
+  }
+  assert {
+    condition     = output.key_vault.audit_log_workspace_id == output.log_analytics_workspace_id
+    error_message = "the dev Key Vault audit log must go to the dev workspace."
+  }
+  assert {
+    condition     = module.foundation.budget_contact_groups == tolist([output.action_group_id])
+    error_message = "the dev budget must notify through the dev action group."
+  }
+  assert {
+    condition     = output.application_insights.sampling_percentage == 100
+    error_message = "the dev Application Insights must not sample at ingestion (the apps sample)."
   }
 }
 

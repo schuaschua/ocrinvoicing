@@ -23,3 +23,10 @@ variable "data_classification" {
   description = "P-17 dataClassification tag value."
   type        = string
 }
+
+variable "telemetry_sampling_ratio" {
+  description = "Fraction of traces each app keeps (AD-17, azure.md rule 16)."
+  type        = number
+  # [ASSUMPTION] Half the traces until calibrated against the 0.08 GB/day cap.
+  default = 0.5
+}

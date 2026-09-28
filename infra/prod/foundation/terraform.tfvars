@@ -9,6 +9,3 @@
 
 # [ASSUMPTION] Prod's share of the ~$11-12/month solution (AD-12); calibrate after a month.
 budget_amount = 2
-
-# [ASSUMPTION] Sampling on (AD-17); the percentage is not fixed by the architecture.
-app_insights_sampling_percentage = 50

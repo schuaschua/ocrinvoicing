@@ -16,6 +16,7 @@ from invoicing.adapters.http import (
     http_endpoint,
     json_response,
 )
+from invoicing.adapters.logging import event_fields
 from invoicing.domain.errors import (
     DatabaseOfflineError,
     DomainError,
@@ -95,10 +96,10 @@ def test_story_1_3_unhandled_error_is_a_500_without_internals(
         assert leak not in text
     (record,) = [r for r in caplog.records if r.name == "invoicing.http"]
     assert record.levelno == logging.ERROR
-    assert record.custom_dimensions == {
+    assert event_fields(record) == {
         "correlation_id": CALLER_ID,
         "code": "INTERNAL_ERROR",
-    }  # type: ignore[attr-defined]  # via `extra`
+    }
 
 
 @pytest.mark.parametrize(
@@ -126,10 +127,10 @@ def test_story_1_3_domain_error_maps_to_its_status_and_body(
     assert response.status_code == status
     (record,) = [r for r in caplog.records if r.name == "invoicing.http"]
     assert record.getMessage().startswith("http.domain_error ")
-    assert record.custom_dimensions == {
+    assert event_fields(record) == {
         "correlation_id": CALLER_ID,
         "code": error.code.value,
-    }  # type: ignore[attr-defined]  # via `extra`
+    }
     assert json.loads(response.get_body()) == {
         "code": error.code.value,
         "message": error.message,
@@ -182,3 +183,19 @@ def test_story_1_4_security_headers_come_from_the_shared_file() -> None:
     }
     assert "frame-ancestors 'none'" in shared["Content-Security-Policy"]
     assert "unsafe-inline" not in shared["Content-Security-Policy"]
+
+
+# --- Story 1.5: who may choose the correlation (trace) id -------------------------------
+
+
+def test_story_1_5_the_nil_uuid_is_treated_as_absent() -> None:
+    response = _call(_ok, {CORRELATION_HEADER: "00000000-0000-0000-0000-000000000000"})
+    assert UUID(response.headers[CORRELATION_HEADER]).version == 7
+
+
+def test_story_1_5_an_untrusting_endpoint_ignores_the_callers_id() -> None:
+    endpoint = http_endpoint(_ok, trust_caller_correlation_id=False)  # type: ignore[arg-type]  # test handler
+    response = asyncio.run(endpoint(_request({CORRELATION_HEADER: CALLER_ID})))
+    issued = UUID(response.headers[CORRELATION_HEADER])
+    assert str(issued) != CALLER_ID and issued.version == 7
+    assert json.loads(response.get_body()) == {"ok": True}

@@ -120,8 +120,9 @@ override_data {
         uri         = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
       }
       application_insights = {
-        name        = "babaloo-sea-lng-appi-01"
-        resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+        name                         = "babaloo-sea-lng-appi-01"
+        resource_id                  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+        custom_metrics_opted_in_type = "WithDimensions"
       }
       application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
     }
@@ -214,5 +215,11 @@ run "dev_app" {
       })
     ])
     error_message = "every app must carry exactly the five P-17 tags."
+  }
+
+  # Story 1.5: the apps sample at their own ratio (default 0.5).
+  assert {
+    condition     = module.app.telemetry_sampling_ratio == 0.5
+    error_message = "dev apps must sample at telemetry_sampling_ratio (default 0.5)."
   }
 }

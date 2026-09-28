@@ -12,6 +12,11 @@ mock_provider "azurerm" {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.OperationalInsights/workspaces/babaloo-sea-lng-log-01"
     }
   }
+  mock_resource "azurerm_application_insights" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+    }
+  }
   mock_resource "azurerm_monitor_action_group" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"
@@ -62,11 +67,10 @@ variables {
     application        = "test-app"
     dataClassification = "test-class"
   }
-  tenant_id                        = "11111111-1111-1111-1111-111111111111"
-  deploy_principal_id              = "22222222-2222-2222-2222-222222222222"
-  alert_email                      = "alerts@example.test"
-  budget_amount                    = 2
-  app_insights_sampling_percentage = 50
+  tenant_id           = "11111111-1111-1111-1111-111111111111"
+  deploy_principal_id = "22222222-2222-2222-2222-222222222222"
+  alert_email         = "alerts@example.test"
+  budget_amount       = 2
 }
 
 run "storage_retention_and_messaging" {
@@ -169,8 +173,8 @@ run "identities_key_vault_monitoring_budget" {
     error_message = "Log Analytics must be PerGB2018 and tagged."
   }
   assert {
-    condition     = module.application_insights.resource.sampling_percentage == 50 && module.application_insights.resource.local_authentication_disabled
-    error_message = "Application Insights must sample and have local auth off."
+    condition     = module.application_insights.resource.sampling_percentage == 100 && module.application_insights.resource.local_authentication_disabled
+    error_message = "Application Insights must not sample at ingestion (the apps sample) and must have local auth off."
   }
   assert {
     condition     = module.application_insights.resource.workspace_id == module.log_analytics.resource_id && module.application_insights.resource.tags == var.tags
@@ -196,6 +200,48 @@ run "identities_key_vault_monitoring_budget" {
   }
 }
 
+# Story 1.5: dimension alerting, Key Vault audit logs, and budgets through the action group.
+run "monitoring_and_alerts" {
+  command = apply
+
+  assert {
+    condition     = azapi_update_resource.application_insights_custom_metric_dimensions.body.properties.CustomMetricsOptedInType == "WithDimensions" && output.application_insights.custom_metrics_opted_in_type == "WithDimensions"
+    error_message = "alerting on custom metric dimensions must be on (AD-17), or poison_message{queue} loses its queue."
+  }
+  assert {
+    condition     = azapi_update_resource.application_insights_custom_metric_dimensions.resource_id == module.application_insights.resource_id && azapi_update_resource.application_insights_custom_metric_dimensions.type == "Microsoft.Insights/components@2020-02-02"
+    error_message = "the dimension setting must patch this environment's Application Insights component."
+  }
+  assert {
+    condition     = terraform_data.application_insights_settings.input.resource_id == module.application_insights.resource_id && terraform_data.application_insights_settings.input.tags == var.tags && terraform_data.application_insights_settings.input.sampling_percentage == 100
+    error_message = "the dimension patch must be re-applied whenever the component's managed settings change."
+  }
+  assert {
+    condition     = keys(local.key_vault_diagnostic_settings) == ["audit"] && local.key_vault_diagnostic_settings.audit.log_categories == ["AuditEvent"] && length(local.key_vault_diagnostic_settings.audit.log_groups) == 0 && length(local.key_vault_diagnostic_settings.audit.metric_categories) == 0
+    error_message = "Key Vault must send exactly its AuditEvent log (azure.md rule 15: only the categories needed)."
+  }
+  assert {
+    condition     = local.key_vault_diagnostic_settings.audit.workspace_resource_id == module.log_analytics.resource_id && output.key_vault.audit_log_workspace_id == module.log_analytics.resource_id
+    error_message = "Key Vault audit logs must go to this environment's workspace."
+  }
+  assert {
+    condition     = local.key_vault_diagnostic_settings.audit.name == "diag-babaloo-sea-lng-kv-01"
+    error_message = "the Key Vault diagnostic setting must be named after the vault."
+  }
+  assert {
+    condition     = alltrue([for n in azurerm_consumption_budget_resource_group.this.notification : tolist(n.contact_groups) == tolist([azurerm_monitor_action_group.this.id]) && tolist(n.contact_emails) == tolist(["alerts@example.test"])])
+    error_message = "every budget notification must go through the action group, and to Dj's email."
+  }
+  assert {
+    condition     = output.budget_contact_groups == tolist([output.action_group_id])
+    error_message = "the budget must notify only this environment's action group."
+  }
+  assert {
+    condition     = output.application_insights.sampling_percentage == 100
+    error_message = "ingestion sampling must be off (100%), so it never compounds with the apps' sampling."
+  }
+}
+
 run "tags_must_be_complete" {
   command = plan
 
@@ -209,12 +255,3 @@ run "tags_must_be_complete" {
   expect_failures = [var.tags]
 }
 
-run "sampling_must_be_on" {
-  command = plan
-
-  variables {
-    app_insights_sampling_percentage = 100
-  }
-
-  expect_failures = [var.app_insights_sampling_percentage]
-}

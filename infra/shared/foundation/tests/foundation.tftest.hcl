@@ -14,6 +14,11 @@ mock_provider "azurerm" {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.DBforPostgreSQL/flexibleServers/babaloo-sea-lng-psql-21"
     }
   }
+  mock_resource "azurerm_monitor_action_group" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-21"
+    }
+  }
   mock_resource "azurerm_communication_service" {
     defaults = {
       id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21"
@@ -204,6 +209,24 @@ run "shared_foundation" {
   assert {
     condition     = azurerm_consumption_budget_resource_group.this.name == "babaloo-sea-lng-budget-21"
     error_message = "the shared budget must be babaloo-sea-lng-budget-21."
+  }
+
+  # Action group ag-21 (Story 1.5): the shared and subscription budgets notify through it.
+  assert {
+    condition     = azurerm_monitor_action_group.this.name == "babaloo-sea-lng-ag-21" && azurerm_monitor_action_group.this.short_name == "lng-ag-21"
+    error_message = "the shared action group must be babaloo-sea-lng-ag-21 (P-16)."
+  }
+  assert {
+    condition     = azurerm_monitor_action_group.this.email_receiver[0].email_address == "alerts@example.test" && azurerm_monitor_action_group.this.tags == tomap(local.tags)
+    error_message = "the shared action group must email Dj and carry the five tags."
+  }
+  assert {
+    condition     = alltrue([for n in azurerm_consumption_budget_resource_group.this.notification : tolist(n.contact_groups) == tolist([azurerm_monitor_action_group.this.id]) && tolist(n.contact_emails) == tolist(["alerts@example.test"])])
+    error_message = "every shared budget notification must go through ag-21, and to Dj's email."
+  }
+  assert {
+    condition     = output.action_group_id == azurerm_monitor_action_group.this.id
+    error_message = "the action group id must be an output, for budget-and-roles.sh."
   }
 }
 

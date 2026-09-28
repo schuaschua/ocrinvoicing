@@ -35,6 +35,8 @@ dependencies = [
 [dependency-groups]
 # Check tools for ci/checks.sh (Story 1.2), pinned exactly so CI is reproducible.
 dev = [
+    # Story 2.4: the AD-10 import rule below ([tool.importlinter]).
+    "import-linter==2.15",
     "mypy==2.3.1",
     "pip-audit==2.10.1",
     "pytest==9.1.1",
@@ -89,6 +91,23 @@ no_implicit_reexport = true
 strict_equality = true
 warn_return_any = true
 warn_unused_ignores = true
+
+# AD-10 (Story 2.4): only the purchasing simulation touches its schema, and only the
+# composition code (the adapter factory the apps call, and the operator seed command)
+# imports it. ci/checks.sh lint runs `lint-imports`; tests/test_story_2_4_import_rule.py
+# also checks no other source file names the schema.
+[tool.importlinter]
+root_package = "invoicing"
+
+[[tool.importlinter.contracts]]
+id = "purchasing-sim-is-private"
+name = "AD-10: only the adapter factory and the seed command import the purchasing simulation"
+type = "protected"
+protected_modules = ["invoicing.adapters.purchasing_sim"]
+allowed_importers = [
+    "invoicing.adapters.purchasing_factory",
+    "invoicing.tools.seed_purchasing",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

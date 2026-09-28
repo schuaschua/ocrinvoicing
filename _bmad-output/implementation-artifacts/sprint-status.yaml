@@ -51,7 +51,7 @@ development_status:
   2-1-server-quality-check-creates-the-invoice-record: review
   2-2-the-pipeline-never-loses-an-invoice: review
   2-3-invoice-fields-are-extracted-by-document-intelligence: backlog
-  2-4-simulated-po-and-goods-received-data: backlog
+  2-4-simulated-po-and-goods-received-data: review
   2-5-validation-checks-confidence-po-match-and-printed-supplier: backlog
   2-6-validation-catches-duplicates-date-mismatches-and-bank-chang: backlog
   2-7-staff-sign-in-and-see-only-their-surfaces: backlog

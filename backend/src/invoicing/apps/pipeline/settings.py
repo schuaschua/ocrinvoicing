@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import StringConstraints
 
+from invoicing.adapters.purchasing_factory import PurchasingAdapterName
 from invoicing.apps.common import AppSettings, HttpsUrl, StorageAccountName
 
 # A host name, e.g. the shared server's `<name>.postgres.database.azure.com`.
@@ -26,3 +27,6 @@ class PipelineSettings(AppSettings):
     postgres_host: HostName
     postgres_database: PgName
     postgres_user: PgName
+    # AD-10: which purchasing adapter serves PO and goods-received data. The
+    # simulation is the only one today; the real system replaces it by this setting.
+    purchasing_adapter: PurchasingAdapterName = "sim"

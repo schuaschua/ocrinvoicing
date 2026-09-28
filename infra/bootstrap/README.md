@@ -57,6 +57,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | 5 | operator as PostgreSQL Entra admin | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
 | 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
 | 8 | operator | `staff-api` redirect URI (Story 1.3) |
+| Purchasing seed | operator, signed in as the env deploy identity | after the environment's migrations: the synthetic PO and goods-received data (below) |
 | Alert check | operator | `./test-alerts.sh` once the stacks are applied, then check that Dj received every test email (below) |
 | Pipeline check | operator | after the first Dev code deploy: the metric namespace and the stopped-database wait (below) |
 
@@ -129,6 +130,25 @@ It then gives Dj's user Key Vault Secrets User on the vault and Storage Table Da
 `verify-db-isolation.sh` checks, as the admin, that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it inside a Dev pipeline job signed in as the dev deploy identity with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
 
 Dj's user is one login on the shared server and is granted `CONNECT` by both environments, so it is left out of the cross-check.
+
+### Purchasing seed: synthetic PO and goods-received data (Story 2.4)
+
+The purchasing simulation (AD-10, CAP-20) starts empty. Its data is synthetic (`backend/seed/sim_purchasing.json`, security.md rule 1). The app logins can only read it (AD-11), so the seed must run as the environment's deploy identity, which owns the schema. There is no pipeline stage for it: it is an operator step, once per environment after its migrations. Run these commands from a checkout, in a shell signed in to `az` as that environment's deploy identity (`babaloo-sea-lng-id-22` for Dev, `-id-23` for Prod), for example an `AzureCLI@2` step on that environment's service connection:
+
+```sh
+export PGHOST=babaloo-sea-lng-psql-21.postgres.database.azure.com PGPORT=5432 PGSSLMODE=require
+export PGUSER=babaloo-sea-lng-id-22 PGDATABASE=invoicing_dev   # prod: babaloo-sea-lng-id-23, invoicing_prod
+export PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
+uv run --directory backend --locked --no-dev python -m invoicing.tools.seed_purchasing
+# Prod only, and only on purpose:
+uv run --directory backend --locked --no-dev python -m invoicing.tools.seed_purchasing --allow-prod
+```
+
+The command checks the file before it writes anything, then prints the rows upserted per table. It exits 2 with a one-line error for a missing or invalid file, or for an id the database already holds under another natural key.
+
+- **Idempotent.** Rows are upserted by natural key: material code, PO number, PO line number and delivery number. Re-run it after editing the JSON. Rows removed from the file stay in the database, and the command prints a warning with their count per table.
+- **Prod.** The command refuses `invoicing_prod` unless `--allow-prod` is given. Seeding Prod is a deliberate PoC choice: Prod has no real purchasing system yet, and the data is synthetic only. When the real adapter replaces `sim` (`PURCHASING_ADAPTER`), clear the simulation's data from Prod.
+- **Supplier ids.** The ids in the file are fixed synthetic UUIDs for the supplier load script (Story 1.6) to use.
 
 ### Alert check: prove an alert reaches Dj (Story 1.5)
 

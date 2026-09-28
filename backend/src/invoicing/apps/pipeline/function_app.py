@@ -13,6 +13,7 @@ from invoicing.adapters.documents import load_quality_thresholds
 from invoicing.adapters.metrics import OpenTelemetryMetrics
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
+from invoicing.adapters.purchasing_factory import purchasing_port
 from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import load_settings, start_telemetry
@@ -44,6 +45,9 @@ engine = postgres_engine(
     password=entra_token_provider(_identity),
 )
 invoices = PostgresInvoiceRepository(engine)
+# PO and goods-received data (AD-10), for validate (Story 2.5) and the overdue job; the
+# adapter is the one PURCHASING_ADAPTER names.
+purchasing = purchasing_port(settings.purchasing_adapter, engine)
 # After start_telemetry, so the metrics go to the configured meter (AD-17).
 metrics = OpenTelemetryMetrics()
 # The thresholds the page uses too, packaged as shared/quality-thresholds.json (AD-6).

@@ -46,7 +46,8 @@ def test_story_2_1_upgrade_downgrade_upgrade(postgres_server: PostgresServer) ->
                 assert leftover == 0
             engine.dispose()
     current = postgres_server.alembic(database, "current")
-    assert "0001_intake (head)" in current.stdout
+    # Story 2.4 moved head on; this test is about the chain, not the latest revision.
+    assert "(head)" in current.stdout
 
 
 def _alembic_without_fixture_roles(

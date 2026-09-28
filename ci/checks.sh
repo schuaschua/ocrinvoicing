@@ -18,7 +18,7 @@ usage() {
   cat <<'EOF'
 Usage: ci/checks.sh <lint|test|audit|secrets|terraform|all>
 
-  lint       ruff format/check and mypy on backend/; ESLint, Prettier and tsc per
+  lint       ruff format/check, mypy and import-linter on backend/; ESLint, Prettier and tsc per
              scaffolded web app, and ESLint and Prettier on shared/quality/ (with
              web/supplier's); shellcheck on ci/ and infra/bootstrap/
   test       pytest with coverage (backend, floor 80%), Vitest with coverage per web
@@ -206,6 +206,8 @@ run_lint() {
     check "ruff format (backend)" uv_backend ruff format --check
     check "ruff check (backend)" uv_backend ruff check
     check "mypy (backend)" uv_backend mypy
+    # AD-10 (Story 2.4): the import contracts in backend/pyproject.toml.
+    check "import-linter (backend)" uv_backend lint-imports
   else
     skip "backend lint" "no Python code in backend/src yet"
   fi

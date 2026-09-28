@@ -342,3 +342,34 @@ def pipeline_engine(
     )
     yield engine
     engine.dispose()
+
+
+@pytest.fixture(scope="session")
+def purchasing_seeded(postgres_server: PostgresServer, intake_database: str) -> str:
+    """The migrated test database with the purchasing simulation's synthetic seed
+    loaded, as the operator does it: as the deployer, which owns the schema (Story
+    2.4). Returns the database name."""
+    from invoicing.adapters.purchasing_sim.seed import load_seed, seed
+
+    owner = create_engine(
+        postgres_server.url(postgres_server.deployer, intake_database)
+    )
+    try:
+        with owner.begin() as connection:
+            seed(connection, load_seed())
+    finally:
+        owner.dispose()
+    return intake_database
+
+
+def login_engine(server: PostgresServer, user: str, database: str) -> Engine:
+    """The app's own engine (adapters/postgres/engine.py) signed in as `user`."""
+    return postgres_engine(
+        host=server.host,
+        port=server.port,
+        database=database,
+        user=user,
+        password=lambda: server.password,
+        sslmode="disable",
+        pool_size=2,
+    )

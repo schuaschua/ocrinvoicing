@@ -13,13 +13,15 @@ import pytest
 import invoicing
 
 PACKAGE_DIR = Path(invoicing.__file__).parent
-LAYERS = ["domain", "ports", "adapters", "apps"]
+LAYERS = ["domain", "ports", "adapters", "apps", "tools"]
 # The invoicing layers each layer may import (beyond the package root's __version__).
 ALLOWED_LAYERS = {
     "domain": {"domain"},
     "ports": {"domain", "ports"},
     "adapters": {"domain", "ports", "adapters"},
     "apps": {"domain", "ports", "adapters", "apps"},
+    # Story 2.4: operator commands compose adapters, like apps; they never import an app.
+    "tools": {"domain", "ports", "adapters", "tools"},
 }
 
 

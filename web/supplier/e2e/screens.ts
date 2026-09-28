@@ -1,9 +1,44 @@
 // The supplier page's screens for the accessibility check (e2e/a11y.spec.ts, shared
 // with web/staff). Screen stories add theirs here.
-import type { Screen } from "./checks.ts";
+import type { Page } from "@playwright/test";
+
+import type { ApiAnswer, Screen } from "./checks.ts";
 
 // Synthetic: base64url of 32 bytes of 0x5a, canonical like a real link token.
 const TOKEN = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
+
+const LINK_OK: Record<string, ApiAnswer> = {
+  "/api/link": { status: 200, body: { supplier_name: "Lim Leather Trading" } },
+};
+
+async function atHome(page: Page): Promise<void> {
+  await page
+    .getByRole("heading", { name: "Uploading for Lim Leather Trading" })
+    .waitFor();
+}
+
+/** Choose a (synthetic) file through the real Choose file input. */
+async function choose(
+  page: Page,
+  name = "invoice-4521.jpg",
+  mimeType = "image/jpeg",
+): Promise<void> {
+  await atHome(page);
+  await page.getByTestId("choose-file-input").setInputFiles({
+    name,
+    mimeType,
+    buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]),
+  });
+}
+
+async function chooseAndSend(page: Page): Promise<void> {
+  await choose(page);
+  await page.getByRole("button", { name: "Send" }).click();
+}
+
+function upload(answer: ApiAnswer): Record<string, ApiAnswer> {
+  return { ...LINK_OK, "/api/upload": answer };
+}
 
 export const SCREENS: Screen[] = [
   {
@@ -63,5 +98,89 @@ export const SCREENS: Screen[] = [
       },
     },
     ready: "Something went wrong. Try again later.",
+  },
+  {
+    story: "1.8",
+    name: "camera not available",
+    path: `/u#${TOKEN}`,
+    api: LINK_OK,
+    // A browser that lists no camera (permission denied, or an in-app browser).
+    setup: async (page) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, "mediaDevices", {
+          value: { enumerateDevices: async () => [] },
+        });
+      });
+    },
+    steps: atHome,
+    ready: "Camera not available here.",
+  },
+  {
+    story: "1.8",
+    name: "file refused on the page",
+    path: `/u#${TOKEN}`,
+    api: LINK_OK,
+    steps: (page) => choose(page, "invoice.gif", "image/gif"),
+    ready: "This file can't be sent.",
+  },
+  {
+    story: "1.8",
+    name: "check and send",
+    path: `/u#${TOKEN}`,
+    api: LINK_OK,
+    steps: (page) => choose(page),
+    ready: "invoice-4521.jpg",
+  },
+  {
+    story: "1.8",
+    name: "sending",
+    path: `/u#${TOKEN}`,
+    api: upload("hang"),
+    steps: chooseAndSend,
+    ready: "Sending…",
+  },
+  {
+    story: "1.8",
+    name: "couldn't send",
+    path: `/u#${TOKEN}`,
+    api: upload({
+      status: 503,
+      body: {
+        code: "SERVICE_UNAVAILABLE",
+        message: "The service is busy. Try again in a moment.",
+        correlation_id: "0199a1b2-0000-7000-8000-000000000003",
+      },
+    }),
+    steps: chooseAndSend,
+    ready: "Couldn't send. Check your connection and tap Send again.",
+  },
+  {
+    story: "1.8",
+    name: "file refused by the server",
+    path: `/u#${TOKEN}`,
+    api: upload({
+      status: 415,
+      body: {
+        code: "UNSUPPORTED_MEDIA_TYPE",
+        message: "This file can't be sent. Send a JPEG or PNG photo, or a PDF.",
+        correlation_id: "0199a1b2-0000-7000-8000-000000000004",
+      },
+    }),
+    steps: chooseAndSend,
+    ready: "Choose a JPEG or PNG photo, or a PDF.",
+  },
+  {
+    story: "1.8",
+    name: "received",
+    path: `/u#${TOKEN}`,
+    api: upload({
+      status: 200,
+      body: {
+        invoice_id: "0199a1b2-0000-7000-8000-000000000005",
+        reference: "R-7Q4KXM2D",
+      },
+    }),
+    steps: chooseAndSend,
+    ready: "Reference R-7Q4KXM2D",
   },
 ];

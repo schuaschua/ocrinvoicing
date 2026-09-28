@@ -4,6 +4,7 @@ export {
   OFFLINE,
   SESSION_EXPIRED,
   apiEvents,
+  apiHeaders,
   apiRequest,
   onApiEvent,
   setUploadToken,

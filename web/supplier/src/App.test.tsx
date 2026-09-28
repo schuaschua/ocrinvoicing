@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiRequest, setUploadToken } from "@/api";
 import { App } from "@/App";
 import { strings } from "@/strings";
+import { FakeXhr } from "@/test/fakeXhr";
 
 describe("1.4 app shell", () => {
   it("shows the Babaloo text header and a main region", () => {
@@ -199,5 +200,145 @@ describe("1.7 supplier opens their link", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("skeleton")).toBeNull();
+  });
+});
+
+describe("1.8 supplier sends a photo or PDF and gets a reference", () => {
+  const KEY_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      answer(200, { supplier_name: "Lim Leather Trading" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    FakeXhr.reset();
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+  });
+
+  afterEach(() => {
+    setUploadToken(null);
+    vi.unstubAllGlobals();
+  });
+
+  async function home() {
+    render(<App token={TOKEN} />);
+    await screen.findByRole("heading", {
+      name: "Uploading for Lim Leather Trading",
+    });
+  }
+
+  function choose(name = "inv.jpg", lastModified = 1_790_000_000_000) {
+    const file = new File([new Uint8Array([0xff, 0xd8, 0xff])], name, {
+      type: "image/jpeg",
+      lastModified,
+    });
+    fireEvent.change(screen.getByTestId("choose-file-input"), {
+      target: { files: [file] },
+    });
+    return file;
+  }
+
+  it("goes Upload home, Check & send, Received, and back with Upload another", async () => {
+    await home();
+    const file = choose();
+    expect(screen.getByRole("heading", { name: "Check & send" })).toHaveFocus();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const xhr = FakeXhr.last();
+    expect(xhr.body).toBe(file);
+    expect(xhr.headers["X-Upload-Token"]).toBe(TOKEN);
+    expect(xhr.headers["Idempotency-Key"]).toMatch(KEY_PATTERN);
+    await act(async () =>
+      xhr.respond(200, {
+        invoice_id: "0199a1b2-0000-7000-8000-000000000001",
+        reference: "R-7Q4KXM2D",
+      }),
+    );
+
+    expect(await screen.findByText("R-7Q4KXM2D")).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /Received\.\s*Reference R-7Q4KXM2D/,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload another" }));
+    expect(
+      screen.getByRole("heading", {
+        name: "Uploading for Lim Leather Trading",
+      }),
+    ).toHaveFocus();
+    // The link is not checked again.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives each chosen file its own key, and a retry the same one", async () => {
+    await home();
+    choose();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await act(async () => FakeXhr.last().fail());
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const [first, retry] = FakeXhr.requests;
+    expect(retry!.headers["Idempotency-Key"]).toBe(
+      first!.headers["Idempotency-Key"],
+    );
+
+    await act(async () => retry!.fail());
+    fireEvent.click(
+      screen.getByRole("button", { name: "Choose another file" }),
+    );
+    choose("other.jpg");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(FakeXhr.last().headers["Idempotency-Key"]).not.toBe(
+      first!.headers["Idempotency-Key"],
+    );
+  });
+
+  it("reuses the key when the same file is chosen again after Couldn't send", async () => {
+    await home();
+    choose();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await act(async () => FakeXhr.last().fail());
+    fireEvent.click(
+      screen.getByRole("button", { name: "Choose another file" }),
+    );
+    // The same file (a new File object: same name, size and time).
+    choose();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const [first, again] = FakeXhr.requests;
+    expect(again!.headers["Idempotency-Key"]).toBe(
+      first!.headers["Idempotency-Key"],
+    );
+
+    // The same name with another time is another file.
+    await act(async () => again!.fail());
+    fireEvent.click(
+      screen.getByRole("button", { name: "Choose another file" }),
+    );
+    choose("inv.jpg", 1_790_000_000_001);
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(FakeXhr.last().headers["Idempotency-Key"]).not.toBe(
+      first!.headers["Idempotency-Key"],
+    );
+  });
+
+  it("shows Link not working when the link stops working mid-flow", async () => {
+    await home();
+    choose();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await act(async () =>
+      FakeXhr.last().respond(401, {
+        code: "LINK_NOT_VALID",
+        message: NOT_VALID.message,
+      }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "This link isn't working." }),
+    ).toBeInTheDocument();
+    // The refused token is not sent again.
+    await apiRequest("/api/health").catch(() => undefined);
+    expect(fetchMock.mock.calls.at(-1)![1]?.headers).not.toHaveProperty(
+      "X-Upload-Token",
+    );
   });
 });

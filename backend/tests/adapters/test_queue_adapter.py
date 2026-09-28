@@ -1,16 +1,26 @@
-"""Story 1.3: the Storage Queue sender, matrix row "Queue send". A fake client stands in
-for Azure; nothing is sent over the network."""
+"""Story 1.3: the Storage Queue sender, matrix row "Queue send"; Story 1.8: a failed
+send is a retryable 503. A fake client stands in for Azure; nothing is sent over the
+network."""
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 import pytest
+from azure.core.exceptions import (
+    ClientAuthenticationError,
+    HttpResponseError,
+    ResourceNotFoundError,
+    ServiceRequestError,
+)
 from azure.identity.aio import ManagedIdentityCredential
 
+from invoicing.adapters.logging import event_fields
 from invoicing.adapters.queue import StorageQueueSender
+from invoicing.domain.errors import ServiceUnavailableError
 from invoicing.ports.messages import QueueMessage
 from invoicing.ports.queue import QueueName, QueueSender
 
@@ -108,3 +118,39 @@ def test_story_1_3_real_client_uses_managed_identity_and_no_message_encoding() -
     # AD-2: plain text on the wire, matching host.json messageEncoding "none".
     assert type(client._message_encode_policy).__name__ == "NoEncodePolicy"
     asyncio.run(sender.close())
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (ServiceRequestError("connection reset"), "TRANSIENT"),
+        (HttpResponseError(message="500 on q-quality"), "TRANSIENT"),
+        (ClientAuthenticationError("no role"), "AUTH_FAILED"),
+        (ResourceNotFoundError("QueueNotFound"), "RESOURCE_NOT_FOUND"),
+    ],
+)
+def test_story_1_8_a_failed_send_is_a_retryable_503_logged_by_queue_and_code(
+    error: Exception, code: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    class FailingClient:
+        async def send_message(self, content: str, **kwargs: Any) -> Any:
+            raise error
+
+    class FailingService(FakeQueueService):
+        def get_queue_client(self, queue: str, **kwargs: Any) -> Any:
+            return FailingClient()
+
+    with (
+        caplog.at_level(logging.DEBUG, logger="invoicing"),
+        pytest.raises(ServiceUnavailableError) as raised,
+    ):
+        asyncio.run(
+            StorageQueueSender(FailingService()).send(QueueName.QUALITY, MESSAGE)
+        )
+    assert raised.value.__cause__ is None and raised.value.__suppress_context__
+    ((fields,),) = [
+        [event_fields(r)]
+        for r in caplog.records
+        if r.getMessage().startswith("queue.unavailable ")
+    ]
+    assert fields["code"] == code and fields["queue"] == "q-quality"

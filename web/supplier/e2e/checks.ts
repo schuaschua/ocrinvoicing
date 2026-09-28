@@ -11,6 +11,8 @@ export const AXE_TAGS = [
   "wcag22aa",
 ];
 export const TAP_MIN_PX = 48;
+// DESIGN.md capture button: at least 56px tall, rendered. Mark each with data-capture.
+export const CAPTURE_MIN_PX = 56;
 
 // WCAG 1.4.12 text-spacing overrides (the W3C bookmarklet values).
 export const TEXT_SPACING_CSS = `* {
@@ -35,7 +37,7 @@ export async function floorProblems(page: Page): Promise<string[]> {
   }
 
   const layout = await page.evaluate(
-    ({ selector, min }) => {
+    ({ selector, min, captureMin }) => {
       const found: string[] = [];
       const root = document.documentElement;
       // Data tables may scroll inside their own region; the page never may.
@@ -68,6 +70,17 @@ export async function floorProblems(page: Page): Promise<string[]> {
             "";
           found.push(
             `tap target under ${min}px: <${element.tagName.toLowerCase()}> "${name}" is ${Math.round(box.width)}x${Math.round(box.height)}`,
+          );
+        }
+      }
+      for (const element of document.querySelectorAll<HTMLElement>(
+        "[data-capture]",
+      )) {
+        const box = element.getBoundingClientRect();
+        if (box.width === 0 && box.height === 0) continue; // not rendered
+        if (box.height < captureMin) {
+          found.push(
+            `capture button under ${captureMin}px: "${element.textContent?.trim() ?? ""}" is ${Math.round(box.height)}px tall`,
           );
         }
       }
@@ -106,7 +119,7 @@ export async function floorProblems(page: Page): Promise<string[]> {
       }
       return found;
     },
-    { selector: INTERACTIVE, min: TAP_MIN_PX },
+    { selector: INTERACTIVE, min: TAP_MIN_PX, captureMin: CAPTURE_MIN_PX },
   );
   return [...problems, ...layout];
 }
@@ -146,6 +159,10 @@ export interface Screen {
    * "/api/link". A call to any other /api/ path fails the check.
    */
   api?: Record<string, ApiAnswer>;
+  /** Before the page loads, e.g. `page.addInitScript` to fake a browser API. */
+  setup?: (page: Page) => Promise<void>;
+  /** After the page loads: what the user does to reach the screen (choose a file, tap Send). */
+  steps?: (page: Page) => Promise<void>;
   /** Text in the main region once the screen is ready. */
   ready?: string;
 }

@@ -56,7 +56,9 @@ for (const screen of SCREENS) {
       const errors = collectErrors(page);
       await stubApi(page, screen, errors);
       await page.setViewportSize(viewport);
+      await screen.setup?.(page);
       await page.goto(screen.path);
+      await screen.steps?.(page);
       await expect(page.locator("html")).toHaveAttribute("lang", "en");
       await expect(page.getByRole("banner")).toContainText("Babaloo");
       if (screen.ready) {

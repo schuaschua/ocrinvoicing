@@ -16,7 +16,8 @@ SUPPLIER = REPO_ROOT / "web" / "supplier"
 # Files that must be the same in both apps. App-specific: package.json, the lock file
 # (name), playwright.config.ts (port), e2e/screens.ts (each app's screens),
 # src/App*.tsx, src/strings*.ts, src/main.tsx, and each app's own screens and API
-# calls (e.g. the supplier page's src/screens/, src/link*.ts, src/api/link*.ts and
+# calls (e.g. the supplier page's src/screens/, src/link*.ts, src/upload*.ts,
+# src/api/link*.ts, src/api/upload*.ts, src/test/fakeXhr.ts and
 # src/components/ui/skeleton.tsx, which only the supplier page uses so far).
 SHARED_FILES = [
     ".npmrc",

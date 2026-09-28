@@ -68,3 +68,20 @@ test("1.4 the floor check exempts inline links in a sentence and hidden skip lin
 
   expect(await floorProblems(page)).toEqual([]);
 });
+
+test("1.8 the floor check reports a capture button under 56px", async ({
+  page,
+}) => {
+  await page.setContent(`<!doctype html>
+    <html lang="en"><head><title>Capture</title></head><body>
+      <main>
+        <button data-capture style="height: 48px; width: 200px">Take photo</button>
+        <button data-capture style="height: 56px; width: 200px">Choose file</button>
+      </main>
+    </body></html>`);
+
+  const problems = await floorProblems(page);
+  expect(problems).toEqual([
+    'capture button under 56px: "Take photo" is 48px tall',
+  ]);
+});

@@ -1,10 +1,16 @@
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { strings } from "@/strings";
+import {
+  CHOOSE_FILE_ACCEPT,
+  TAKE_PHOTO_ACCEPT,
+  cameraAvailable,
+  refusal,
+} from "@/upload";
 
+import { CAPTURE } from "./capture";
 import { usePageHeading } from "./usePageHeading";
-
-// DESIGN.md capture button: full width, at least 56px, icon and label.
-const CAPTURE = "h-auto min-h-capture w-full whitespace-normal text-base";
 
 function CameraIcon() {
   return (
@@ -44,24 +50,112 @@ function FileIcon() {
 
 /**
  * EXPERIENCE.md "Upload home" (UX-DR4): who the upload is for, then the capture
- * actions in the lower half, within thumb reach. Stories 1.8 and 1.9 wire the buttons.
+ * actions in the lower half, within thumb reach. Each opens a native file input: Take
+ * photo the camera (with a hint to use Choose file when the browser lists no camera),
+ * Choose file a JPEG, PNG or PDF. A chosen file the page can already
+ * tell is unsendable is refused here, with the reason; any other goes to `onFile`.
  */
-export function UploadHome({ supplierName }: { supplierName: string }) {
+export function UploadHome({
+  supplierName,
+  onFile,
+}: {
+  supplierName: string;
+  onFile: (file: File) => void;
+}) {
   const heading = usePageHeading(strings.uploadHome.pageTitle);
+  const cameraInput = useRef<HTMLInputElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [camera, setCamera] = useState<boolean | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Asked up front, so a tap on Take photo opens the camera at once: a file input
+  // opened after an await may lose the tap's user activation.
+  useEffect(() => {
+    let current = true;
+    void cameraAvailable().then((available) => {
+      if (current) setCamera(available);
+    });
+    return () => {
+      current = false;
+    };
+  }, []);
+
+  // Never blocked by the camera hint: the browser may still open a camera or picker.
+  function takePhoto() {
+    setNotice(null);
+    cameraInput.current?.click();
+  }
+
+  function chooseFile() {
+    setNotice(null);
+    fileInput.current?.click();
+  }
+
+  function chosen(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Cleared, so choosing the same file again still counts as a choice.
+    event.target.value = "";
+    if (!file) return;
+    const reason = refusal(file);
+    if (reason !== null) {
+      setNotice(reason);
+      return;
+    }
+    onFile(file);
+  }
+
   return (
     <div className="flex flex-1 flex-col gap-6">
       <h1 ref={heading} tabIndex={-1} className="text-xl">
         {strings.uploadHome.uploadingFor} <strong>{supplierName}</strong>
       </h1>
+      {/* Present from the start, so a refusal is announced when it appears. */}
+      <p role="alert">{notice}</p>
       <div className="mt-auto flex flex-col gap-3">
-        <Button type="button" className={CAPTURE}>
+        <Button
+          type="button"
+          className={CAPTURE}
+          data-capture
+          onClick={takePhoto}
+          aria-describedby={camera === false ? "camera-hint" : undefined}
+        >
           <CameraIcon />
           {strings.uploadHome.takePhoto}
         </Button>
-        <Button type="button" variant="outline" className={CAPTURE}>
+        {camera === false && (
+          <p id="camera-hint" className="text-muted-foreground">
+            {strings.uploadHome.cameraUnavailable}
+          </p>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          className={CAPTURE}
+          data-capture
+          onClick={chooseFile}
+        >
           <FileIcon />
           {strings.uploadHome.chooseFile}
         </Button>
+        <input
+          ref={cameraInput}
+          type="file"
+          accept={TAKE_PHOTO_ACCEPT}
+          capture="environment"
+          hidden
+          tabIndex={-1}
+          data-testid="take-photo-input"
+          onChange={chosen}
+        />
+        <input
+          ref={fileInput}
+          type="file"
+          accept={CHOOSE_FILE_ACCEPT}
+          hidden
+          tabIndex={-1}
+          data-testid="choose-file-input"
+          onChange={chosen}
+        />
       </div>
     </div>
   );

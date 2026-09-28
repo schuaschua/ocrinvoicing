@@ -246,6 +246,21 @@ wheels = [
 ]
 
 [[package]]
+name = "azure-storage-blob"
+version = "12.30.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "cryptography" },
+    { name = "isodate" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/f0/3fb4ec2d4b3798e3bb8fefb1096d5728f2501c2ed52e0cb729a2c956cf00/azure_storage_blob-12.30.3.tar.gz", hash = "sha256:31760221ceff36b7ceed741ba0093d08ec857911b92294dce3e4efe8fa40245e", size = 625235, upload-time = "2026-09-22T21:50:04.985Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ff/20/6530bbc13fea536a1f2c0194034ae3f6880fbc0c1e7c229e3569450f7aef/azure_storage_blob-12.30.3-py3-none-any.whl", hash = "sha256:80729a5397e5f0a63dbbdff74da675c5db1eacaf25fd5db0074b7ba6c17e2498", size = 438390, upload-time = "2026-09-22T21:50:06.395Z" },
+]
+
+[[package]]
 name = "azure-storage-queue"
 version = "12.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -538,6 +553,7 @@ dependencies = [
     { name = "azure-functions" },
     { name = "azure-identity" },
     { name = "azure-monitor-opentelemetry" },
+    { name = "azure-storage-blob" },
     { name = "azure-storage-queue" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
@@ -561,6 +577,7 @@ requires-dist = [
     { name = "azure-functions", specifier = "==2.3.0" },
     { name = "azure-identity", specifier = "==1.25.3" },
     { name = "azure-monitor-opentelemetry", specifier = "==1.8.10" },
+    { name = "azure-storage-blob", specifier = "==12.30.3" },
     { name = "azure-storage-queue", specifier = "==12.17.0" },
     { name = "opentelemetry-api", specifier = "==1.44.0" },
     { name = "opentelemetry-sdk", specifier = "==1.44.0" },

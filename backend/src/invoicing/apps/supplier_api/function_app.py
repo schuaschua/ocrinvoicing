@@ -5,8 +5,11 @@ from pathlib import Path
 
 import azure.functions as func
 
+from invoicing.adapters.blob_images import BlobImageStore
+from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.static import spa_endpoint
 from invoicing.adapters.table_links import TableSupplierLinkRegistry
+from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import (
     anonymous_health_endpoint,
     load_settings,
@@ -14,6 +17,7 @@ from invoicing.apps.common import (
 )
 from invoicing.apps.supplier_api.link import link_endpoint
 from invoicing.apps.supplier_api.settings import SupplierApiSettings
+from invoicing.apps.supplier_api.upload import upload_endpoint
 
 # Fails at start-up, naming any missing setting.
 settings = load_settings(SupplierApiSettings)
@@ -23,10 +27,13 @@ start_telemetry(settings, "supplier-api")
 # Anonymous at the platform; the upload token is checked in code (AD-1, AD-14).
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
-# The link registry (AD-6): Table Storage only. Creating it opens no connection.
-links = TableSupplierLinkRegistry.with_managed_identity(
-    settings.storage_account_name, str(settings.azure_client_id)
-)
+# The upload path (AD-6): Table Storage, blob storage and q-quality only, never
+# PostgreSQL. Creating the clients opens no connection.
+_account, _identity = settings.storage_account_name, str(settings.azure_client_id)
+links = TableSupplierLinkRegistry.with_managed_identity(_account, _identity)
+upload_keys = TableUploadKeyStore.with_managed_identity(_account, _identity)
+images = BlobImageStore.with_managed_identity(_account, _identity)
+queue = StorageQueueSender.with_managed_identity(_account, _identity)
 
 
 # host.json sets routePrefix "" so the SPA can own "/"; API routes spell out api/.
@@ -43,6 +50,18 @@ link_api = link_endpoint(lambda: links)
 async def link(req: func.HttpRequest) -> func.HttpResponse:
     """The supplier name for the X-Upload-Token link, or 401 LINK_NOT_VALID."""
     return await link_api(req)
+
+
+upload_api = upload_endpoint(
+    lambda: links, lambda: upload_keys, lambda: images, lambda: queue
+)
+
+
+@app.route(route="api/upload", methods=["POST"])
+async def upload(req: func.HttpRequest) -> func.HttpResponse:
+    """One invoice file as the raw body, with Idempotency-Key: `{invoice_id,
+    reference}` (AD-6)."""
+    return await upload_api(req)
 
 
 # The built web/supplier (AD-14), packaged as static/ next to this file by

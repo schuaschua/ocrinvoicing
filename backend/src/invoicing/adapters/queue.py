@@ -1,17 +1,22 @@
 """Storage Queue sender (AD-2): plain JSON text through `azure-storage-queue`, signed
 in with the app's user-assigned managed identity."""
 
+import logging
 from collections.abc import Awaitable
 from typing import Any, Protocol, Self
 
+from azure.core.exceptions import AzureError
 from azure.identity.aio import ManagedIdentityCredential
 from azure.storage.queue.aio import QueueServiceClient
 
+from invoicing.adapters.storage_errors import raise_unavailable
 from invoicing.ports.messages import QueueMessage
 from invoicing.ports.queue import QueueName
 
 # Azure Storage Queues reject a visibility timeout above 7 days.
 MAX_DELAY_SECONDS = 7 * 24 * 60 * 60
+
+_logger = logging.getLogger("invoicing.queue")
 
 
 class _QueueClient(Protocol):
@@ -60,9 +65,13 @@ class StorageQueueSender:
         if delay_seconds > MAX_DELAY_SECONDS:
             raise ValueError("delay_seconds must be at most 7 days")
         client = self._service.get_queue_client(queue.value)
-        await client.send_message(
-            message.to_json(), visibility_timeout=delay_seconds or None
-        )
+        try:
+            await client.send_message(
+                message.to_json(), visibility_timeout=delay_seconds or None
+            )
+        # A failed send is a retryable 503 (AD-6); the log names the queue and a code.
+        except AzureError as error:
+            raise_unavailable(_logger, "queue.unavailable", error, queue=queue)
 
     async def close(self) -> None:
         """Release the underlying HTTP session and the credential."""

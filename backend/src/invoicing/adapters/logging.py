@@ -19,7 +19,9 @@ ALLOWED_KEYS = frozenset(
     {
         "app",
         "attempt",
+        "blob_written",
         "code",
+        "content_type",
         "correlation_id",
         "count",
         "duration_ms",
@@ -31,6 +33,7 @@ ALLOWED_KEYS = frozenset(
         "reason",
         "routing_id",
         "run_id",
+        "size_bytes",
         "stage",
         "status",
         "to_status",

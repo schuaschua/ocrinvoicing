@@ -25,6 +25,8 @@ class ErrorCode(StrEnum):
     LINK_NOT_VALID = "LINK_NOT_VALID"
     # A storage dependency failed transiently (not the database): HTTP 503.
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
+    # An upload's Idempotency-Key is already held by another supplier (AD-6): HTTP 409.
+    IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT"
 
 
 class DomainError(Exception):
@@ -77,3 +79,33 @@ class ServiceUnavailableError(DomainError):
         self, message: str = "The service is busy. Try again in a moment."
     ) -> None:
         super().__init__(ErrorCode.SERVICE_UNAVAILABLE, message)
+
+
+class PayloadTooLargeError(DomainError):
+    """An upload over the size limit (AD-6: 4 MB)."""
+
+    def __init__(
+        self, message: str = "This file is too big. Send a file of 4 MB or less."
+    ) -> None:
+        super().__init__(ErrorCode.PAYLOAD_TOO_LARGE, message)
+
+
+class UnsupportedMediaTypeError(DomainError):
+    """An upload whose bytes are not JPEG, PNG or PDF (AD-6)."""
+
+    def __init__(
+        self,
+        message: str = "This file can't be sent. Send a JPEG or PNG photo, or a PDF.",
+    ) -> None:
+        super().__init__(ErrorCode.UNSUPPORTED_MEDIA_TYPE, message)
+
+
+class IdempotencyKeyConflictError(DomainError):
+    """The upload's Idempotency-Key belongs to another supplier's upload (AD-6). The
+    message says nothing about that upload."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            ErrorCode.IDEMPOTENCY_KEY_CONFLICT,
+            "This upload can't be accepted. Choose the file again and send it.",
+        )

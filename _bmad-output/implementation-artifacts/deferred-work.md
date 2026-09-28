@@ -25,3 +25,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-3-python-functions-api-skeleton.md`
   summary: Share one manifest of required app settings between `infra/modules/env-app` and the pydantic settings classes, and test both against it.
   evidence: Both sides hard-code their own key lists today; a drift would only show at start-up in Azure.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference.md`
+  summary: Sweeper (Story 2.2) reconciles `uploadkeys` rows older than 1 h whose blob exists but no invoice row, and re-enqueues them; it also deletes rows older than 24 h.
+  evidence: If the blob write succeeds but the enqueue fails and the supplier never retries, the original is never processed; the invoice-row sweep can't see it because the row is created later by the quality stage.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference.md`
+  summary: Decide the upload size limit for phone photos (many modern phone JPEGs exceed 4 MB; originals can't be re-encoded without losing EXIF).
+  evidence: The 4 MB limit follows DI F0; moving to S0 or a different ingest path changes it. Product decision for Dj.

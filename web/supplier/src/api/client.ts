@@ -36,6 +36,23 @@ export function setUploadToken(token: string | null): void {
   uploadToken = token;
 }
 
+/**
+ * The headers every API call sends: JSON accepted, the CSRF header and, on the supplier
+ * page, the upload token. For callers in src/api/ that can't use `apiRequest`, such as
+ * the supplier upload, which needs XHR progress events.
+ */
+export function apiHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    // CSRF defence (security.md rule 24); built-in auth answers 401, not a redirect.
+    "X-Requested-With": "XMLHttpRequest",
+  };
+  if (uploadToken !== null) {
+    headers[UPLOAD_TOKEN_HEADER] = uploadToken;
+  }
+  return headers;
+}
+
 /** A failed call, carrying the API's `{code, message, correlation_id}` when it sent one. */
 export class ApiError extends Error {
   readonly status: number;
@@ -96,14 +113,7 @@ export async function apiRequest<T>(
   if (!path.startsWith("/api/")) {
     throw new Error(`API paths start with /api/, got ${path}`);
   }
-  const headers: Record<string, string> = {
-    Accept: "application/json",
-    // CSRF defence (security.md rule 24); built-in auth answers 401, not a redirect.
-    "X-Requested-With": "XMLHttpRequest",
-  };
-  if (uploadToken !== null) {
-    headers[UPLOAD_TOKEN_HEADER] = uploadToken;
-  }
+  const headers = apiHeaders();
   const init: RequestInit = {
     method: options.method ?? "GET",
     headers,

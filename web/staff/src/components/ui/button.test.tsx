@@ -30,4 +30,12 @@ describe("1.4 Button", () => {
       "button",
     );
   });
+
+  it("lets a caller's token size replace the 48px minimum (1.8)", () => {
+    render(<Button className="min-h-capture">Take photo</Button>);
+    const button = screen.getByRole("button", { name: "Take photo" });
+    // Only one min-height class, so the stylesheet's order can't overrule the caller.
+    expect(button).toHaveClass("min-h-capture", "min-w-tap-min");
+    expect(button).not.toHaveClass("min-h-tap-min");
+  });
 });

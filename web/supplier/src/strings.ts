@@ -77,6 +77,14 @@ export function statusLabel(
   return statusLabels[status] ?? FALLBACK_STATUS;
 }
 
+/** A file's size for the Check & send summary: "850 KB" or "1.2 MB". */
+export function fileSize(bytes: number): string {
+  // Rounded first, so 1,048,000 bytes reads "1.0 MB", never "1024 KB".
+  const kb = Math.max(1, Math.round(bytes / 1024));
+  if (kb < 1024) return `${kb} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 /** A page title: the screen's own words, then the company name. */
 export function pageTitle(text: string): string {
   return `${text} – Babaloo`;
@@ -101,6 +109,35 @@ export const strings = {
     takePhoto: "Take photo",
     chooseFile: "Choose file",
     pageTitle: "Upload – Babaloo",
+    /** EXPERIENCE.md "Capture button": camera permission denied or blocked in-app. */
+    cameraUnavailable:
+      "Camera not available here. Tap Choose file to pick a photo, or open this link in your phone's browser.",
+  },
+  /** Why a chosen file can't be sent (AD-6: JPEG, PNG or PDF, 4 MB or less). */
+  fileRefused: {
+    tooLarge:
+      "This file is over 4 MB. Choose a smaller photo, or a PDF under 4 MB.",
+    wrongType: "This file can't be sent. Choose a JPEG or PNG photo, or a PDF.",
+    empty: "This file is empty. Choose the invoice again.",
+  },
+  /** EXPERIENCE.md "Check & send" and its Upload states (UX-DR5). */
+  checkAndSend: {
+    heading: "Check & send",
+    pageTitle: "Check & send – Babaloo",
+    photo: "Photo",
+    pdf: "PDF",
+    send: "Send",
+    chooseAgain: "Choose another file",
+    sending: "Sending…",
+    progressLabel: "Upload progress",
+    failed: "Couldn't send. Check your connection and tap Send again.",
+  },
+  /** EXPERIENCE.md "Received": "Received. Reference R-7Q4KXM2D." */
+  received: {
+    heading: "Received.",
+    reference: "Reference",
+    uploadAnother: "Upload another",
+    pageTitle: "Received – Babaloo",
   },
   /** EXPERIENCE.md "Link not working" (UX-DR7): identical for revoked and unknown links. */
   linkNotWorking: {

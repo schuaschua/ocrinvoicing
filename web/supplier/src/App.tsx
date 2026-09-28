@@ -1,16 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ApiError, setUploadToken } from "@/api";
 import { getLink } from "@/api/link";
+import { CheckAndSend } from "@/screens/CheckAndSend";
 import { LinkError } from "@/screens/LinkError";
 import { LinkNotWorking } from "@/screens/LinkNotWorking";
 import { Loading } from "@/screens/Loading";
+import { Received } from "@/screens/Received";
 import { UploadHome } from "@/screens/UploadHome";
 import { strings } from "@/strings";
+import { newUploadKey } from "@/upload";
 
 type Screen =
   | { kind: "loading" }
   | { kind: "home"; supplierName: string }
+  // One key per file, kept for every retry of that file (AD-6).
+  | { kind: "check"; supplierName: string; file: File; uploadKey: string }
+  | { kind: "received"; supplierName: string; reference: string }
   | { kind: "link-not-working" }
   | { kind: "error"; message: string };
 
@@ -35,6 +41,20 @@ export function App({ token }: { token: string | null }) {
     token === null ? { kind: "link-not-working" } : { kind: "loading" },
   );
   const [attempt, setAttempt] = useState(0);
+  // One upload key per file for the whole visit (AD-6): choosing the same file again,
+  // for example after "Couldn't send", reuses its key, so it can't become a second
+  // invoice. A file is known by its name, size and last-modified time.
+  const uploadKeys = useRef(new Map<string, string>());
+
+  function keyFor(file: File): string {
+    const identity = JSON.stringify([file.name, file.size, file.lastModified]);
+    let key = uploadKeys.current.get(identity);
+    if (key === undefined) {
+      key = newUploadKey();
+      uploadKeys.current.set(identity, key);
+    }
+    return key;
+  }
 
   useEffect(() => {
     // No token: Link not working, and no call to the server.
@@ -68,6 +88,12 @@ export function App({ token }: { token: string | null }) {
     setAttempt((n) => n + 1);
   }
 
+  function linkNotWorking() {
+    // The server refused this token: stop sending it.
+    setUploadToken(null);
+    setScreen({ kind: "link-not-working" });
+  }
+
   return (
     <div className="flex min-h-dvh flex-col text-body-supplier">
       <header className="sticky top-0 z-10 flex h-header items-center border-b bg-background px-supplier-gutter">
@@ -76,7 +102,42 @@ export function App({ token }: { token: string | null }) {
       <main id="main" className="flex flex-1 flex-col px-supplier-gutter py-4">
         {screen.kind === "loading" && <Loading />}
         {screen.kind === "home" && (
-          <UploadHome supplierName={screen.supplierName} />
+          <UploadHome
+            supplierName={screen.supplierName}
+            onFile={(file) =>
+              setScreen({
+                kind: "check",
+                supplierName: screen.supplierName,
+                file,
+                uploadKey: keyFor(file),
+              })
+            }
+          />
+        )}
+        {screen.kind === "check" && (
+          <CheckAndSend
+            file={screen.file}
+            uploadKey={screen.uploadKey}
+            onSent={(reference) =>
+              setScreen({
+                kind: "received",
+                supplierName: screen.supplierName,
+                reference,
+              })
+            }
+            onLinkNotWorking={linkNotWorking}
+            onChooseAgain={() =>
+              setScreen({ kind: "home", supplierName: screen.supplierName })
+            }
+          />
+        )}
+        {screen.kind === "received" && (
+          <Received
+            reference={screen.reference}
+            onUploadAnother={() =>
+              setScreen({ kind: "home", supplierName: screen.supplierName })
+            }
+          />
         )}
         {screen.kind === "link-not-working" && <LinkNotWorking />}
         {screen.kind === "error" && (

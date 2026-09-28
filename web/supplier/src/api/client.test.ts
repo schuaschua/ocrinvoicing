@@ -5,6 +5,7 @@ import {
   LINK_NOT_VALID,
   OFFLINE,
   SESSION_EXPIRED,
+  apiHeaders,
   apiRequest,
   onApiEvent,
   setUploadToken,
@@ -235,6 +236,21 @@ describe("1.4 API client", () => {
     expect(withToken![0]).toBe("/api/x");
     expect(withToken![1]?.headers).toMatchObject({ "X-Upload-Token": token });
     expect(without![1]?.headers).not.toHaveProperty("X-Upload-Token");
+  });
+
+  it("gives other API callers the same headers, token included only while set", () => {
+    const token = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
+    setUploadToken(token);
+    expect(apiHeaders()).toEqual({
+      Accept: "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-Upload-Token": token,
+    });
+    setUploadToken(null);
+    expect(apiHeaders()).not.toHaveProperty("X-Upload-Token");
+    // A copy: changing it changes nothing for later calls.
+    apiHeaders()["X-Upload-Token"] = "changed";
+    expect(apiHeaders()).not.toHaveProperty("X-Upload-Token");
   });
 
   it("does not fire session-expired for a 401 LINK_NOT_VALID", async () => {

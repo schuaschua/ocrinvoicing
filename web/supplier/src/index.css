@@ -42,6 +42,8 @@
   /* Spacing */
   --tap-min: 48px;
   --supplier-gutter: 16px;
+  /* DESIGN.md components.capture-button.minHeight */
+  --capture-min-height: 56px;
 
   /* Typography */
   --body-supplier-font-size: 16px;
@@ -97,6 +99,7 @@
 
   --spacing-tap-min: var(--tap-min);
   --spacing-supplier-gutter: var(--supplier-gutter);
+  --spacing-capture: var(--capture-min-height);
   --spacing-header: var(--header-height);
 }
 

@@ -6,11 +6,13 @@ from pathlib import Path
 import azure.functions as func
 
 from invoicing.adapters.static import spa_endpoint
+from invoicing.adapters.table_links import TableSupplierLinkRegistry
 from invoicing.apps.common import (
     anonymous_health_endpoint,
     load_settings,
     start_telemetry,
 )
+from invoicing.apps.supplier_api.link import link_endpoint
 from invoicing.apps.supplier_api.settings import SupplierApiSettings
 
 # Fails at start-up, naming any missing setting.
@@ -21,12 +23,26 @@ start_telemetry(settings, "supplier-api")
 # Anonymous at the platform; the upload token is checked in code (AD-1, AD-14).
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
+# The link registry (AD-6): Table Storage only. Creating it opens no connection.
+links = TableSupplierLinkRegistry.with_managed_identity(
+    settings.storage_account_name, str(settings.azure_client_id)
+)
+
 
 # host.json sets routePrefix "" so the SPA can own "/"; API routes spell out api/.
 @app.route(route="api/health", methods=["GET"])
 async def health(req: func.HttpRequest) -> func.HttpResponse:
     """Liveness and the deployed version."""
     return await anonymous_health_endpoint(req)
+
+
+link_api = link_endpoint(lambda: links)
+
+
+@app.route(route="api/link", methods=["GET"])
+async def link(req: func.HttpRequest) -> func.HttpResponse:
+    """The supplier name for the X-Upload-Token link, or 401 LINK_NOT_VALID."""
+    return await link_api(req)
 
 
 # The built web/supplier (AD-14), packaged as static/ next to this file by

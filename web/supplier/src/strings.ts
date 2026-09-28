@@ -77,10 +77,35 @@ export function statusLabel(
   return statusLabels[status] ?? FALLBACK_STATUS;
 }
 
+/** A page title: the screen's own words, then the company name. */
+export function pageTitle(text: string): string {
+  return `${text} – Babaloo`;
+}
+
 export const strings = {
   appName: "Babaloo",
   errors: {
     generic: "Something went wrong. Try again later.",
     network: "Couldn't reach Babaloo. Check your connection and try again.",
+    tryAgain: "Try again",
+  },
+  /** Skeleton, then this line after 3 s (UX-DR20: the app scales to zero when idle). */
+  loading: {
+    label: "Loading",
+    pageTitle: "Loading – Babaloo",
+    wakingUp: "Waking up, one moment…",
+  },
+  /** EXPERIENCE.md "Upload home" (UX-DR4); the supplier name is shown in bold after the prefix. */
+  uploadHome: {
+    uploadingFor: "Uploading for",
+    takePhoto: "Take photo",
+    chooseFile: "Choose file",
+    pageTitle: "Upload – Babaloo",
+  },
+  /** EXPERIENCE.md "Link not working" (UX-DR7): identical for revoked and unknown links. */
+  linkNotWorking: {
+    heading: "This link isn't working.",
+    body: "Please contact your buyer at Babaloo.",
+    pageTitle: "Link not working – Babaloo",
   },
 } as const;

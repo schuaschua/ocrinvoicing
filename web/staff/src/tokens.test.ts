@@ -25,6 +25,7 @@ const DESIGN_TOKENS: Record<string, string> = {
   "destructive-foreground": "#ffffff",
   "tap-min": "48px",
   "supplier-gutter": "16px",
+  "capture-min-height": "56px",
   "body-supplier-font-size": "16px",
   "body-supplier-line-height": "1.5",
   "numeric-font-feature-settings": '"tnum"',

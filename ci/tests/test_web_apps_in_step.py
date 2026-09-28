@@ -14,7 +14,10 @@ STAFF = REPO_ROOT / "web" / "staff"
 SUPPLIER = REPO_ROOT / "web" / "supplier"
 
 # Files that must be the same in both apps. App-specific: package.json, the lock file
-# (name), playwright.config.ts (port), src/App*.tsx, src/strings*.ts, src/main.tsx.
+# (name), playwright.config.ts (port), e2e/screens.ts (each app's screens),
+# src/App*.tsx, src/strings*.ts, src/main.tsx, and each app's own screens and API
+# calls (e.g. the supplier page's src/screens/, src/link*.ts, src/api/link*.ts and
+# src/components/ui/skeleton.tsx, which only the supplier page uses so far).
 SHARED_FILES = [
     ".npmrc",
     ".prettierignore",

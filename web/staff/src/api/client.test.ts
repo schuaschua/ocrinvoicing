@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiError,
+  LINK_NOT_VALID,
   OFFLINE,
   SESSION_EXPIRED,
   apiRequest,
   onApiEvent,
+  setUploadToken,
 } from "@/api";
 import { strings } from "@/strings";
 
@@ -219,6 +221,36 @@ describe("1.4 API client", () => {
       message: strings.errors.generic,
       correlationId: "c-5",
     });
+  });
+
+  it("sends X-Upload-Token only while a token is set", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({}, 200));
+    const token = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
+    setUploadToken(token);
+    await apiRequest("/api/x");
+    setUploadToken(null);
+    await apiRequest("/api/x");
+
+    const [withToken, without] = fetchMock.mock.calls;
+    expect(withToken![0]).toBe("/api/x");
+    expect(withToken![1]?.headers).toMatchObject({ "X-Upload-Token": token });
+    expect(without![1]?.headers).not.toHaveProperty("X-Upload-Token");
+  });
+
+  it("does not fire session-expired for a 401 LINK_NOT_VALID", async () => {
+    const { listener, stop } = listen(SESSION_EXPIRED);
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { code: LINK_NOT_VALID, message: "Not valid.", correlation_id: "c-6" },
+        401,
+      ),
+    );
+    await expect(apiRequest("/api/link")).rejects.toMatchObject({
+      status: 401,
+      code: "LINK_NOT_VALID",
+    });
+    expect(listener).not.toHaveBeenCalled();
+    stop();
   });
 
   it("stops notifying after unsubscribe", async () => {

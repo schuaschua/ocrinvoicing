@@ -62,6 +62,15 @@ STATUS_BY_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.PAYLOAD_TOO_LARGE: 413,
     ErrorCode.UNSUPPORTED_MEDIA_TYPE: 415,
     ErrorCode.DB_OFFLINE: 503,
+    ErrorCode.LINK_NOT_VALID: 401,
+    ErrorCode.SERVICE_UNAVAILABLE: 503,
+}
+
+# Extra headers some error codes carry: when to retry a 503, and the scheme a 401
+# expects (RFC 9110), so clients and proxies read them correctly.
+HEADERS_BY_CODE: Mapping[ErrorCode, Mapping[str, str]] = {
+    ErrorCode.SERVICE_UNAVAILABLE: {"Retry-After": "5"},
+    ErrorCode.LINK_NOT_VALID: {"WWW-Authenticate": "UploadToken"},
 }
 
 # security.md rule 26: a plain message, never a stack trace or internal detail.
@@ -107,9 +116,12 @@ def error_response(
         "message": message,
         "correlation_id": str(correlation_id),
     }
-    return json_response(
+    response = json_response(
         body, status=STATUS_BY_CODE[code], correlation_id=correlation_id
     )
+    for name, value in HEADERS_BY_CODE.get(code, {}).items():
+        response.headers[name] = value
+    return response
 
 
 def http_endpoint(

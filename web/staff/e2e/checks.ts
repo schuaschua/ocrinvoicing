@@ -132,3 +132,20 @@ export function collectErrors(page: Page): string[] {
   page.on("pageerror", (error) => errors.push(error.message));
   return errors;
 }
+
+/** A stubbed API answer; "hang" never answers (an app waking up from zero). */
+export type ApiAnswer = { status: number; body: unknown } | "hang";
+
+/** One screen for the accessibility check (e2e/a11y.spec.ts); each app lists its own. */
+export interface Screen {
+  story: string;
+  name: string;
+  path: string;
+  /**
+   * `vite preview` has no API: the answer for each path the screen calls, such as
+   * "/api/link". A call to any other /api/ path fails the check.
+   */
+  api?: Record<string, ApiAnswer>;
+  /** Text in the main region once the screen is ready. */
+  ready?: string;
+}

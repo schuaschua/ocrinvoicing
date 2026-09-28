@@ -22,6 +22,19 @@ export function onApiEvent(
 }
 
 const CORRELATION_HEADER = "X-Correlation-Id";
+const UPLOAD_TOKEN_HEADER = "X-Upload-Token";
+/** The API's 401 code for a supplier link that can't be used (UX-DR7). */
+export const LINK_NOT_VALID = "LINK_NOT_VALID";
+
+// The supplier page's link token (AD-6), read from the URL fragment (which stays there
+// so a reload works). It reaches the server only in this header, never in a request
+// URL, and is never stored or logged. The staff app never sets it.
+let uploadToken: string | null = null;
+
+/** Send `token` as `X-Upload-Token` on every later call; null stops sending it. */
+export function setUploadToken(token: string | null): void {
+  uploadToken = token;
+}
 
 /** A failed call, carrying the API's `{code, message, correlation_id}` when it sent one. */
 export class ApiError extends Error {
@@ -88,6 +101,9 @@ export async function apiRequest<T>(
     // CSRF defence (security.md rule 24); built-in auth answers 401, not a redirect.
     "X-Requested-With": "XMLHttpRequest",
   };
+  if (uploadToken !== null) {
+    headers[UPLOAD_TOKEN_HEADER] = uploadToken;
+  }
   const init: RequestInit = {
     method: options.method ?? "GET",
     headers,
@@ -135,7 +151,8 @@ export async function apiRequest<T>(
     code,
     text(body?.correlation_id) ?? response.headers.get(CORRELATION_HEADER),
   );
-  if (response.status === 401) {
+  // A supplier link that isn't valid is not an expired staff sign-in.
+  if (response.status === 401 && code !== LINK_NOT_VALID) {
     apiEvents.dispatchEvent(new Event(SESSION_EXPIRED));
   } else if (response.status === 503 && code === "DB_OFFLINE") {
     apiEvents.dispatchEvent(new Event(OFFLINE));

@@ -1,6 +1,7 @@
 """Upload idempotency keys (AD-6): which invoice an upload's `Idempotency-Key` created.
 
-Storage contract, shared with the sweeper that deletes rows older than 24 hours (Story 2.2):
+Storage contract, shared with the sweeper (Story 2.2), which re-enqueues uploads whose
+enqueue was lost and deletes rows older than 24 hours:
 
 - Azure Table `uploadkeys`, one entity per key.
 - `RowKey` = the key, a UUID in canonical lowercase 8-4-4-4-12 form.
@@ -12,6 +13,8 @@ Storage contract, shared with the sweeper that deletes rows older than 24 hours 
 - `device_check` (Story 1.9): `passed` or `overridden`, as the first attempt sent it. A
   replay keeps it, whatever the retry sends. A row without it, or with it empty
   (written before 1.9), reads as `passed`.
+- `recovered_at` (Story 2.2): UTC datetime, set by the sweeper once it re-enqueued an
+  orphaned upload, so each orphan is recovered once. Absent otherwise.
 
 The key is a client-chosen value: never log it.
 """
@@ -59,4 +62,39 @@ class UploadKeyStore(Protocol):
         the earlier entry and False (whoever holds it; the caller checks the supplier
         and the content). Two concurrent claims return the same entry, and only one
         of them True. Raises `ServiceUnavailableError` when the store can't answer."""
+        ...
+
+
+@dataclass(frozen=True)
+class AgedUploadKey:
+    """A stored key and what it maps to, as the sweeper lists them, with the row's
+    ETag (every write is conditional on it) and `recovered_at`."""
+
+    key: UUID
+    value: UploadKey
+    etag: str
+    recovered_at: datetime | None = None
+
+
+class AgedUploadKeys(Protocol):
+    """The sweeper's view of `uploadkeys` (AD-2, AD-6)."""
+
+    async def older_than(self, cutoff: datetime, limit: int) -> list[AgedUploadKey]:
+        """At most `limit` readable keys created before `cutoff`. A row that can't be
+        read is skipped and logged by a code. Raises `ServiceUnavailableError` when
+        the store can't answer."""
+        ...
+
+    async def mark_recovered(
+        self, item: AgedUploadKey, at: datetime
+    ) -> AgedUploadKey | None:
+        """Set `recovered_at` on `item`'s row if it is unchanged since it was listed
+        (its ETag). The updated item with its new ETag, or None when the row changed
+        or is gone. Raises `ServiceUnavailableError` when the store can't answer."""
+        ...
+
+    async def delete(self, item: AgedUploadKey) -> bool:
+        """Delete `item`'s row if it is unchanged since it was listed (its ETag). True
+        when deleted or already gone, False when it changed. Raises
+        `ServiceUnavailableError` when the store can't answer."""
         ...

@@ -37,7 +37,10 @@ module "app" {
     resource_id = local.foundation.key_vault.resource_id
     uri         = local.foundation.key_vault.uri
   }
-  application_insights_id                = local.foundation.application_insights.resource_id
+  application_insights_id = local.foundation.application_insights.resource_id
+  # Story 2.2: the poison_message and stuck_invoices alerts go to the env action group.
+  action_group_id                        = local.foundation.action_group_id
+  metric_alert_names                     = module.naming.metric_alert_names
   application_insights_connection_string = local.foundation.application_insights_connection_string
   # The only sampling (Application Insights samples nothing at ingestion).
   telemetry_sampling_ratio = var.telemetry_sampling_ratio

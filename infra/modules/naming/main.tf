@@ -51,6 +51,15 @@ locals {
     if var.environment != "shared"
   }
 
+  # Azure Monitor metric alert rules (azure.md: `ar`), numbered from the base in this
+  # order. Story 2.2 adds the first two; Story 2.3's di_pages_used_pct comes next.
+  metric_alert_order = ["poison_message", "stuck_invoices"]
+  metric_alerts = {
+    for index, metric in local.metric_alert_order :
+    metric => format("%s-ar-%02d", local.prefix, var.number_base + index)
+    if var.environment != "shared"
+  }
+
   tags = {
     owner              = var.owner
     costCentre         = var.cost_centre

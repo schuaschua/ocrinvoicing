@@ -2,6 +2,7 @@
 exist, and what a stage does when its claim changes zero rows (AD-2)."""
 
 from collections.abc import Mapping
+from datetime import datetime
 from enum import StrEnum
 
 
@@ -86,3 +87,51 @@ def requeue_after_redelivery(
     if status is None:
         return None
     return FINAL_TARGETS[stage].get(status)
+
+
+# Each stage's input status: the status its queue message expects (AD-2).
+INPUT_STATUS: Mapping[Stage, InvoiceStatus] = {
+    Stage.QUALITY: _S.RECEIVED,
+    Stage.EXTRACT: _S.AWAITING_EXTRACTION,
+    Stage.VALIDATE: _S.AWAITING_VALIDATION,
+    Stage.POST: _S.READY_TO_POST,
+}
+
+# AD-3 claim-before-side-effect: a stage with a side effect moves the invoice from its
+# input status to its claim status, under a lease. `quality` has no claim.
+CLAIM_STATUS: Mapping[Stage, InvoiceStatus] = {
+    Stage.EXTRACT: _S.EXTRACTING,
+    Stage.VALIDATE: _S.VALIDATING,
+    Stage.POST: _S.POSTING,
+}
+
+
+def lease_expired(claimed_until: datetime | None, now: datetime) -> bool:
+    """Whether a claim's lease has run out (AD-3). A claim state with no lease at all
+    counts as expired, so it can never strand an invoice."""
+    return claimed_until is None or claimed_until <= now
+
+
+def poison_route_from(
+    stage: Stage,
+    status: InvoiceStatus | None,
+    claimed_until: datetime | None,
+    now: datetime,
+    next_attempt_at: datetime | None = None,
+) -> InvoiceStatus | None:
+    """The status a poison message of `stage` routes `PROCESSING_FAILED` from (AD-2),
+    or None to only acknowledge it.
+
+    Routed only while the invoice is still in the stage's input status, or in its
+    claim status with an expired lease. A missing row counts as `received` for
+    `quality` only: `route_to_admin` creates it from the blob metadata (AD-4).
+    `ready_to_post` waiting on a scheduled retry (`next_attempt_at` in the future) is
+    not the post stage's input yet: the backoff owns it (AD-3)."""
+    if status is None:
+        return _S.RECEIVED if stage is Stage.QUALITY else None
+    if status is INPUT_STATUS[stage]:
+        waiting = next_attempt_at is not None and next_attempt_at > now
+        return None if stage is Stage.POST and waiting else status
+    if status is CLAIM_STATUS.get(stage) and lease_expired(claimed_until, now):
+        return status
+    return None

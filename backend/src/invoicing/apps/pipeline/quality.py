@@ -15,7 +15,9 @@
 5. After the commit, enqueue `q-extract` when the invoice advanced.
 
 The stage returns an outcome (`advance`, `route` or `ack`) and enqueues only after the
-transaction, so a crash in between is recovered by redelivery (and the 2.2 sweeper).
+transaction, so a crash in between is recovered by redelivery (and the sweeper). A
+message that keeps failing goes to `q-quality-poison` (poison.py, Story 2.2); one that
+finds the database stopped waits it out (dbwait.py, AD-7).
 """
 
 import asyncio
@@ -33,7 +35,7 @@ from pydantic import ValidationError
 from invoicing.adapters.documents import PdfFacts, read_document
 from invoicing.adapters.logging import log_event
 from invoicing.adapters.telemetry import correlation_span
-from invoicing.domain.errors import ServiceUnavailableError
+from invoicing.domain.errors import DatabaseOfflineError, ServiceUnavailableError
 from invoicing.domain.quality import QualityThresholds, image_reason, pdf_reason
 from invoicing.domain.reasons import ReasonCode
 from invoicing.domain.status import InvoiceStatus, Stage, requeue_after_redelivery
@@ -42,23 +44,15 @@ from invoicing.ports.blobs import ImageNotFoundError, ImageReader
 from invoicing.ports.intake import IntakeBlobMetadata, IntakeSource
 from invoicing.ports.invoices import InvoiceRepository, NewInvoice, QualityFacts
 from invoicing.ports.messages import QueueMessage
-from invoicing.ports.queue import QueueName, QueueSender
+from invoicing.ports.queue import STAGE_QUEUES, QueueName, QueueSender
 
 ACTOR = "pipeline:quality"
-
-# The queue that feeds each stage (AD-2).
-STAGE_QUEUES: Mapping[Stage, QueueName] = {
-    Stage.QUALITY: QueueName.QUALITY,
-    Stage.EXTRACT: QueueName.EXTRACT,
-    Stage.VALIDATE: QueueName.VALIDATE,
-    Stage.POST: QueueName.POST,
-}
 
 _logger = logging.getLogger("invoicing.pipeline.quality")
 
 
 class StageFailed(Exception):
-    """The stage failed and the message is retried (poison handling is Story 2.2).
+    """The stage failed and the message is retried, then poisoned (Story 2.2).
     Raised `from None` with a fixed text and a code only, so the host never logs the
     original exception's text, which may hold values (security.md rule 31)."""
 
@@ -83,7 +77,7 @@ def _failure_code(error: Exception) -> str:
     return type(error).__name__
 
 
-def _check_metadata(metadata: IntakeBlobMetadata, invoice_id: UUID) -> None:
+def check_metadata(metadata: IntakeBlobMetadata, invoice_id: UUID) -> None:
     """Refuse metadata the invoice row can't be created from, with a code, before
     anything is written (a check constraint would otherwise fail on every retry)."""
     if metadata.invoice_id != invoice_id:
@@ -127,14 +121,14 @@ async def check_quality(
 ) -> QualityOutcome:
     """Steps 1-4 for one message. Raises `ImageNotFoundError` when the upload
     original is missing and `StageFailed` for metadata the row can't be created from
-    (retried; poison handling is Story 2.2)."""
+    (retried, then routed by the poison trigger, Story 2.2)."""
     invoice_id = message.invoice_id
     status = await invoices.status(invoice_id)
     if status is not None and status is not InvoiceStatus.RECEIVED:
         return _redelivered(status)
 
     stored = await images.get(invoice_id)
-    _check_metadata(stored.metadata, invoice_id)
+    check_metadata(stored.metadata, invoice_id)
     await invoices.insert_if_absent(
         NewInvoice(stored.metadata, message.correlation_id, ACTOR)
     )
@@ -189,7 +183,8 @@ def quality_handler(
     clock: Callable[[], datetime] | None = None,
 ) -> QualityHandler:
     """The `q-quality` message handler: parse, check, then enqueue after the commit.
-    Any failure is raised, so the host retries the message (`maxDequeueCount` 5)."""
+    Any failure is raised, so the host retries the message (`maxDequeueCount` 5).
+    `DatabaseOfflineError` is raised as it is, for the AD-7 wait (dbwait.py)."""
 
     async def handle(body: str | bytes) -> QualityOutcome:
         try:
@@ -224,6 +219,9 @@ def quality_handler(
                             (clock or _now)(),
                         ),
                     )
+            except DatabaseOfflineError:
+                # Not a failure: the stage waits the stopped database out (AD-7).
+                raise
             except Exception as error:  # noqa: BLE001  # re-raised as StageFailed
                 # The exception text may hold values: log a code, raise only the code.
                 code = _failure_code(error)

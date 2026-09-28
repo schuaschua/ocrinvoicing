@@ -37,6 +37,17 @@ class ImageReader(Protocol):
         answer."""
         ...
 
+    async def metadata(self, invoice_id: UUID) -> IntakeBlobMetadata:
+        """The metadata of `images/<invoice_id>`, from its properties only: the bytes
+        are never downloaded (the poison trigger, Story 2.2). Raises like `get`."""
+        ...
+
+    async def exists(self, invoice_id: UUID) -> bool:
+        """Whether `images/<invoice_id>` exists, without reading it (the sweeper's
+        orphaned-upload check, Story 2.2). Raises `ServiceUnavailableError` when
+        storage can't answer."""
+        ...
+
 
 class ImageStore(Protocol):
     """Writes upload originals."""

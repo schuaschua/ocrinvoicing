@@ -26,9 +26,6 @@
   summary: Share one manifest of required app settings between `infra/modules/env-app` and the pydantic settings classes, and test both against it.
   evidence: Both sides hard-code their own key lists today; a drift would only show at start-up in Azure.
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference.md`
-  summary: Sweeper (Story 2.2) reconciles `uploadkeys` rows older than 1 h whose blob exists but no invoice row, and re-enqueues them; it also deletes rows older than 24 h.
-  evidence: If the blob write succeeds but the enqueue fails and the supplier never retries, the original is never processed; the invoice-row sweep can't see it because the row is created later by the quality stage.
-- source_plan: `_bmad-output/implementation-artifacts/plan-1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference.md`
   summary: Decide the upload size limit for phone photos (many modern phone JPEGs exceed 4 MB; originals can't be re-encoded without losing EXIF).
   evidence: The 4 MB limit follows DI F0; moving to S0 or a different ingest path changes it. Product decision for Dj.
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-9-on-device-photo-quality-check-with-send-anyway.md`
@@ -41,8 +38,8 @@
   summary: Update spine AD-6/CAP-3 for the device-only edge cut-off check, the 1024 px analysis copy and the `X-Device-Check` header.
   evidence: Implemented in Story 1.9; the spine describes blur and darkness only.
 - source_plan: `_bmad-output/implementation-artifacts/plan-2-1-server-quality-check-creates-the-invoice-record.md`
-  summary: Story 2.2 poison trigger routes `PROCESSING_FAILED` for quality messages that fail permanently (bad metadata, missing blob), using `route_to_admin(..., metadata)`, and adds lease/claim reclaim.
-  evidence: 2.1 re-raises these for host retries; `route_to_admin(metadata=...)` exists but has no caller; no stage claims yet.
-- source_plan: `_bmad-output/implementation-artifacts/plan-2-1-server-quality-check-creates-the-invoice-record.md`
   summary: Assert the dev/prod app stacks' database wiring (`POSTGRES_HOST/DATABASE/USER`) at root level via an app-settings output.
   evidence: Only the module test checks the mapping.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-2-the-pipeline-never-loses-an-invoice.md`
+  summary: Confirm in Azure that OpenTelemetry custom metrics appear under the `azure.applicationinsights` metric namespace with the `queue` dimension, and that both alert rules fire (one test poison message, one stuck invoice in Dev).
+  evidence: Unverified (medium): verified offline only; the namespace is marked `[ASSUMPTION]` in `infra/modules/env-app/main.tf` and the rules use `skip_metric_validation`. The steps are the "Pipeline check" in `infra/bootstrap/README.md`.

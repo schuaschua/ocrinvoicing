@@ -4,11 +4,14 @@ user-assigned managed identity. Key scheme: `ports/upload_keys.py`."""
 import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Protocol, Self
 from uuid import UUID
 
-from azure.core.exceptions import AzureError, ResourceExistsError
+from azure.core import MatchConditions
+from azure.core.exceptions import AzureError, HttpResponseError, ResourceExistsError
+from azure.data.tables import UpdateMode
 from azure.data.tables.aio import TableClient
 from azure.identity.aio import ManagedIdentityCredential
 
@@ -18,6 +21,7 @@ from invoicing.domain.errors import ServiceUnavailableError
 from invoicing.domain.upload import DeviceCheck, UploadContentType
 from invoicing.ports.upload_keys import (
     UPLOAD_KEYS_TABLE,
+    AgedUploadKey,
     UploadKey,
     partition_key,
     row_key,
@@ -35,6 +39,12 @@ _SELECT = [
     "content_type",
     "device_check",
 ]
+# The sweeper's listing (Story 2.2): a table scan on `created_at`, which is small (keys
+# live 24 hours). The keys come back as properties, never in a URL.
+_OLDER_THAN = "created_at lt @cutoff"
+_AGED_SELECT = ["PartitionKey", "RowKey", "recovered_at", *_SELECT]
+# The service returns at most 1,000 entities a page.
+_MAX_PAGE = 1000
 # An insert refused because the key exists, then a read that finds nothing, means the
 # sweeper deleted the row in between: insert again, once.
 _ATTEMPTS = 2
@@ -59,6 +69,10 @@ class _TableClient(Protocol):
         **kwargs: Any,
     ) -> AsyncIterator[Mapping[str, Any]]: ...
 
+    def submit_transaction(
+        self, operations: Any, **kwargs: Any
+    ) -> Awaitable[list[Mapping[str, Any]]]: ...
+
     async def close(self) -> None: ...
 
 
@@ -75,7 +89,8 @@ class _CorruptRowError(Exception):
 
 
 class TableUploadKeyStore:
-    """Inserts and reads `uploadkeys`; the sweeper deletes old rows (Story 2.2)."""
+    """Inserts and reads `uploadkeys` (`UploadKeyStore`); lists and deletes old rows
+    for the sweeper (`AgedUploadKeys`, Story 2.2)."""
 
     def __init__(
         self, table: _TableClient, credential: _Closeable | None = None
@@ -133,6 +148,92 @@ class TableUploadKeyStore:
             raise_unavailable(_logger, "uploadkeys.unavailable", error)
         return None
 
+    async def older_than(self, cutoff: datetime, limit: int) -> list[AgedUploadKey]:
+        entities = self._table.query_entities(
+            _OLDER_THAN,
+            parameters={"cutoff": cutoff.astimezone(UTC)},
+            select=_AGED_SELECT,
+            results_per_page=min(limit, _MAX_PAGE),
+        )
+        aged: list[AgedUploadKey] = []
+        try:
+            async for entity in entities:
+                try:
+                    aged.append(_aged(entity))
+                except _CorruptRowError as error:
+                    # One bad row never stops the sweep; the code names the fault.
+                    log_event(
+                        _logger,
+                        "uploadkeys.corrupt_row",
+                        level=logging.ERROR,
+                        code=error.code,
+                    )
+                if len(aged) >= limit:
+                    break
+        except AzureError as error:
+            raise_unavailable(_logger, "uploadkeys.unavailable", error)
+        return aged
+
+    async def mark_recovered(
+        self, item: AgedUploadKey, at: datetime
+    ) -> AgedUploadKey | None:
+        entity = {
+            "PartitionKey": partition_key(item.key),
+            "RowKey": row_key(item.key),
+            "recovered_at": at.astimezone(UTC),
+        }
+        # Merge one property, only if the row is unchanged since it was listed.
+        options = {
+            "mode": UpdateMode.MERGE,
+            "etag": item.etag,
+            "match_condition": MatchConditions.IfNotModified,
+        }
+        results = await self._transact(("update", entity, options))
+        if results is None:
+            return None
+        etag = results[0].get("etag") if results else None
+        if not etag:
+            log_event(
+                _logger, "uploadkeys.unavailable", level=logging.ERROR, code="NO_ETAG"
+            )
+            raise ServiceUnavailableError()
+        return replace(item, etag=str(etag), recovered_at=at)
+
+    async def delete(self, item: AgedUploadKey) -> bool:
+        entity = {"PartitionKey": partition_key(item.key), "RowKey": row_key(item.key)}
+        options = {"etag": item.etag, "match_condition": MatchConditions.IfNotModified}
+        return (
+            await self._transact(("delete", entity, options), gone_ok=True) is not None
+        )
+
+    async def _transact(
+        self,
+        operation: tuple[str, Mapping[str, Any], Mapping[str, Any]],
+        *,
+        gone_ok: bool = False,
+    ) -> list[Mapping[str, Any]] | None:
+        """One-operation transaction: the key travels in the request body, never in
+        the URL path that SDK logging and tracing record (as for reads above). None
+        when the row changed since it was listed (or, unless `gone_ok`, is gone)."""
+        try:
+            return list(await self._table.submit_transaction([operation]))
+        except HttpResponseError as error:
+            code = getattr(error, "error_code", None)
+            if code == "ResourceNotFound":
+                # Already gone (a concurrent sweep).
+                return [] if gone_ok else None
+            if code == "UpdateConditionNotSatisfied":
+                log_event(
+                    _logger,
+                    "uploadkeys.changed",
+                    level=logging.INFO,
+                    code="ETAG_MISMATCH",
+                )
+                return None
+            raise_unavailable(_logger, "uploadkeys.unavailable", error)
+        except AzureError as error:
+            raise_unavailable(_logger, "uploadkeys.unavailable", error)
+
     async def close(self) -> None:
         """Release the HTTP session and the credential."""
         await self._table.close()
@@ -162,6 +263,27 @@ def _uuid(entity: Mapping[str, Any], name: str) -> UUID:
         return UUID(str(raw))
     except ValueError:
         raise _CorruptRowError(f"BAD_{name.upper()}") from None
+
+
+def _aged(entity: Mapping[str, Any]) -> AgedUploadKey:
+    metadata = getattr(entity, "metadata", None) or {}
+    etag = metadata.get("etag")
+    if not etag:
+        raise _CorruptRowError("MISSING_ETAG")
+    recovered = entity.get("recovered_at")
+    return AgedUploadKey(
+        key=_row_key(entity.get("RowKey")),
+        value=_upload_key(entity),
+        etag=str(etag),
+        recovered_at=None if recovered in (None, "") else _created_at(recovered),
+    )
+
+
+def _row_key(value: object) -> UUID:
+    try:
+        return UUID(str(value))
+    except ValueError:
+        raise _CorruptRowError("BAD_ROW_KEY") from None
 
 
 def _created_at(value: object) -> datetime:

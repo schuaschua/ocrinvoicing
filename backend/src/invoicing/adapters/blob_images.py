@@ -34,6 +34,8 @@ class _ContainerClient(Protocol):
 
     def download_blob(self, blob: str, **kwargs: Any) -> Awaitable[Any]: ...
 
+    def get_blob_client(self, blob: str) -> Any: ...
+
     async def close(self) -> None: ...
 
 
@@ -108,6 +110,37 @@ class BlobImageStore:
         return StoredImage(
             data=bytes(data), metadata=IntakeBlobMetadata.from_blob_metadata(metadata)
         )
+
+    async def metadata(self, invoice_id: UUID) -> IntakeBlobMetadata:
+        properties = await self._properties(invoice_id)
+        if properties is None:
+            log_event(
+                _logger,
+                "images.not_found",
+                level=logging.WARNING,
+                invoice_id=invoice_id,
+                code="IMAGE_NOT_FOUND",
+            )
+            raise ImageNotFoundError("the upload original does not exist")
+        return IntakeBlobMetadata.from_blob_metadata(dict(properties.metadata or {}))
+
+    async def exists(self, invoice_id: UUID) -> bool:
+        return await self._properties(invoice_id) is not None
+
+    async def _properties(self, invoice_id: UUID) -> Any:
+        """The blob's properties (one HEAD request, the bytes are never read), or None
+        when there is no such blob."""
+        try:
+            return await self._container.get_blob_client(
+                image_blob_name(invoice_id)
+            ).get_blob_properties()
+        except ResourceNotFoundError as error:
+            # Only this code means the blob is missing; a missing container is a fault.
+            if getattr(error, "error_code", None) == "BlobNotFound":
+                return None
+            raise_unavailable(_logger, "images.unavailable", error)
+        except AzureError as error:
+            raise_unavailable(_logger, "images.unavailable", error)
 
     async def close(self) -> None:
         """Release the HTTP session and the credential."""

@@ -320,7 +320,7 @@ def test_story_2_1_the_engine_requires_tls_by_default() -> None:
     )
     assert engine.url.query["sslmode"] == "require"
     assert engine.url.port == 5432
-    assert engine.pool.size() == 2  # type: ignore[attr-defined]  # QueuePool
+    assert engine.pool.size() == 6  # type: ignore[attr-defined]  # QueuePool
 
 
 def test_story_2_1_tokens_come_from_the_apps_identity_for_postgres(

@@ -76,6 +76,21 @@ variable "application_insights_id" {
   type        = string
 }
 
+variable "action_group_id" {
+  description = "Resource id of the environment's action group from <env>/foundation; every metric alert notifies it (AD-17: all alerts go to Dj)."
+  type        = string
+}
+
+variable "metric_alert_names" {
+  description = "Metric alert rule names from the naming module (metric_alert_names output), keyed by metric: poison_message and stuck_invoices (P-16)."
+  type        = map(string)
+
+  validation {
+    condition     = toset(keys(var.metric_alert_names)) == toset(["poison_message", "stuck_invoices"])
+    error_message = "metric_alert_names must have exactly the keys poison_message and stuck_invoices."
+  }
+}
+
 variable "application_insights_connection_string" {
   description = "Application Insights connection string. Not a credential (local auth is off, AD-17), but kept out of logs."
   type        = string

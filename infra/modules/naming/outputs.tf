@@ -13,6 +13,11 @@ output "app_names" {
   value       = local.apps
 }
 
+output "metric_alert_names" {
+  description = "Per AD-17 custom metric that has an alert (poison_message, stuck_invoices): the metric alert rule's name. Empty for shared."
+  value       = local.metric_alerts
+}
+
 output "tags" {
   description = "The five P-17 tags, to pass unchanged to every taggable resource."
   value       = local.tags

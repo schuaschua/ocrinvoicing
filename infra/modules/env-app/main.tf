@@ -2,8 +2,9 @@
 # plan with its own user-assigned identity from <env>/foundation, their deployment
 # containers, app settings (no secrets) and the AD-17 runtime role assignments.
 # Built-in auth (Story 2.7), the DI Cognitive Services User assignment (2.3), the
-# ACS Email Sender assignment (5.2) and the metric alert rules (2.2, 2.3) are added
-# later; Story 1.5 added the telemetry settings.
+# ACS Email Sender assignment (5.2) and the di_pages_used_pct alert (2.3) are added
+# later; Story 1.5 added the telemetry settings and Story 2.2 the pipeline's
+# poison_message and stuck_invoices metric alerts.
 
 locals {
   apps = toset(keys(var.app_names))
@@ -245,4 +246,80 @@ resource "azurerm_role_assignment" "runtime" {
   principal_type       = "ServicePrincipal"
 
   depends_on = [azurerm_storage_container.deployment]
+}
+
+# --- Metric alerts (AD-17): the pipeline's custom metrics, sent to Dj ---------------------
+#
+# Storage queue metrics have no per-queue breakdown, so these alert on Application
+# Insights custom metrics. <env>/foundation turns on alerting on custom metric
+# dimensions, which keeps `queue`. The metrics exist only once the app first emits
+# them, so validation is skipped when the rule is created.
+
+locals {
+  # Where OpenTelemetry custom metrics land in Application Insights.
+  # [ASSUMPTION] Confirm in the portal's metric namespaces after the first poison message.
+  custom_metrics_namespace = "azure.applicationinsights"
+  resource_group_name      = element(split("/", var.resource_group_id), 4)
+}
+
+# poison_message{queue}: more than 0 in an hour, one alert per poison queue (AD-2).
+resource "azurerm_monitor_metric_alert" "poison_message" {
+  name                = var.metric_alert_names["poison_message"]
+  resource_group_name = local.resource_group_name
+  scopes              = [var.application_insights_id]
+  description         = "A pipeline message failed 5 times and reached a poison queue (AD-2). Its invoice is in the admin queue as PROCESSING_FAILED, or the trigger logged a code (poison.done)."
+  severity            = 2
+  frequency           = "PT15M"
+  window_size         = "PT1H"
+  auto_mitigate       = true
+
+  criteria {
+    metric_namespace       = local.custom_metrics_namespace
+    metric_name            = "poison_message"
+    aggregation            = "Total"
+    operator               = "GreaterThan"
+    threshold              = 0
+    skip_metric_validation = true
+
+    # Split by queue: each poison queue fires on its own.
+    dimension {
+      name     = "queue"
+      operator = "Include"
+      values   = ["*"]
+    }
+  }
+
+  action {
+    action_group_id = var.action_group_id
+  }
+
+  tags = var.tags
+}
+
+# stuck_invoices: the sweeper re-enqueued at least one invoice (AD-2). It runs every
+# 15 minutes and emits 0 on a clean sweep, so the alert resolves by itself.
+resource "azurerm_monitor_metric_alert" "stuck_invoices" {
+  name                = var.metric_alert_names["stuck_invoices"]
+  resource_group_name = local.resource_group_name
+  scopes              = [var.application_insights_id]
+  description         = "The sweeper found invoices stranded for over an hour and queued them again (AD-2). See sweeper.requeued in the pipeline's logs."
+  severity            = 2
+  frequency           = "PT15M"
+  window_size         = "PT30M"
+  auto_mitigate       = true
+
+  criteria {
+    metric_namespace       = local.custom_metrics_namespace
+    metric_name            = "stuck_invoices"
+    aggregation            = "Maximum"
+    operator               = "GreaterThan"
+    threshold              = 0
+    skip_metric_validation = true
+  }
+
+  action {
+    action_group_id = var.action_group_id
+  }
+
+  tags = var.tags
 }

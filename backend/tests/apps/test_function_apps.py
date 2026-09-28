@@ -120,6 +120,97 @@ def test_story_2_1_pipeline_runs_the_quality_stage_on_q_quality(
     assert module.engine.url.query["sslmode"] == "require"
 
 
+@pytest.mark.app("pipeline")
+def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper(
+    app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
+) -> None:
+    functions = _functions(load_app("pipeline"))
+    poison = {
+        name: fn.get_bindings()[0].get_dict_repr()
+        for name, fn in functions.items()
+        if name.endswith("_poison")
+    }
+    assert {name: b["queueName"] for name, b in poison.items()} == {
+        "quality_poison": "q-quality-poison",
+        "extract_poison": "q-extract-poison",
+        "validate_poison": "q-validate-poison",
+        "post_poison": "q-post-poison",
+    }
+    assert {b["type"] for b in poison.values()} == {"queueTrigger"}
+    assert {b["connection"] for b in poison.values()} == {"AzureWebJobsStorage"}
+    (timer,) = [b.get_dict_repr() for b in functions["sweeper"].get_bindings()]
+    assert timer["type"] == "timerTrigger"
+    # AD-2: every 15 minutes, NCRONTAB in UTC; no run on a cold start.
+    assert timer["schedule"] == "0 */15 * * * *"
+    assert timer["runOnStartup"] is False and timer["useMonitor"] is True
+
+
+@pytest.mark.app("pipeline")
+def test_story_2_2_every_pipeline_trigger_waits_out_a_stopped_database(
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC, datetime
+
+    from invoicing.domain.errors import DatabaseOfflineError
+    from invoicing.ports.messages import QueueMessage
+
+    module = load_app("pipeline")
+    sent: list[tuple[str, int]] = []
+
+    async def offline(*args: object, **kwargs: object) -> None:
+        raise DatabaseOfflineError()
+
+    async def send(queue: object, message: object, *, delay_seconds: int = 0) -> None:
+        sent.append((str(queue), delay_seconds))
+
+    monkeypatch.setattr(module.invoices, "status", offline)
+    monkeypatch.setattr(module.invoices, "state", offline)
+    monkeypatch.setattr(module.queue, "send", send)
+    body = QueueMessage.first(
+        UUID("0192f0c1-7a2b-7c3d-8e4f-0123456789ab"),
+        UUID("0192f0c1-7a2b-7c3d-8e4f-0000000000c0"),
+        datetime(2026, 9, 29, tzinfo=UTC),
+    ).to_json()
+    functions = _functions(module)
+    for name in [
+        "quality",
+        "quality_poison",
+        "extract_poison",
+        "validate_poison",
+        "post_poison",
+    ]:
+        message = func.QueueMessage(body=body.encode())
+        asyncio.run(functions[name].get_user_function()(message))
+    assert sent == [
+        ("q-quality", 900),
+        ("q-quality-poison", 900),
+        ("q-extract-poison", 900),
+        ("q-validate-poison", 900),
+        ("q-post-poison", 900),
+    ]
+
+    # The host's dequeue count reaches the poison handler: on the last delivery a
+    # failure is abandoned and acknowledged, never raised to `-poison-poison`.
+    async def broken(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module.invoices, "state", broken)
+    # The concrete message the host passes, which carries the dequeue count.
+    from azure.functions.queue import QueueMessage as HostQueueMessage
+
+    last = HostQueueMessage(body=body.encode(), dequeue_count=5)
+    asyncio.run(functions["quality_poison"].get_user_function()(last))
+    early = HostQueueMessage(body=body.encode(), dequeue_count=4)
+    with pytest.raises(Exception, match="poison handling failed: RuntimeError"):
+        asyncio.run(functions["quality_poison"].get_user_function()(early))
+    # The timer exits with a code and catches up at its next run (AD-7).
+    monkeypatch.setattr(module.invoices, "stale", offline)
+    asyncio.run(functions["sweeper"].get_user_function()(object()))
+    assert len(sent) == 5
+
+
 @pytest.mark.parametrize(
     ("app", "missing"), [(app, name) for app in ALL_APPS for name in REQUIRED[app]]
 )

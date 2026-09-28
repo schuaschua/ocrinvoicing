@@ -112,3 +112,43 @@ run "no_apps_in_shared" {
     error_message = "shared has no Function apps (AD-1: four per environment)."
   }
 }
+
+run "metric_alert_names" {
+  command = plan
+
+  variables {
+    environment = "dev"
+    number_base = 1
+  }
+
+  assert {
+    condition = output.metric_alert_names == {
+      poison_message = "babaloo-sea-lng-ar-01"
+      stuck_invoices = "babaloo-sea-lng-ar-02"
+    }
+    error_message = "dev metric alert rules must be ar-01 (poison_message) and ar-02 (stuck_invoices) (P-16)."
+  }
+}
+
+run "metric_alert_names_prod_and_shared" {
+  command = plan
+
+  assert {
+    condition     = output.metric_alert_names == { poison_message = "babaloo-sea-lng-ar-11", stuck_invoices = "babaloo-sea-lng-ar-12" }
+    error_message = "prod metric alert rules must be ar-11 and ar-12 (P-16)."
+  }
+}
+
+run "no_metric_alerts_in_shared" {
+  command = plan
+
+  variables {
+    environment = "shared"
+    number_base = 21
+  }
+
+  assert {
+    condition     = output.metric_alert_names == {}
+    error_message = "shared has no pipeline metrics, so no metric alert rules."
+  }
+}

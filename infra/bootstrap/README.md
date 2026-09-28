@@ -58,6 +58,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
 | 8 | operator | `staff-api` redirect URI (Story 1.3) |
 | Alert check | operator | `./test-alerts.sh` once the stacks are applied, then check that Dj received every test email (below) |
+| Pipeline check | operator | after the first Dev code deploy: the metric namespace and the stopped-database wait (below) |
 
 Try each script with `--dry-run` first.
 
@@ -137,7 +138,14 @@ Every alert goes through an action group that emails Dj: `ag-21` for the `shared
 2. **Check that Dj received it:** one test email per action group at each address the script lists, each naming its group. Look in the spam folder too, and mark the sender as safe.
 3. If one is missing, check that group's email receiver in its stack's `terraform.tfvars` (`alert_email`) and re-run. An alert that doesn't reach Dj is not an alert.
 
-Application Insights in each environment has alerting on custom metric dimensions on, so `poison_message{queue}` keeps its queue; the alert rules themselves arrive with Stories 2.2 and 2.3. There is no separate log-cap alert: the 0.08 GB daily cap bounds ingestion (AD-17).
+Application Insights in each environment has alerting on custom metric dimensions on, so `poison_message{queue}` keeps its queue. `<env>/app` holds the `poison_message` and `stuck_invoices` alert rules (`ar-01`/`ar-02` in Dev, `ar-11`/`ar-12` in Prod, Story 2.2); Story 2.3 adds `di_pages_used_pct`. There is no separate log-cap alert: the 0.08 GB daily cap bounds ingestion (AD-17).
+
+### Pipeline check: first Dev deploy (Story 2.2)
+
+Everything below was verified offline only. Once, after the first Dev code deploy of the `pipeline` app (and again for Prod):
+
+1. **Metric namespace.** The alert rules watch the custom metric namespace `azure.applicationinsights` (an `[ASSUMPTION]` in `infra/modules/env-app/main.tf`) and skip metric validation, so a wrong namespace fails silently. Wait for the first sweep (every 15 minutes, `stuck_invoices` is sent even when it is 0), then in the portal open the Dev Application Insights (`appi-01`), **Metrics**, and check that `stuck_invoices` is listed under the namespace `azure.applicationinsights`. For `poison_message`, send a message to `q-quality` for an invoice id with no blob; after 5 failures it reaches `q-quality-poison`, and the metric appears with the dimension `queue = q-quality-poison`. Then check that `ar-01` fired and Dj got its email. If the namespace differs, change `custom_metrics_namespace` in `infra/modules/env-app/main.tf`.
+2. **Stopped-database wait (AD-7).** Stop the PostgreSQL server, then upload a test invoice through the supplier link. In the Dev logs (`traces`), `pipeline.db_wait` with `code=DB_OFFLINE` and `queue=q-quality` must appear; in the storage account, the `q-quality` message is invisible for 15 minutes (its next-visible time is 15 minutes out) and keeps its `attempt`. Start the server again: within 15 minutes the message is processed and the invoice reaches `awaiting_extraction`. No message may reach `q-quality-poison` while the server is stopped.
 
 ## Tag gate (P-17)
 

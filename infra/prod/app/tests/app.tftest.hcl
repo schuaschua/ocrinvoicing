@@ -128,6 +128,7 @@ override_data {
         name = "invoicing_prod"
         fqdn = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
       }
+      action_group_id                        = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-11"
       application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
     }
   }
@@ -219,6 +220,25 @@ run "prod_app" {
       })
     ])
     error_message = "every app must carry exactly the five P-17 tags."
+  }
+
+  # Story 2.2: the two pipeline metric alerts, named per P-16, on this environment's
+  # Application Insights and action group.
+  assert {
+    condition = { for metric, alert in output.metric_alerts : metric => alert.name } == {
+      poison_message = "babaloo-sea-lng-ar-11"
+      stuck_invoices = "babaloo-sea-lng-ar-12"
+    }
+    error_message = "the prod metric alerts must be ar-11 (poison_message) and ar-12 (stuck_invoices) (P-16)."
+  }
+  assert {
+    condition = alltrue([
+      for alert in output.metric_alerts :
+      alert.scopes == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-11"]) &&
+      alert.action_group_ids == ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-11"] &&
+      alert.tags.environment == "prod" && length(alert.tags) == 5
+    ])
+    error_message = "the prod metric alerts must watch prod's Application Insights, notify prod's action group and carry the five P-17 tags."
   }
 
   # Story 1.5: the apps sample at their own ratio (default 0.5).

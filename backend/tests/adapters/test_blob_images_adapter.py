@@ -346,3 +346,150 @@ def test_story_2_1_the_wire_404_blob_not_found_is_not_found() -> None:
     assert request.url.startswith(
         f"https://babaloosealngst01.blob.core.windows.net/images/{INVOICE_ID}"
     )
+
+
+# --- Story 2.2: the sweeper's existence check --------------------------------------------
+
+
+class _Properties:
+    def __init__(self, metadata: dict[str, str]) -> None:
+        self.metadata = metadata
+
+
+class _BlobClient:
+    def __init__(self, error: Exception | None, metadata: dict[str, str]) -> None:
+        self.error = error
+        self.metadata = metadata
+        self.calls = 0
+
+    async def get_blob_properties(self) -> Any:
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return _Properties(self.metadata)
+
+
+class CheckingContainer:
+    """Properties only: it has no `download_blob`, so a body download would fail."""
+
+    def __init__(
+        self, error: Exception | None = None, metadata: dict[str, str] | None = None
+    ) -> None:
+        self.blob = _BlobClient(error, metadata or {})
+        self.names: list[str] = []
+
+    def get_blob_client(self, blob: str) -> _BlobClient:
+        self.names.append(blob)
+        return self.blob
+
+    async def close(self) -> None:
+        return None
+
+
+def _exists_in(container: CheckingContainer) -> bool:
+    reader: ImageReader = BlobImageStore(container)  # type: ignore[arg-type]  # a structural fake
+    return asyncio.run(reader.exists(INVOICE_ID))
+
+
+def test_story_2_2_exists_reads_properties_only() -> None:
+    container = CheckingContainer()
+    assert _exists_in(container) is True
+    assert container.names == [str(INVOICE_ID)] and container.blob.calls == 1
+
+
+def test_story_2_2_a_missing_blob_does_not_exist() -> None:
+    assert _exists_in(CheckingContainer(_not_found("BlobNotFound"))) is False
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (_not_found("ContainerNotFound"), "RESOURCE_NOT_FOUND"),
+        (ServiceRequestError("connection reset"), "TRANSIENT"),
+    ],
+)
+def test_story_2_2_an_existence_check_that_fails_is_service_unavailable(
+    error: Exception, code: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with (
+        caplog.at_level(logging.DEBUG, logger="invoicing"),
+        pytest.raises(ServiceUnavailableError),
+    ):
+        _exists_in(CheckingContainer(error))
+    assert [
+        event_fields(r).get("code")
+        for r in caplog.records
+        if r.getMessage().startswith("images.unavailable ")
+    ] == [code]
+
+
+def test_story_2_2_the_wire_existence_check_is_a_head_request() -> None:
+    transport = FakeTransport(
+        [(404, b"", {"x-ms-error-code": "BlobNotFound"}), (200, b"", {})]
+    )
+    container = ContainerClient(
+        account_url="https://babaloosealngst01.blob.core.windows.net",
+        container_name="images",
+        credential=AzureNamedKeyCredential("babaloosealngst01", "a2V5"),
+        transport=transport,
+        retry_total=0,
+    )
+
+    async def check() -> tuple[bool, bool]:
+        async with container:
+            store = BlobImageStore(container)
+            return await store.exists(INVOICE_ID), await store.exists(INVOICE_ID)
+
+    assert asyncio.run(check()) == (False, True)
+    assert [r.method for r in transport.requests] == ["HEAD", "HEAD"]
+
+
+def _metadata_of(container: CheckingContainer) -> IntakeBlobMetadata:
+    reader: ImageReader = BlobImageStore(container)  # type: ignore[arg-type]  # a structural fake
+    return asyncio.run(reader.metadata(INVOICE_ID))
+
+
+def test_story_2_2_metadata_is_read_from_the_properties_never_the_bytes() -> None:
+    stored = {k.upper(): v for k, v in METADATA.to_blob_metadata().items()}
+    container = CheckingContainer(metadata=stored)
+    assert _metadata_of(container) == METADATA
+    assert container.names == [str(INVOICE_ID)] and container.blob.calls == 1
+
+
+def test_story_2_2_metadata_of_a_missing_blob_is_not_found_logged_by_code(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        caplog.at_level(logging.DEBUG, logger="invoicing"),
+        pytest.raises(ImageNotFoundError),
+    ):
+        _metadata_of(CheckingContainer(_not_found("BlobNotFound")))
+    (record,) = [r for r in caplog.records if r.name.startswith("invoicing")]
+    assert event_fields(record) == {
+        "invoice_id": str(INVOICE_ID),
+        "code": "IMAGE_NOT_FOUND",
+    }
+
+
+def test_story_2_2_metadata_that_is_not_intake_metadata_is_refused() -> None:
+    with pytest.raises(ValueError, match="not IntakeBlobMetadata"):
+        _metadata_of(CheckingContainer(metadata={"invoice_id": str(INVOICE_ID)}))
+
+
+def test_story_2_2_the_wire_metadata_read_is_one_head_request() -> None:
+    headers = {f"x-ms-meta-{k}": v for k, v in METADATA.to_blob_metadata().items()}
+    transport = FakeTransport([(200, b"", headers)])
+    container = ContainerClient(
+        account_url="https://babaloosealngst01.blob.core.windows.net",
+        container_name="images",
+        credential=AzureNamedKeyCredential("babaloosealngst01", "a2V5"),
+        transport=transport,
+        retry_total=0,
+    )
+
+    async def read() -> IntakeBlobMetadata:
+        async with container:
+            return await BlobImageStore(container).metadata(INVOICE_ID)
+
+    assert asyncio.run(read()) == METADATA
+    assert [r.method for r in transport.requests] == ["HEAD"]

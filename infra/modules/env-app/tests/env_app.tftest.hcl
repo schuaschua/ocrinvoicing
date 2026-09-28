@@ -122,7 +122,12 @@ variables {
     resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
     uri         = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
   }
-  application_insights_id                = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+  application_insights_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+  action_group_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"
+  metric_alert_names = {
+    poison_message = "babaloo-sea-lng-ar-01"
+    stuck_invoices = "babaloo-sea-lng-ar-02"
+  }
   telemetry_sampling_ratio               = 0.5
   application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
   tags = {
@@ -389,4 +394,74 @@ run "all_four_identities_are_required" {
   }
 
   expect_failures = [var.identities]
+}
+
+# Story 2.2: the pipeline's two metric alerts (AD-17).
+run "metric_alerts_poison_and_stuck" {
+  command = plan
+
+  assert {
+    condition = (
+      azurerm_monitor_metric_alert.poison_message.name == "babaloo-sea-lng-ar-01" &&
+      azurerm_monitor_metric_alert.stuck_invoices.name == "babaloo-sea-lng-ar-02"
+    )
+    error_message = "the alert rules must take their P-16 names from the naming module."
+  }
+  assert {
+    condition = alltrue([
+      for alert in [azurerm_monitor_metric_alert.poison_message, azurerm_monitor_metric_alert.stuck_invoices] :
+      alert.resource_group_name == "babaloo-sea-lng-rg-01" &&
+      alert.scopes == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"]) &&
+      [for action in alert.action : action.action_group_id] == ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"] &&
+      alert.tags == tomap({
+        owner              = "test-owner"
+        costCentre         = "test-cc"
+        environment        = "dev"
+        application        = "test-app"
+        dataClassification = "test-class"
+      })
+    ])
+    error_message = "both alerts must watch the environment's Application Insights, notify its action group and carry the five P-17 tags."
+  }
+  assert {
+    condition = (
+      one(azurerm_monitor_metric_alert.poison_message.criteria).metric_name == "poison_message" &&
+      one(azurerm_monitor_metric_alert.poison_message.criteria).metric_namespace == "azure.applicationinsights" &&
+      one(azurerm_monitor_metric_alert.poison_message.criteria).aggregation == "Total" &&
+      one(azurerm_monitor_metric_alert.poison_message.criteria).operator == "GreaterThan" &&
+      one(azurerm_monitor_metric_alert.poison_message.criteria).threshold == 0 &&
+      one(azurerm_monitor_metric_alert.poison_message.criteria).skip_metric_validation &&
+      azurerm_monitor_metric_alert.poison_message.window_size == "PT1H"
+    )
+    error_message = "poison_message must alert when its total is above 0 over an hour (AD-17)."
+  }
+  assert {
+    condition = jsonencode([
+      for dimension in one(azurerm_monitor_metric_alert.poison_message.criteria).dimension :
+      [dimension.name, dimension.operator, dimension.values]
+    ]) == jsonencode([["queue", "Include", ["*"]]])
+    error_message = "poison_message must be split by queue."
+  }
+  assert {
+    condition = (
+      one(azurerm_monitor_metric_alert.stuck_invoices.criteria).metric_name == "stuck_invoices" &&
+      one(azurerm_monitor_metric_alert.stuck_invoices.criteria).metric_namespace == "azure.applicationinsights" &&
+      one(azurerm_monitor_metric_alert.stuck_invoices.criteria).aggregation == "Maximum" &&
+      one(azurerm_monitor_metric_alert.stuck_invoices.criteria).operator == "GreaterThan" &&
+      one(azurerm_monitor_metric_alert.stuck_invoices.criteria).threshold == 0 &&
+      one(azurerm_monitor_metric_alert.stuck_invoices.criteria).skip_metric_validation &&
+      length(one(azurerm_monitor_metric_alert.stuck_invoices.criteria).dimension) == 0
+    )
+    error_message = "stuck_invoices must alert when above 0 (AD-17)."
+  }
+}
+
+run "metric_alert_names_must_be_exactly_the_two_metrics" {
+  command = plan
+
+  variables {
+    metric_alert_names = { poison_message = "babaloo-sea-lng-ar-01" }
+  }
+
+  expect_failures = [var.metric_alert_names]
 }

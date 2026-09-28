@@ -34,3 +34,19 @@ output "telemetry_sampling_ratio" {
   description = "Fraction of traces each app keeps (the TELEMETRY_SAMPLING_RATIO app setting)."
   value       = var.telemetry_sampling_ratio
 }
+
+output "metric_alerts" {
+  description = "The AD-17 metric alert rules, keyed by metric: name, resource id, scopes, action group ids and tags."
+  value = {
+    for metric, alert in {
+      poison_message = azurerm_monitor_metric_alert.poison_message
+      stuck_invoices = azurerm_monitor_metric_alert.stuck_invoices
+      } : metric => {
+      name             = alert.name
+      resource_id      = alert.id
+      scopes           = alert.scopes
+      action_group_ids = [for action in alert.action : action.action_group_id]
+      tags             = alert.tags
+    }
+  }
+}

@@ -9,12 +9,24 @@ discarded (AD-2).
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from types import MappingProxyType
 from uuid import UUID
 
 from invoicing.domain.ids import new_uuid7
 from invoicing.domain.reasons import ReasonCode
-from invoicing.domain.status import InvoiceStatus, can_route_to_admin, is_allowed
+from invoicing.domain.status import (
+    CLAIM_STATUS,
+    INPUT_STATUS,
+    InvoiceStatus,
+    Stage,
+    can_route_to_admin,
+    is_allowed,
+    lease_expired,
+)
+
+# AD-3: a claim holds the invoice for 10 minutes; after that it may be reclaimed.
+CLAIM_LEASE = timedelta(minutes=10)
 
 
 class TransitionNotAllowedError(ValueError):
@@ -36,6 +48,9 @@ class Transition:
     to_status: InvoiceStatus
     # Who moved it, e.g. `pipeline:quality` (the history row's `actor`).
     actor: str
+    # AD-2 poison guard: from a claim status, only while its lease has expired, so a
+    # live claim is never taken (the adapter adds `AND claimed_until <= now()`).
+    require_expired_lease: bool = False
 
 
 def plan_transition(
@@ -98,11 +113,13 @@ def route_to_admin(
     *,
     actor: str,
     new_id: Callable[[], UUID] = new_uuid7,
+    require_expired_lease: bool = False,
 ) -> AdminRouting:
     """The only way into `in_admin_queue` (AD-4): one admin item per reason, all
     under one new UUIDv7 `routing_id`. Every failing reason is routed together, so
     an admin sees them all; a reason given twice is kept once. The caller passes its
-    claim state as `from_status`."""
+    claim state as `from_status`; a poison trigger routing from a claim state it does
+    not hold sets `require_expired_lease` (AD-2)."""
     if not can_route_to_admin(from_status):
         raise TransitionNotAllowedError(from_status, InvoiceStatus.IN_ADMIN_QUEUE)
     unique: dict[ReasonCode, AdminReason] = {}
@@ -125,6 +142,50 @@ def route_to_admin(
         for item in unique.values()
     )
     transition = Transition(
-        invoice_id, from_status, InvoiceStatus.IN_ADMIN_QUEUE, actor
+        invoice_id,
+        from_status,
+        InvoiceStatus.IN_ADMIN_QUEUE,
+        actor,
+        require_expired_lease=require_expired_lease,
     )
     return AdminRouting(transition=transition, routing_id=routing_id, items=items)
+
+
+@dataclass(frozen=True)
+class Claim:
+    """A stage's claim on an invoice (AD-3): from its input status to its claim
+    status with a lease, or a reclaim of that claim status once the lease expired."""
+
+    invoice_id: UUID
+    stage: Stage
+    input_status: InvoiceStatus
+    claim_status: InvoiceStatus
+    actor: str
+    lease: timedelta = CLAIM_LEASE
+
+
+def plan_claim(invoice_id: UUID, stage: Stage, actor: str) -> Claim:
+    """The claim `stage` makes before its side effect. `quality` has none."""
+    claim_status = CLAIM_STATUS.get(stage)
+    if claim_status is None:
+        raise ValueError(f"the {stage} stage makes no claim")
+    return Claim(invoice_id, stage, INPUT_STATUS[stage], claim_status, actor)
+
+
+def claim_from(
+    claim: Claim,
+    status: InvoiceStatus | None,
+    *,
+    claimed_until: datetime | None,
+    next_attempt_at: datetime | None,
+    now: datetime,
+) -> InvoiceStatus | None:
+    """The status `claim` moves the invoice from, or None when it can't be claimed
+    now, so the message is acknowledged (AD-3). A live lease is never taken. The post
+    claim also waits for `next_attempt_at` (AD-3 posting backoff)."""
+    if status is claim.input_status:
+        due = next_attempt_at is None or next_attempt_at <= now
+        return status if claim.stage is not Stage.POST or due else None
+    if status is claim.claim_status and lease_expired(claimed_until, now):
+        return status
+    return None

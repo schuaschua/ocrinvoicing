@@ -128,6 +128,7 @@ override_data {
         name = "invoicing_dev"
         fqdn = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
       }
+      action_group_id                        = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"
       application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
     }
   }
@@ -219,6 +220,25 @@ run "dev_app" {
       })
     ])
     error_message = "every app must carry exactly the five P-17 tags."
+  }
+
+  # Story 2.2: the two pipeline metric alerts, named per P-16, on this environment's
+  # Application Insights and action group.
+  assert {
+    condition = { for metric, alert in output.metric_alerts : metric => alert.name } == {
+      poison_message = "babaloo-sea-lng-ar-01"
+      stuck_invoices = "babaloo-sea-lng-ar-02"
+    }
+    error_message = "the dev metric alerts must be ar-01 (poison_message) and ar-02 (stuck_invoices) (P-16)."
+  }
+  assert {
+    condition = alltrue([
+      for alert in output.metric_alerts :
+      alert.scopes == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"]) &&
+      alert.action_group_ids == ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"] &&
+      alert.tags.environment == "dev" && length(alert.tags) == 5
+    ])
+    error_message = "the dev metric alerts must watch dev's Application Insights, notify dev's action group and carry the five P-17 tags."
   }
 
   # Story 1.5: the apps sample at their own ratio (default 0.5).

@@ -49,7 +49,7 @@ development_status:
 
   epic-2: in-progress
   2-1-server-quality-check-creates-the-invoice-record: review
-  2-2-the-pipeline-never-loses-an-invoice: backlog
+  2-2-the-pipeline-never-loses-an-invoice: review
   2-3-invoice-fields-are-extracted-by-document-intelligence: backlog
   2-4-simulated-po-and-goods-received-data: backlog
   2-5-validation-checks-confidence-po-match-and-printed-supplier: backlog

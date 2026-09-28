@@ -4,6 +4,7 @@ correlation_id}` error shape, status mapping and security headers."""
 import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from pathlib import Path
 from uuid import UUID
 
 import azure.functions as func
@@ -14,12 +15,36 @@ from invoicing.domain.ids import new_uuid7, parse_uuid
 
 CORRELATION_HEADER = "X-Correlation-Id"
 
+SECURITY_HEADERS_FILE = "security-headers.json"
+
+
+def _security_headers_file() -> Path:
+    """shared/security-headers.json: at the deploy package's root (ci/code-deploy.sh
+    copies it there) or, in the repository, at the repository root."""
+    parents = Path(__file__).resolve().parents
+    # <package>/invoicing/adapters, then <repo>/backend/src/invoicing/adapters.
+    for depth in (2, 4):
+        if depth < len(parents):
+            candidate = parents[depth] / "shared" / SECURITY_HEADERS_FILE
+            if candidate.is_file():
+                return candidate
+    raise RuntimeError(f"shared/{SECURITY_HEADERS_FILE} not found")
+
+
+def load_security_headers() -> dict[str, str]:
+    """security.md rule 25 headers from their one source, which the web apps' preview
+    server reads too (web/*/vite.config.ts)."""
+    data = json.loads(_security_headers_file().read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in data.items()
+    ):
+        raise RuntimeError(f"shared/{SECURITY_HEADERS_FILE} must map names to strings")
+    return data
+
+
 # security.md rule 25: on every response, set by the app.
 SECURITY_HEADERS: Mapping[str, str] = {
-    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "same-origin",
+    **load_security_headers(),
     # API responses carry per-user data; never cache them.
     "Cache-Control": "no-store",
 }
@@ -78,9 +103,15 @@ def error_response(
     )
 
 
-def http_endpoint(handler: Handler) -> Endpoint:
+def http_endpoint(
+    handler: Handler, *, enforced_headers: Mapping[str, str] = SECURITY_HEADERS
+) -> Endpoint:
     """Wrap `handler(req, correlation_id)` so domain errors map to their status and any
-    other exception becomes a 500 `INTERNAL_ERROR`, logged by correlation id and code only."""
+    other exception becomes a 500 `INTERNAL_ERROR`, logged by correlation id and code only.
+
+    `enforced_headers` overwrite the handler's own on every successful response; error
+    responses always carry `SECURITY_HEADERS`. Only the static-file adapter narrows them,
+    to set its own Cache-Control."""
 
     # Not functools.wraps: the Functions host binds the trigger by the signature's
     # parameter name (`req`), and wraps would expose the handler's own signature.
@@ -90,7 +121,7 @@ def http_endpoint(handler: Handler) -> Endpoint:
             response = await handler(req, correlation_id)
             if not isinstance(response, func.HttpResponse):
                 raise TypeError("handler did not return an HttpResponse")
-            for name, value in SECURITY_HEADERS.items():
+            for name, value in enforced_headers.items():
                 response.headers[name] = value
             response.headers[CORRELATION_HEADER] = str(correlation_id)
             return response

@@ -333,6 +333,8 @@ def test_story_1_3_code_deploy_builds_one_flat_zip_per_app_publishes_it_and_chec
         module = app.replace("-", "_")
         names = _zip_names(build / f"{app}.zip")
         assert {"function_app.py", "host.json", "requirements.txt", "invoicing/__init__.py"} <= names
+        # Story 1.4: http.py reads the security headers from here.
+        assert "shared/security-headers.json" in names
         assert f"invoicing/apps/{module}/function_app.py" in names
         with zipfile.ZipFile(build / f"{app}.zip") as archive:
             assert archive.read("function_app.py") == (PACKAGE_SRC / "apps" / module / "function_app.py").read_bytes()

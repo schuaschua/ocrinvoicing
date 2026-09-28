@@ -53,6 +53,9 @@ htmlcov/
 node_modules/
 dist/
 coverage/
+# Playwright output (the a11y check)
+test-results/
+playwright-report/
 
 # Lock files are committed for the Terraform roots only (terraform.md rule 10);
 # `terraform test` in a module directory creates one that is not needed.

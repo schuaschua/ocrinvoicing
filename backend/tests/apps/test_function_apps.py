@@ -1,8 +1,10 @@
 """Story 1.3: the four Function app entry points, matrix rows "Health" and "Missing
-setting", and the host.json values AD-2 fixes."""
+setting", and the host.json values AD-2 fixes. Story 1.4: the SPA route."""
 
 import asyncio
+import importlib.util
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -58,7 +60,8 @@ def test_story_1_3_health_returns_200_with_the_package_version(
     module = load_app(app)
     health = _functions(module)["health"]
     trigger = _route(health)
-    assert trigger["route"] == "health"
+    # host.json's empty routePrefix (Story 1.4): the route spells out api/, the URL is unchanged.
+    assert trigger["route"] == "api/health"
     assert [getattr(m, "value", m) for m in trigger["methods"]] == ["GET"]  # type: ignore[attr-defined]  # a list here
     assert getattr(trigger["authLevel"], "value", None) == "anonymous"
 
@@ -181,3 +184,73 @@ def test_story_1_3_pipeline_host_json_handles_one_plain_json_message_at_a_time()
         "maxDequeueCount": 5,
         "messageEncoding": "none",
     }
+
+
+# --- Story 1.4: each API app serves its SPA from the same origin (AD-14) ------------------
+
+
+@pytest.mark.parametrize("app", HTTP_APPS)
+def test_story_1_4_http_apps_drop_the_route_prefix_so_the_spa_owns_the_root(
+    app: str,
+) -> None:
+    host = json.loads((APPS_DIR / app / "host.json").read_text())
+    assert host["extensions"]["http"]["routePrefix"] == ""
+
+
+@pytest.mark.parametrize("app", HTTP_APPS)
+def test_story_1_4_the_spa_catch_all_is_anonymous_get_and_registered_after_the_api(
+    app: str, app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
+) -> None:
+    module = load_app(app)
+    registered = _functions(module)  # get_functions() may run only once per app
+    functions = list(registered)
+    assert functions[-1] == "web_app"
+    trigger = _route(registered["web_app"])
+    assert trigger["route"] == "{*path}"
+    assert [getattr(m, "value", m) for m in trigger["methods"]] == ["GET"]  # type: ignore[attr-defined]  # a list here
+    assert getattr(trigger["authLevel"], "value", None) == "anonymous"
+    # Every other route is an API route under api/.
+    for name in functions[:-1]:
+        assert str(_route(registered[name])["route"]).startswith("api/")
+
+
+def _load_packaged(app: str, package: Path) -> ModuleType:
+    """Import function_app.py from a package laid out as ci/code-deploy.sh builds it."""
+    shutil.copy2(APPS_DIR / app / "function_app.py", package / "function_app.py")
+    spec = importlib.util.spec_from_file_location(
+        f"packaged_{app}", package / "function_app.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("app", HTTP_APPS)
+def test_story_1_4_the_packaged_app_serves_static_index_html(
+    app: str, app_settings: dict[str, str], tmp_path: Path
+) -> None:
+    (tmp_path / "static" / "assets").mkdir(parents=True)
+    (tmp_path / "static" / "index.html").write_text('<html lang="en"></html>')
+    (tmp_path / "static" / "assets" / "index-abc.js").write_text("export {};")
+    module = _load_packaged(app, tmp_path)
+    web_app = _functions(module)["web_app"].get_user_function()
+
+    def get(path: str) -> func.HttpResponse:
+        request = func.HttpRequest(
+            method="GET",
+            url=f"/{path}",
+            headers={},
+            body=b"",
+            route_params={"path": path},
+        )
+        return asyncio.run(web_app(request))
+
+    shell = get("")
+    assert shell.status_code == 200
+    assert shell.get_body() == b'<html lang="en"></html>'
+    assert "default-src 'self'" in shell.headers["Content-Security-Policy"]
+    assert (
+        get("assets/index-abc.js").headers["Content-Type"].startswith("text/javascript")
+    )
+    assert get("api/nothing-here").status_code == 404

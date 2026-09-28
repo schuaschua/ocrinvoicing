@@ -11,5 +11,10 @@
         "excludedTypes": "Request"
       }
     }
+  },
+  "extensions": {
+    "http": {
+      "routePrefix": ""
+    }
   }
 }

@@ -7,6 +7,7 @@ Suppliers upload invoice photos or PDFs by link; Azure Document Intelligence rea
 ```text
 backend/     Python 3.13 Azure Functions (v2 model): src/invoicing/{domain,ports,adapters,apps}, migrations/, tests/
 web/         supplier/ and staff/: Vite + React + TypeScript single-page apps, each served by its API app
+             from the same origin (client routes must not start with api/, admin/ or runtime/)
 shared/      quality-thresholds.json and the client-side photo quality check (quality/)
 infra/       Terraform and operator scripts (terraform.md)
   bootstrap/   operator scripts for AD-17 steps 1, 3, 4b and 5 and the Azure DevOps setup; see infra/bootstrap/README.md
@@ -33,7 +34,7 @@ docs/        architecture, standards, governance and costing
 ci/checks.sh all      # or one of: lint, test, audit, secrets, terraform
 ```
 
-The same script runs in the PR build (`pipelines/pr.yml`), so a green local run means a green PR build. It needs `uv`, `terraform`, `gitleaks` and `shellcheck`, plus Node 22 once a web app is scaffolded. Reports go to `.work/ci/`.
+The same script runs in the PR build (`pipelines/pr.yml`), so a green local run means a green PR build. It needs `uv`, `terraform`, `gitleaks`, `shellcheck` and Node 22. The web a11y check (Playwright + axe) needs Chromium for each app: run `npx playwright install chromium` in `web/supplier` and in `web/staff` (they pin the same Playwright, so the second run finds it installed); without it the check is skipped locally, while the PR build installs it and never skips. Reports go to `.work/ci/`.
 
 The Terraform tests use mock providers; the script tests run every bootstrap script with `--dry-run` against fake `az`/`psql`/`gpg` binaries that fail if called, and `ci/tests` checks the pipeline YAML (AD-17 stage order, approval environments, saved plans, tag gate).
 

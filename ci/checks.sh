@@ -21,7 +21,11 @@ Usage: ci/checks.sh <lint|test|audit|secrets|terraform|all>
   lint       ruff format/check and mypy on backend/; ESLint, Prettier and tsc per
              scaffolded web app; shellcheck on ci/ and infra/bootstrap/
   test       pytest with coverage (backend, floor 80%), Vitest with coverage per web
-             app (floor 60%), pytest ci/tests. A part with no test files yet is skipped.
+             app (floor 60%), then per web app the build, the supplier JS limit (150 KB
+             gzipped) and the a11y check (Playwright + axe: WCAG 2.2 AA, 320px reflow,
+             48px targets); pytest ci/tests. A part with no test files yet is skipped.
+             Locally the a11y check skips when Playwright's Chromium is missing; under
+             TF_BUILD it installs Chromium and never skips.
   audit      pip-audit on backend/uv.lock, npm audit --omit=dev per web app
   secrets    gitleaks on the git history and uncommitted changes
   terraform  terraform fmt -check, validate and test per root and module;
@@ -29,7 +33,8 @@ Usage: ci/checks.sh <lint|test|audit|secrets|terraform|all>
   all        every check above
 
 Reports go to .work/ci/ (JUnit in test-results/, Cobertura in coverage/).
-Tools needed: uv, terraform, gitleaks, shellcheck, node/npm (for scaffolded web apps).
+Tools needed: uv, terraform, gitleaks, shellcheck, node/npm (for scaffolded web apps) and
+Playwright's Chromium for the a11y check (skipped locally when missing).
 EOF
 }
 
@@ -119,6 +124,68 @@ vitest_in() {
   (cd "$app" && npm exec --no -- vitest run "$@")
 }
 
+# bundle_size NAME DIST MAX_KB - the gzipped size of all built JavaScript, against MAX_KB.
+bundle_size() {
+  uv run --no-project --python "$PYTHON_VERSION" python - "$@" <<'PY'
+import gzip
+import pathlib
+import sys
+
+name, dist, limit = sys.argv[1], pathlib.Path(sys.argv[2]), float(sys.argv[3])
+files = sorted(p for p in dist.rglob("*") if p.is_file() and p.suffix in (".js", ".mjs"))
+if not files:
+    sys.exit(f"ERROR: {name}: no JavaScript in {dist}")
+kb = sum(len(gzip.compress(p.read_bytes(), compresslevel=9)) for p in files) / 1024
+print(f"{name}: {len(files)} JS file(s), {kb:.1f} KB gzipped (limit {limit:g} KB)")
+if kb > limit:
+    sys.exit(f"ERROR: {name} JavaScript is {kb:.1f} KB gzipped, over the {limit:g} KB limit (UX-DR22)")
+PY
+}
+
+# chromium_ready APP - the Chromium build the app's pinned Playwright needs is installed.
+chromium_ready() {
+  (cd "$1" && node -e '
+const { existsSync } = require("node:fs");
+const { chromium } = require("@playwright/test");
+process.exit(existsSync(chromium.executablePath()) ? 0 : 1);') >/dev/null 2>&1
+}
+
+playwright_install() { (cd "$1" && npm exec --no -- playwright install --with-deps chromium); }
+
+# web_build_checks APP NAME - build, the supplier bundle-size limit and the a11y check
+# (Story 1.4: axe WCAG 2.2 AA, 320px reflow, 48px targets against `vite preview`).
+web_build_checks() {
+  local app="$1" name="$2" failed_before="$FAILED"
+  check "npm run build ($name)" npm run --prefix "$app" build
+  if [[ "$FAILED" != "$failed_before" ]]; then
+    log "bundle size and a11y ($name) not run: the build failed"
+    return 0
+  fi
+  if [[ "$name" == web/supplier ]]; then
+    check "JS <= ${SUPPLIER_JS_GZIP_MAX_KB} KB gzipped ($name)" \
+      bundle_size "$name" "$app/dist" "$SUPPLIER_JS_GZIP_MAX_KB"
+  fi
+  if ! web_has_script "$app" a11y; then
+    check "a11y ($name)" fail "$name/package.json has no \"a11y\" script (axe and layout check, UX-DR21)"
+    return 0
+  fi
+  if [[ -n "${TF_BUILD:-}" ]]; then
+    # The PR build installs Chromium and never skips the check.
+    failed_before="$FAILED"
+    check "playwright install chromium ($name)" playwright_install "$app"
+    if [[ "$FAILED" != "$failed_before" ]]; then
+      log "a11y ($name) not run: the Chromium install failed"
+      return 0
+    fi
+  elif ! chromium_ready "$app"; then
+    skip "a11y ($name)" "Playwright's Chromium is not installed; run (cd $name && npx playwright install chromium). The PR build installs it and never skips."
+    return 0
+  fi
+  check "a11y: axe WCAG 2.2 AA, 320px reflow, 48px targets ($name)" \
+    env PLAYWRIGHT_JUNIT_OUTPUT_FILE="$CI_WORK/test-results/${name//\//-}-a11y.xml" \
+    npm run --prefix "$app" a11y
+}
+
 uv_backend() { uv run --directory "$REPO_ROOT/backend" --locked "$@"; }
 
 # pytest outside the backend project (ci/tests, infra/scripts/tests), pinned.
@@ -180,7 +247,7 @@ run_test() {
       --cov-fail-under="$BACKEND_COVERAGE_MIN" --junitxml="$CI_WORK/test-results/backend.xml"
   fi
 
-  local app name
+  local app name failed_before
   for app in $(web_apps); do
     name="$(rel "$app")"
     if ! web_scaffolded "$app"; then
@@ -189,18 +256,25 @@ run_test() {
     fi
     if ! web_has_tests "$app"; then
       check "vitest ($name)" fail "$name is scaffolded but has no test files; the ${WEB_COVERAGE_MIN}% coverage floor applies"
+    fi
+    failed_before="$FAILED"
+    check "npm ci ($name)" npm ci --prefix "$app" --no-audit --no-fund
+    if [[ "$FAILED" != "$failed_before" ]]; then
+      log "vitest, build, bundle size and a11y ($name) not run: npm ci failed"
       continue
     fi
-    check "npm ci ($name)" npm ci --prefix "$app" --no-audit --no-fund
-    # The floor is passed here so a web app's own config cannot lower it.
-    check "vitest with coverage >= ${WEB_COVERAGE_MIN}% ($name)" \
-      vitest_in "$app" \
-      --coverage.enabled=true --coverage.provider=v8 \
-      --coverage.reporter=text-summary --coverage.reporter=cobertura \
-      --coverage.reportsDirectory="$CI_WORK/coverage/${name//\//-}" \
-      --coverage.thresholds.lines="$WEB_COVERAGE_MIN" --coverage.thresholds.statements="$WEB_COVERAGE_MIN" \
-      --coverage.thresholds.functions="$WEB_COVERAGE_MIN" --coverage.thresholds.branches="$WEB_COVERAGE_MIN" \
-      --reporter=default --reporter=junit --outputFile.junit="$CI_WORK/test-results/${name//\//-}.xml"
+    if web_has_tests "$app"; then
+      # The floor is passed here so a web app's own config cannot lower it.
+      check "vitest with coverage >= ${WEB_COVERAGE_MIN}% ($name)" \
+        vitest_in "$app" \
+        --coverage.enabled=true --coverage.provider=v8 \
+        --coverage.reporter=text-summary --coverage.reporter=cobertura \
+        --coverage.reportsDirectory="$CI_WORK/coverage/${name//\//-}" \
+        --coverage.thresholds.lines="$WEB_COVERAGE_MIN" --coverage.thresholds.statements="$WEB_COVERAGE_MIN" \
+        --coverage.thresholds.functions="$WEB_COVERAGE_MIN" --coverage.thresholds.branches="$WEB_COVERAGE_MIN" \
+        --reporter=default --reporter=junit --outputFile.junit="$CI_WORK/test-results/${name//\//-}.xml"
+    fi
+    web_build_checks "$app" "$name"
   done
 
   if [[ -d "$REPO_ROOT/ci/tests" ]]; then

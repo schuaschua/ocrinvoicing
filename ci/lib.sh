@@ -32,6 +32,8 @@ readonly PYTEST_DEPENDENCY_PINS="iniconfig==2.3.0 packaging==26.3 pluggy==1.6.0 
 # backend/pyproject.toml [tool.coverage.report] fail_under holds the same backend value.
 readonly BACKEND_COVERAGE_MIN=80
 readonly WEB_COVERAGE_MIN=60
+# Supplier page JavaScript budget, gzipped (UX-DR22: weak mobile signal).
+readonly SUPPLIER_JS_GZIP_MAX_KB=150
 
 log() { printf '%s\n' "$*"; }
 die() {

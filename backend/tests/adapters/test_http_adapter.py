@@ -4,6 +4,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 from uuid import UUID
 
 import azure.functions as func
@@ -167,3 +168,17 @@ def test_story_1_3_handler_returning_a_non_response_is_an_internal_error() -> No
     assert json.loads(response.get_body())["code"] == "INTERNAL_ERROR"
     assert response.headers[CORRELATION_HEADER] == CALLER_ID
     assert response.headers["Cache-Control"] == "no-store"
+
+
+def test_story_1_4_security_headers_come_from_the_shared_file() -> None:
+    repo = Path(__file__).resolve().parents[3]
+    shared = json.loads((repo / "shared" / "security-headers.json").read_text())
+    assert {k: v for k, v in SECURITY_HEADERS.items() if k != "Cache-Control"} == shared
+    assert set(shared) == {
+        "Strict-Transport-Security",
+        "Content-Security-Policy",
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+    }
+    assert "frame-ancestors 'none'" in shared["Content-Security-Policy"]
+    assert "unsafe-inline" not in shared["Content-Security-Policy"]

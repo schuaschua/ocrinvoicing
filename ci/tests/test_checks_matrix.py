@@ -2,12 +2,15 @@
 trees under .work/ (CHECKS_ROOT points checks.sh at them). No Azure or ADO call.
 
 Rows: lint/format failure, coverage below threshold, not scaffolded yet, secret committed.
-Needs uv, terraform and gitleaks on PATH, as ci/checks.sh does.
+Story 1.4 rows: web coverage floor, supplier bundle size, a11y check wiring.
+Needs uv, terraform, gitleaks and npm on PATH, as ci/checks.sh does.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import shutil
 import subprocess
 import uuid
@@ -37,9 +40,10 @@ def _require(tool: str) -> None:
         pytest.skip(f"{tool} not installed")
 
 
-def _checks(root: Path, subcommand: str) -> subprocess.CompletedProcess[str]:
+def _checks(root: Path, subcommand: str, **extra_env: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if k not in ("TF_BUILD", "VIRTUAL_ENV")}
     env["CHECKS_ROOT"] = str(root)
+    env.update(extra_env)
     return subprocess.run(
         ["bash", str(CHECKS), subcommand], env=env, capture_output=True, text=True, check=False, timeout=300
     )
@@ -178,3 +182,142 @@ def test_story_1_2_clean_repo_passes_the_secret_scan(root: Path) -> None:
     _repo_with(root, 'GREETING = "hello"\n')
     result = _checks(root, "secrets")
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --- Story 1.4: web coverage floor, supplier bundle size, a11y wiring ---------------------
+
+# A web app with no dependencies whose build writes DIST_JS_BYTES of incompressible
+# JavaScript, so the bundle-size check runs without installing anything.
+BUILD_SCRIPT = """
+import { mkdirSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+mkdirSync("dist/assets", { recursive: true });
+writeFileSync("dist/index.html", "<!doctype html><html lang=en></html>");
+const size = Number(process.env.DIST_JS_BYTES);
+writeFileSync("dist/assets/index-abc.js", "const x = '" + randomBytes(size).toString("base64") + "';");
+"""
+
+
+def _web_fixture(root: Path, name: str, scripts: dict[str, str], *, chromium: bool = False) -> Path:
+    """With `chromium`, a local stand-in for @playwright/test whose Chromium "exists", so
+    checks.sh runs the app's a11y script without a browser."""
+    app = root / "web" / name
+    app.mkdir(parents=True)
+    package: dict[str, object] = {"name": f"fixture-{name}", "version": "0.0.0", "private": True, "scripts": scripts}
+    lock: dict[str, object] = {
+        "name": package["name"],
+        "version": "0.0.0",
+        "lockfileVersion": 3,
+        "requires": True,
+        "packages": {"": {"name": package["name"], "version": "0.0.0"}},
+    }
+    if chromium:
+        fake = app / "fake-playwright"
+        fake.mkdir()
+        (fake / "package.json").write_text('{"name": "@playwright/test", "version": "0.0.0", "main": "index.js"}\n')
+        (fake / "index.js").write_text("module.exports = { chromium: { executablePath: () => __filename } };\n")
+        dependencies = {"@playwright/test": "file:fake-playwright"}
+        package["devDependencies"] = dependencies
+        lock["packages"] = {
+            "": {"name": package["name"], "version": "0.0.0", "devDependencies": dependencies},
+            "fake-playwright": {"name": "@playwright/test", "version": "0.0.0", "dev": True},
+            "node_modules/@playwright/test": {"resolved": "fake-playwright", "link": True},
+        }
+    (app / "package.json").write_text(json.dumps(package) + "\n")
+    (app / "package-lock.json").write_text(json.dumps(lock) + "\n")
+    (app / "build.mjs").write_text(BUILD_SCRIPT)
+    return app
+
+
+def test_story_1_4_web_coverage_below_60_percent_fails_naming_the_percent(root: Path) -> None:
+    _require("npm")
+    app = root / "web" / "staff"
+    shutil.copytree(
+        REPO_ROOT / "web" / "staff",
+        app,
+        ignore=shutil.ignore_patterns("node_modules", "dist", "coverage", "test-results", "playwright-report"),
+    )
+    shutil.copytree(REPO_ROOT / "shared", root / "shared")  # the @shared alias target
+    # 60 functions no test calls: coverage falls well under the floor.
+    (app / "src" / "untested.ts").write_text(
+        "".join(
+            f"export function untested{i}(x: number): number {{\n  if (x > {i}) {{\n    return x * 2;\n  }}\n  return x;\n}}\n"
+            for i in range(60)
+        )
+    )
+    result = _checks(root, "test")
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert re.search(r"Coverage for lines \(\d+(\.\d+)?%\) does not meet global threshold \(60%\)", output), output
+    assert "FAILED: vitest with coverage >= 60% (web/staff)" in result.stderr
+
+
+def test_story_1_4_supplier_js_over_150_kb_gzipped_fails_naming_the_size(root: Path) -> None:
+    _require("npm")
+    _require("uv")
+    _web_fixture(root, "supplier", {"build": "node build.mjs"})
+    result = _checks(root, "test", DIST_JS_BYTES=str(160 * 1024))
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    match = re.search(r"ERROR: web/supplier JavaScript is (\d+\.\d) KB gzipped, over the 150 KB limit \(UX-DR22\)", output)
+    assert match and float(match.group(1)) > 150, output
+    assert "FAILED: JS <= 150 KB gzipped (web/supplier)" in result.stderr
+
+
+def test_story_1_4_supplier_js_within_150_kb_passes_the_size_check(root: Path) -> None:
+    _require("npm")
+    _require("uv")
+    _web_fixture(root, "supplier", {"build": "node build.mjs"})
+    result = _checks(root, "test", DIST_JS_BYTES=str(60 * 1024))
+    output = result.stdout + result.stderr
+    assert re.search(r"web/supplier: 1 JS file\(s\), \d+\.\d KB gzipped \(limit 150 KB\)", result.stdout), output
+    assert "FAILED: JS <= 150 KB" not in result.stderr
+
+
+def test_story_1_4_only_the_supplier_app_has_a_bundle_limit(root: Path) -> None:
+    _require("npm")
+    _web_fixture(root, "staff", {"build": "node build.mjs"})
+    result = _checks(root, "test", DIST_JS_BYTES=str(400 * 1024))
+    assert "KB gzipped" not in result.stdout + result.stderr
+
+
+def test_story_1_4_a_web_app_without_an_a11y_script_fails(root: Path) -> None:
+    _require("npm")
+    _web_fixture(root, "staff", {"build": "node build.mjs"})
+    result = _checks(root, "test", DIST_JS_BYTES="10")
+    assert result.returncode == 1
+    assert 'web/staff/package.json has no "a11y" script' in result.stderr
+    assert "FAILED: a11y (web/staff)" in result.stderr
+
+
+def test_story_1_4_a11y_skips_locally_without_chromium_but_never_under_tf_build(root: Path) -> None:
+    _require("npm")
+    # No Playwright installed in the fixture: Chromium counts as missing.
+    _web_fixture(root, "staff", {"build": "node build.mjs", "a11y": "exit 0"})
+    local = _checks(root, "test", DIST_JS_BYTES="10")
+    assert "==> a11y (web/staff)\nskipped: Playwright's Chromium is not installed" in local.stdout
+    assert "a11y" not in local.stderr
+
+    pipeline = _checks(root, "test", DIST_JS_BYTES="10", TF_BUILD="True")
+    assert pipeline.returncode == 1
+    assert "FAILED: playwright install chromium (web/staff)" in pipeline.stderr
+
+
+def test_story_1_4_a_failing_a11y_script_fails_the_test_check(root: Path) -> None:
+    _require("npm")
+    _web_fixture(root, "staff", {"build": "node build.mjs", "a11y": "echo axe found 1 violation && exit 1"}, chromium=True)
+    result = _checks(root, "test", DIST_JS_BYTES="10")
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "axe found 1 violation" in result.stdout
+    assert "FAILED: a11y: axe WCAG 2.2 AA, 320px reflow, 48px targets (web/staff)" in result.stderr
+
+
+def test_story_1_4_a_failed_npm_ci_stops_the_later_web_steps(root: Path) -> None:
+    _require("npm")
+    app = _web_fixture(root, "staff", {"build": "node build.mjs", "a11y": "exit 0"})
+    (app / "package-lock.json").unlink()  # npm ci refuses to run without a lock file
+    result = _checks(root, "test", DIST_JS_BYTES="10")
+    assert result.returncode == 1
+    assert "FAILED: npm ci (web/staff)" in result.stderr
+    assert "vitest, build, bundle size and a11y (web/staff) not run: npm ci failed" in result.stdout
+    assert "==> npm run build (web/staff)" not in result.stdout

@@ -7,6 +7,8 @@
 #   function_app.py, host.json      from backend/src/invoicing/apps/<app>/
 #   invoicing/                      the back-end package
 #   requirements.txt                `uv export --no-dev` of backend/uv.lock (hashes kept)
+#   shared/security-headers.json    the security headers every response carries (read by
+#                                   invoicing/adapters/http.py; the web preview reads it too)
 #   static/                         the built SPA, for supplier-api and staff-api once
 #                                   web/supplier or web/staff is scaffolded (AD-14)
 # then publishes each zip with one deploy; Flex stores it in the app's deployment
@@ -53,6 +55,7 @@ infra_dir="${CI_INFRA_DIR:-$REPO_ROOT/infra}"
 web_dir="${CI_WEB_DIR:-$REPO_ROOT/web}"
 build_dir="${CI_DEPLOY_BUILD_DIR:-$CI_WORK/code-deploy/$env}"
 backend_dir="${CI_BACKEND_DIR:-$REPO_ROOT/backend}"
+security_headers="$REPO_ROOT/shared/security-headers.json"
 # Post-deploy health check: attempts and seconds between them (tests set the wait to 0).
 health_attempts="${CI_HEALTH_ATTEMPTS:-30}"
 health_wait="${CI_HEALTH_WAIT:-10}"
@@ -119,6 +122,8 @@ build_package() {
     die "backend/src/invoicing/apps/$module/function_app.py is not tracked by git"
   cp "$package/invoicing/apps/$module/function_app.py" "$package/invoicing/apps/$module/host.json" "$package/"
   cp "$build_dir/requirements.txt" "$package/requirements.txt"
+  mkdir -p "$package/shared"
+  cp "$security_headers" "$package/shared/security-headers.json"
 
   spa="$(spa_for "$app")"
   if [[ -n "$spa" ]] && web_scaffolded "$web_dir/$spa"; then
@@ -133,6 +138,7 @@ build_package() {
   (cd "$package" && python3 -m zipfile -c "../$app.zip" ./*)
 }
 
+[[ -f "$security_headers" ]] || die "shared/security-headers.json is missing"
 mkdir -p "$build_dir"
 rm -f "$build_dir/requirements.txt"
 # Runtime dependencies only, with hashes; the remote build installs them.

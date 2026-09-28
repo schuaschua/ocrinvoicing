@@ -4,11 +4,12 @@ Dj asked me to keep building until 07:00, make every decision myself, move on wh
 
 ## Summary
 
-- **Built and committed: 11 stories** — 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 1.9, 2.1, 2.2, and 2.4 (see its section for final state). One local commit per story on `main`. **Nothing was pushed, and nothing was deployed or run against Azure.**
+- **Built and committed: 12 stories** — 1.1, 1.2, 1.3, 1.4, 1.5, 1.7, 1.8, 1.9, 2.1, 2.2, 2.4 and 2.7. One local commit per story on `main`. **Nothing was pushed, and nothing was deployed or run against Azure.**
+- **Not started (blocked): 2.5 and 2.6** — 2.5 needs 2.3's extracted fields; 2.6 needs the bank-crypto answers.
 - **Parked: 1.6 and 2.3.** Both write bank details as PGP ciphertext + HMAC, and you still have open bank-crypto questions. Not started; Jira OCR-7 and OCR-26 untouched (To Do).
 - **Every story went through:** plan → implementation by a coding subagent → a test for every row of the plan's I/O matrix → four independent reviewers (blind, edge-case, verification-gap, intent) → triage → fixes → full `ci/checks.sh all` on my side → secret scan → commit → Jira comment.
 - **Verification is offline only**: Terraform `validate`/`test` with mock providers, pytest (backend at ~99% coverage; database behaviour against a real PostgreSQL 18 Docker container), Vitest, Playwright accessibility checks in Chromium, shellcheck, gitleaks, pip-audit / npm audit. The acceptance criteria that talk about deployed Azure state are proven only when you run the bootstrap scripts and the pipeline.
-- **Jira:** each built story and its subtasks are **In Progress** with a detailed comment. I did not move anything to Done, because the ACs need a real deploy to prove. Epics 1 (OCR-1) and 2 (OCR-23) are In Progress.
+- **Jira:** each built story and its subtasks are **In Progress** with a detailed comment. I did not move anything to Done, because the ACs need a real deploy to prove. Epics 1 (OCR-1) and 2 (OCR-23) are In Progress. Keys touched: OCR-1, 2, 3, 4, 5, 6, 8, 9, 10, 14–25, 27, 30, 35–39, 43, 44, 49–52, 122.
 - **Sprint file:** built stories are `review`; parked ones stay `backlog`.
 
 ## Standing rules I set for the run
@@ -25,9 +26,10 @@ Dj asked me to keep building until 07:00, make every decision myself, move on wh
 
 **Before the first deploy**
 1. **ADO project name** in org `example-org` — needed by `state-backend.sh` and `ado-setup.sh`.
+   - **`staff_api_client_id`** (printed by `app-registrations.sh`) must go into both `infra/{dev,prod}/app/terraform.tfvars` before the next pipeline run, or the app stacks won't plan. Re-run `app-registrations.sh` so group claims are turned off.
 2. **Fill the required inputs** in each `infra/*/terraform.tfvars` and the bootstrap env vars (see `infra/bootstrap/README.md` → run order).
 3. **Postgres Entra admin must be a different principal from your load-script user** (e.g. an Entra group); the script refuses otherwise.
-4. **First Dev deploy checks** (steps in `infra/bootstrap/README.md`): confirm the alert metric namespace, run `test-alerts.sh` and confirm the email, stop the database and watch a message wait 15 minutes, and note that the first deploy now runs the `intake` migration (the AD-17 step 5 logins must exist first).
+4. **First Dev deploy checks** (steps in `infra/bootstrap/README.md`): confirm the alert metric namespace, run `test-alerts.sh` and confirm the email, stop the database and watch a message wait 15 minutes, and note that the first deploy now runs the `intake` and `sim_purchasing` migrations (the AD-17 step 5 logins must exist first), then seed purchasing data (operator step), then README step 8 for staff sign-in: redirect URI, role assignments, an unassigned user refused, API calls get 401 not a redirect, and the session cookie's SameSite value. staff-api refuses every staff route if Azure doesn't report built-in auth as on (`WEBSITE_AUTH_ENABLED`); the `curl` checks will show it.
 
 **Architecture / design decisions I made that change documents you own** (I did not edit the spine, DESIGN.md or EXPERIENCE.md):
 5. **AD-17 runtime roles**: Flex hosts need Storage Blob Data Owner on `azure-webjobs-hosts`/`azure-webjobs-secrets` (added); Key Vault access is per secret, narrower than the table.
@@ -117,8 +119,20 @@ Waiting on your bank-crypto answers.
 ### 2.3 Invoice fields extracted by Document Intelligence — **parked** · OCR-26 (To Do)
 Waiting on your bank-crypto answers.
 
-### 2.4 Simulated PO and goods-received data — _see final status below_ · OCR-27 (+ OCR-43/44)
-- **Decisions:** seed uses fixed synthetic supplier ids in a JSON file (1.6 maps real suppliers later; no FK to `master`); app logins get SELECT only; `list_overdue_pos` doesn't filter invoiced POs (that's the AD-13 job's rule); import rule enforced by import-linter plus a source scan; the contract test suite is reusable for the real adapter.
+### 2.4 Simulated PO and goods-received data — built · `419fb13` · OCR-27 (+ OCR-43/44)
+- **Built:** Alembic `0002_sim_purchasing` (SELECT-only for app logins); `PurchasingPort` (`get_po`, `get_receipts`, `get_delivery`, `list_overdue_pos`, `get_delivery_dates`) with `line_no`, `order_date`, `delivery_no`; simulation adapter chosen by `PURCHASING_ADAPTER`; import-linter contract in CI; validated, idempotent synthetic seed (prod needs `--allow-prod`); reusable contract suite.
+- **Verified:** `ci/checks.sh all` incl. PostgreSQL 18 and import-linter.
+- **Review:** 21 findings — 11 fixed, 1 deferred, 9 rejected.
+- **Decisions:** seed uses fixed synthetic supplier ids in a JSON file (1.6 maps real suppliers later; no FK to `master`); app logins get SELECT only; "overdue" per AD-13 means no invoice yet, whatever was received (the AD-13 job filters invoiced POs); seeding Prod needs `--allow-prod` (synthetic only, clear when the real adapter arrives); the seed is a manual operator step (README); import rule enforced by import-linter plus a source scan; the contract test suite is reusable for the real adapter.
+
+### 2.5 / 2.6 — not started (blocked)
+2.5 (validation) needs the extracted fields from 2.3; 2.6 (duplicates, dates, bank changes) depends on the bank-crypto answers. Jira untouched.
+
+### 2.7 Staff sign in and see only their surfaces — built · `c696780` · OCR-30 (+ OCR-49/50/51/52/122)
+- **Built:** built-in auth v2 on staff-api (no secret, no token store, 8 h session, health anonymous); role model and per-surface route guard; `GET /api/me`; staff shell (role-filtered sidebar/Sheet, landing by role order, access-denied redirect with alert, session-ended dialog incl. redirect responses, offline notice, waking-up, titles and focus, user name + Sign out); bootstrap turns group claims off.
+- **Verified:** `ci/checks.sh all` incl. a11y; 231 CI/infra tests.
+- **Review (time-boxed):** 22 findings — 18 fixed, 1 deferred (SameSite and XHR-401 behaviour, first Dev deploy), 3 rejected.
+- **Decisions:** the principal header is trusted only when built-in auth is on (fail closed in Azure) and only for Entra principals; every staff route except health needs a principal (401) and its surface's role (403); built-in auth v2 via azapi; group claims off (avoids oversized sign-in headers); surfaces are placeholders; routes avoid `admin/`/`runtime/`.
 
 ## Process notes
 

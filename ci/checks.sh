@@ -383,6 +383,10 @@ run_terraform() {
   local dir name
   for dir in $(terraform_roots); do
     name="$(rel "$dir")"
+    # A deploy stage's real init leaves the azurerm backend recorded in .terraform, and
+    # `init -backend=false` then still tries to sign in to it (no Azure login here). The
+    # file holds no state; the plan stage initialises the backend again.
+    rm -f "$dir/.terraform/terraform.tfstate"
     check "terraform init ($name)" terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
     check "terraform validate ($name)" terraform -chdir="$dir" validate
     check "terraform test ($name)" terraform -chdir="$dir" test

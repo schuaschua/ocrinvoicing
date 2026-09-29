@@ -28,6 +28,16 @@ StorageAccountName = Annotated[
 HttpsUrl = Annotated[
     str, StringConstraints(min_length=1, pattern=r"^https://[^\s/]+(/\S*)?$")
 ]
+# A host name, e.g. the shared server's `<name>.postgres.database.azure.com`.
+HostName = Annotated[
+    str, StringConstraints(min_length=1, max_length=253, pattern=r"^[A-Za-z0-9.-]+$")
+]
+# A PostgreSQL identifier: the database, or the login (the identity's name, AD-11).
+PgName = Annotated[
+    str, StringConstraints(min_length=1, max_length=63, pattern=r"^[A-Za-z0-9_.@-]+$")
+]
+# An ISO 4217 code, e.g. SGD.
+CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
 
 
 class SettingsError(RuntimeError):

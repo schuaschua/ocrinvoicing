@@ -16,7 +16,8 @@ SUPPLIER = REPO_ROOT / "web" / "supplier"
 # src/App*.tsx, src/strings*.ts, src/main.tsx, and each app's own screens and API
 # calls (e.g. the supplier page's src/screens/, src/link*.ts, src/upload*.ts,
 # src/api/link*.ts, src/api/upload*.ts and src/test/fakeXhr.ts; the staff app's
-# src/api/me*.ts, src/surfaces*.ts, src/router*.ts, src/shell/ and its other screens).
+# src/api/me*.ts, src/api/queue*.ts, src/surfaces*.ts, src/router*.ts, src/shell/, its
+# other screens, and the shadcn table, badge and alert only it uses so far, Story 2.8).
 # vitest.config.ts differs too: only web/supplier runs shared/quality's tests, until
 # the staff app uses shared/quality (Story 4.1).
 SHARED_FILES = [

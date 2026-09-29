@@ -253,9 +253,13 @@ run "dev_app" {
     condition = (
       module.app.pipeline_app_settings.DI_ENDPOINT == "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/" &&
       module.app.pipeline_app_settings.DI_MONTHLY_PAGE_CAP == "100" &&
-      module.app.pipeline_app_settings.INVOICE_CURRENCY == "SGD"
+      module.app.pipeline_app_settings.INVOICE_CURRENCY == "SGD" &&
+      module.app.staff_api_app_settings.POSTGRES_DATABASE == "invoicing_dev" &&
+      module.app.staff_api_app_settings.POSTGRES_USER == "babaloo-sea-lng-id-02" &&
+      module.app.staff_api_app_settings.DI_MONTHLY_PAGE_CAP == "100" &&
+      module.app.staff_api_app_settings.INVOICE_CURRENCY == "SGD"
     )
-    error_message = "the dev pipeline must call the shared DI endpoint with a cap of 100 pages a month in SGD (AD-8)."
+    error_message = "the dev pipeline must call the shared DI endpoint with a cap of 100 pages a month in SGD (AD-8), and staff-api (Story 2.8) must sign in to the dev database as its own identity with the same cap and currency."
   }
   assert {
     condition     = output.metric_alerts["di_pages_used_pct"].criteria == { metric_name = "di_pages_used_pct", operator = "GreaterThanOrEqual", threshold = 80 }

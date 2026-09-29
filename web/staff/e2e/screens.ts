@@ -19,13 +19,56 @@ async function openMenuWhenNarrow(page: Page): Promise<void> {
   }
 }
 
+/** Story 2.8: a populated admin queue (synthetic), with the page-cap Alert and pages. */
+const ADMIN_QUEUE: Record<string, ApiAnswer> = {
+  "/api/admin/queue": {
+    status: 200,
+    body: {
+      items: [
+        {
+          invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000002",
+          received_at: "2026-09-01T01:02:00+00:00",
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+          supplier_name: "Synthetic Alpha Building Supplies",
+          amount: "1248.50",
+          currency: "SGD",
+          reasons: ["LOW_CONFIDENCE", "PO_MISMATCH"],
+        },
+        {
+          invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000003",
+          received_at: "2026-09-02T03:30:00+00:00",
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f55b0",
+          supplier_name: "Synthetic Beta Traders",
+          amount: null,
+          currency: null,
+          reasons: ["BANK_CHANGED"],
+        },
+      ],
+      page: 1,
+      page_size: 50,
+      total: 51,
+      page_usage: { pages_used: 322, page_cap: 400 },
+      suppliers: [
+        {
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+          supplier_name: "Synthetic Alpha Building Supplies",
+        },
+        {
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f55b0",
+          supplier_name: "Synthetic Beta Traders",
+        },
+      ],
+    },
+  },
+};
+
 export const SCREENS: Screen[] = [
   {
     story: "2.7",
     name: "admin and goods_in land on the admin queue",
     path: "/",
-    api: me("goods_in", "admin"),
-    ready: "Admin queue",
+    api: { ...me("goods_in", "admin"), ...ADMIN_QUEUE },
+    ready: "Synthetic Beta Traders",
   },
   {
     story: "2.7",

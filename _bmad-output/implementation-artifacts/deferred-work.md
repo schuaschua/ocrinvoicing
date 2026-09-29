@@ -82,3 +82,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-2-6-validation-duplicates-dates-bank-changes.md`
   summary: A clearer resend of an image-quality-routed original is flagged DUPLICATE; decide the admin UX in 2.9/2.10.
   evidence: the original stays non-rejected in the admin queue with its phash.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-8-admin-queue-list.md`
+  summary: Make `platform_auth_trusted` a required argument of `staff_endpoint` (adapters/principal.py) and `me_endpoint` (apps/staff_api/me.py), and test the registered `me` handler with auth untrusted, as 2.8 did for the queue.
+  evidence: both default to True, so a wiring slip trusts a forged X-MS-CLIENT-PRINCIPAL when built-in auth is off; pre-existing (Story 2.7), found in the 2.8 review.

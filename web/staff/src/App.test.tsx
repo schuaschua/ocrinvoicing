@@ -27,8 +27,17 @@ function answer(status: number, body: unknown): Response {
 }
 
 function signedInAs(...roles: string[]) {
-  fetchMock.mockImplementation(async () =>
-    answer(200, { name: "Priya Tan", roles }),
+  fetchMock.mockImplementation(async (input) =>
+    // Story 2.8: the admin queue asks for its rows; an empty queue here.
+    String(input).startsWith("/api/admin/queue")
+      ? answer(200, {
+          items: [],
+          page: 1,
+          page_size: 50,
+          total: 0,
+          page_usage: null,
+        })
+      : answer(200, { name: "Priya Tan", roles }),
   );
 }
 

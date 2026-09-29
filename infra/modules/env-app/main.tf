@@ -51,10 +51,17 @@ locals {
   app_specific_settings = {
     supplier_api = { STORAGE_ACCOUNT_NAME = var.storage_account.name }
     # OCR-129: pgp-private-key is in a separate private-key vault (not a secret: its URI).
+    # Story 2.8: staff-api's own database login (its identity's name, Entra token, no
+    # password), and the cap and currency the admin queue shows.
     staff_api = {
       STORAGE_ACCOUNT_NAME      = var.storage_account.name
       KEY_VAULT_URI             = var.key_vault.uri
       PGP_PRIVATE_KEY_VAULT_URI = var.private_key_vault_uri
+      POSTGRES_HOST             = var.database.fqdn
+      POSTGRES_DATABASE         = var.database.name
+      POSTGRES_USER             = var.identities["staff_api"].name
+      DI_MONTHLY_PAGE_CAP       = tostring(var.di_monthly_page_cap)
+      INVOICE_CURRENCY          = var.invoice_currency
     }
     # Story 2.1: the database and the login the pipeline signs in as with an Entra
     # token (its identity's name, AD-11); no password setting exists.

@@ -77,6 +77,10 @@ export function statusLabel(
   return statusLabels[status] ?? FALLBACK_STATUS;
 }
 
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 /** A page title: the page's own words, then the company name (UX-DR21). */
 export function pageTitle(text: string): string {
   return `${text} – Babaloo`;
@@ -112,6 +116,47 @@ export const strings = {
     label: "Pages",
     menu: "Menu",
     close: "Close menu",
+  },
+  /** Story 2.8: the admin queue (EXPERIENCE.md Queue table and State Patterns). */
+  queue: {
+    waiting: (n: number) => `${plural(n, "invoice", "invoices")} waiting`,
+    empty: "Nothing waiting. New exceptions appear here automatically.",
+    noMatch: "No invoices match these filters.",
+    pageUsage: (used: number, cap: number) =>
+      `${used} of ${cap} pages used this month.`,
+    tableLabel: "Invoices waiting for an admin",
+    columns: {
+      received: "Received",
+      supplier: "Supplier",
+      amount: "Amount",
+      reasons: "Reasons",
+      age: "Age",
+    },
+    /** A supplier the master has no name for (should not happen). */
+    unknownSupplier: "Unknown supplier",
+    noAmount: "Not read yet",
+    /** A reason code this build doesn't know yet (a newer API). */
+    otherReason: "Needs a look",
+    blocking: "Blocking",
+    filters: {
+      reason: "Reason",
+      supplier: "Supplier",
+      allReasons: "All reasons",
+      allSuppliers: "All suppliers",
+    },
+    pagination: {
+      label: "Pages",
+      previous: "Previous page",
+      next: "Next page",
+      status: (page: number, pages: number) => `Page ${page} of ${pages}`,
+    },
+    /** How long an invoice has waited, from when it was received. */
+    age: (minutes: number) => {
+      if (minutes < 60) return "Under an hour";
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return plural(hours, "hour", "hours");
+      return plural(Math.floor(hours / 24), "day", "days");
+    },
   },
   /** Screens not built yet show their heading and this line. */
   placeholder: "This page isn't ready yet.",

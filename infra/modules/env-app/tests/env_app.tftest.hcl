@@ -381,7 +381,7 @@ run "story_1_3_env_app_settings_plan" {
   assert {
     condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
       supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
-      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI"])
+      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
       pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_ENDPOINT", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
       accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
     }
@@ -416,12 +416,23 @@ run "story_1_3_env_app_settings_plan" {
     )
     error_message = "the pipeline must connect to its environment's database as its own identity's login, and to DI with its cap and currency (Story 2.3)."
   }
+  # Story 2.8: staff-api signs in as its own identity, with the same cap and currency.
+  assert {
+    condition = (
+      local.app_settings["staff_api"].POSTGRES_HOST == "babaloo-sea-lng-psql-21.postgres.database.azure.com" &&
+      local.app_settings["staff_api"].POSTGRES_DATABASE == "invoicing_dev" &&
+      local.app_settings["staff_api"].POSTGRES_USER == "babaloo-sea-lng-id-02" &&
+      local.app_settings["staff_api"].DI_MONTHLY_PAGE_CAP == "100" &&
+      local.app_settings["staff_api"].INVOICE_CURRENCY == "SGD"
+    )
+    error_message = "staff-api must connect to its environment's database as its own identity's login, with the DI cap and currency (Story 2.8)."
+  }
   assert {
     condition = alltrue([
-      for app in ["supplier_api", "staff_api", "accounts_sim"] :
+      for app in ["supplier_api", "accounts_sim"] :
       length([for key in keys(local.app_settings[app]) : key if startswith(key, "POSTGRES_")]) == 0
     ])
-    error_message = "only the pipeline gets database settings in Story 2.1 (supplier-api has no login, AD-11)."
+    error_message = "only the pipeline and staff-api get database settings (supplier-api has no login, AD-11)."
   }
   # --- telemetry_settings
   # Story 1.5: every app exports telemetry with Entra auth and samples (AD-17).

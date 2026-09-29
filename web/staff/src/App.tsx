@@ -9,6 +9,7 @@ import { LoadError } from "@/screens/LoadError";
 import { Loading } from "@/screens/Loading";
 import { NoAccess } from "@/screens/NoAccess";
 import { Offline } from "@/screens/Offline";
+import { QueueScreen } from "@/screens/QueueScreen";
 import { SignedOut, signInHref } from "@/screens/SignedOut";
 import { SurfacePage } from "@/screens/SurfacePage";
 import { Nav } from "@/shell/Nav";
@@ -168,10 +169,13 @@ export function App() {
   } else if (route?.kind === "no-access") {
     content = <NoAccess />;
   } else if (route?.kind === "page") {
-    content = (
-      // A new page per path, so each route change moves focus to its h1.
-      <SurfacePage key={path} surface={route.surface} />
-    );
+    // A new page per path, so each route change moves focus to its h1.
+    content =
+      route.surface.id === "admin_queue" ? (
+        <QueueScreen key={path} />
+      ) : (
+        <SurfacePage key={path} surface={route.surface} />
+      );
   } else {
     content = <Loading />;
   }

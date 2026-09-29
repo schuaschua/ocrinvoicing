@@ -37,7 +37,7 @@ def work_dir() -> Iterator[Path]:
 
 def _run(script: str, *args: str, work_dir: Path, **env_extra: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ARM_", "TF_", "FAKE_"))}
-    for key in ("idToken", "servicePrincipalId", "tenantId", "DJ_USER_UPN"):
+    for key in ("idToken", "servicePrincipalId", "tenantId"):
         env.pop(key, None)
     env.update(
         {
@@ -152,45 +152,38 @@ def test_story_1_2_terraform_apply_only_from_the_saved_plan(work_dir: Path) -> N
 
 
 MIGRATE_ENVIRONMENTS = [
-    ("dev", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-03", "babaloo-sea-lng-id-02"),
-    ("prod", "babaloo-sea-lng-id-23", "babaloo-sea-lng-id-13", "babaloo-sea-lng-id-12"),
+    ("dev", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-03", "babaloo-sea-lng-id-02", "babaloo-sea-lng-grp-01"),
+    ("prod", "babaloo-sea-lng-id-23", "babaloo-sea-lng-id-13", "babaloo-sea-lng-id-12", "babaloo-sea-lng-grp-11"),
 ]
 
 
 def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token(work_dir: Path) -> None:
     """migrate.sh, for dev and then prod: --check finds work; the run uses the env deploy
     identity's login with an Entra token over TLS, grants to the env's app logins (Story 2.1),
-    asks az for one token and opens no firewall. Story 1.6: it also grants to Dj's user
-    (DJ_USER_UPN), and without a valid DJ_USER_UPN it stops before any Azure call."""
-    for env, login, pipeline_role, staff_api_role in MIGRATE_ENVIRONMENTS:
+    asks az for one token and opens no firewall. Story 1.6: it also grants to the env's
+    loaders group (Dj's load-script login), named by the naming helpers; a leftover
+    DJ_USER_UPN is ignored (Dj, 2026-09-29: guest UPN over 63 characters)."""
+    for env, login, pipeline_role, staff_api_role, loaders_group in MIGRATE_ENVIRONMENTS:
         migrations = work_dir / f"migrations-{env}"
         migrations.mkdir()
         (migrations / "env.py").write_text("# fixture\n")
         check = _run("migrate.sh", "--check", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations))
         assert "output: hasWork=true" in check.stdout, (env, check.stderr)
 
-        # An unset ADO variable arrives as the literal "$(DJ_USER_UPN)".
-        for upn in (None, "$(DJ_USER_UPN)", "dj@example.test; DROP"):
-            extra = {} if upn is None else {"DJ_USER_UPN": upn}
-            refused = _run("migrate.sh", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations), **extra)
-            assert refused.returncode == 1, (env, upn)
-            assert "DJ_USER_UPN must be Dj's Entra UPN" in refused.stderr
-            assert "FAKE-TOOL-CALLED" not in refused.stderr
-
         az_log, uv_log = work_dir / f"az-{env}.log", work_dir / f"uv-{env}.jsonl"
         result = _run(
             "migrate.sh", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations),
             FAKE_AZ_TOKEN="entra-token-for-postgres", FAKE_AZ_LOG=str(az_log),
-            FAKE_UV_LOG=str(uv_log), DJ_USER_UPN="dj@example.test",
+            FAKE_UV_LOG=str(uv_log), DJ_USER_UPN="$(DJ_USER_UPN)",
         )
         assert result.returncode == 0, result.stdout + result.stderr
         (call,) = [json.loads(line) for line in uv_log.read_text().splitlines()]
         # Story 2.1: the roles the migrations grant to are the environment's app logins (AD-11);
-        # Story 1.6: and Dj's user, the supplier load script's login.
+        # Story 1.6: and the env's loaders group, the supplier load script's login.
         assert call["args"] == [
             "run", "--directory", str(REPO_ROOT / "backend"), "--locked", "--no-dev", "alembic",
             "-x", f"pipeline_role={pipeline_role}", "-x", f"staff_api_role={staff_api_role}",
-            "-x", "dj_role=dj@example.test", "upgrade", "head",
+            "-x", f"dj_role={loaders_group}", "upgrade", "head",
         ]
         assert call["env"] == {
             "PGHOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",

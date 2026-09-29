@@ -7,8 +7,11 @@ application         = "ocrinvoicing"
 data_classification = "synthetic"
 alert_email         = "alerts@example.test"
 # email_custom_domain                 = ""   # e.g. mail.example.com
-# postgres_entra_admin_object_id      = ""   # the operator's Entra object id
-# postgres_entra_admin_principal_name = ""   # the operator's UPN
+# The PostgreSQL Entra admin is the pg-admins group (Dj, 2026-09-29): app-registrations.sh
+# creates it and prints its object id.
+# postgres_entra_admin_object_id      = ""   # the pg-admins group's object id
+# postgres_entra_admin_principal_name = "babaloo-sea-lng-grp-21"
+# postgres_entra_admin_principal_type = "Group"
 
 # Set to true and re-apply once the email domain's DNS records are verified.
 email_domain_link_enabled = false

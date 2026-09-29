@@ -27,8 +27,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | `SHARED_ACTION_GROUP_ID` | `budget-and-roles.sh` (optional) | resource id of the shared action group `ag-21` (`terraform output action_group_id` in `infra/shared/foundation`). Unset: the subscription budget alerts by email only, with a warning |
 | `STACKS` | `test-alerts.sh` (optional) | which action groups to test; default `shared dev prod`; repeats are ignored |
 | `ENVIRONMENT` | `pgp-step4b.sh`, `database-step5.sh` | `dev` or `prod` |
-| `DJ_USER_UPN` | `database-step5.sh`; also a required variable of the deploy pipeline (`ci/migrate.sh`, below) | Dj's Entra UPN: the load-script login |
-| `PG_ADMIN_USER` | `database-step5.sh`, `verify-db-isolation.sh` | the PostgreSQL Entra admin used to connect. Required, and it must be a separate principal from `DJ_USER_UPN` (e.g. an Entra group whose members are the operators): the load script never runs as server admin. `database-step5.sh` stops if the two are equal |
+| `PG_ADMIN_USER` | `database-step5.sh`, `verify-db-isolation.sh` | the PostgreSQL Entra admin used to connect: the pg-admins group's name, `babaloo-sea-lng-grp-21`, signed in with a member's token. Required, and it must not be the environment's loaders group (the load-script login): the load script never runs as server admin. `database-step5.sh` stops if the two are equal |
 | `CONNECT_AS_LOGIN`, `TARGET_DB` | `verify-db-isolation.sh` (mode 2) | a real connection attempt that must be refused |
 
 ## Names
@@ -39,19 +38,23 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | State storage | `babaloosealngst21` in `rg-22`; containers `shared`, `dev`, `prod`; key `foundation.tfstate` per stack |
 | Deploy identities | `babaloo-sea-lng-id-21` (shared), `-id-22` (dev), `-id-23` (prod), all in `rg-22` |
 | Private-key vaults (OCR-129) | `babaloo-sea-lng-kv-22` (dev), `-kv-23` (prod), in `rg-22`; each holds only its environment's `pgp-private-key`; no diagnostic settings, by decision (Dj, 2026-09-29) |
-
-`rg-22` is created and managed only by these scripts. No Terraform stack manages it and no deploy identity holds Contributor on it; each deploy identity has only its container-scoped state roles there, and no identity's RBAC Administrator reaches it. So no stack's identity can change another identity's federated credentials or another stack's state, or read or grant access to a PGP private key.
 | App registrations | `babaloo-sea-lng-staff-api-<env>`, `babaloo-sea-lng-accounts-sim-<env>` |
+| Entra security groups (`grp`) | loaders `babaloo-sea-lng-grp-01` (dev), `-grp-11` (prod): the supplier load script's database login; pg-admins `babaloo-sea-lng-grp-21` (shared): the PostgreSQL Entra admin. Dj is a member of all three (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character role-name limit and holds `#`) |
 | Subscription budget | `babaloo-sea-lng-budget-22` ($8) |
 | Action groups (all email Dj) | `babaloo-sea-lng-ag-21` (shared: the `shared` and subscription budgets), `-ag-01` (dev), `-ag-11` (prod) |
 
+`rg-22` is created and managed only by these scripts. No Terraform stack manages it and no deploy identity holds Contributor on it; each deploy identity has only its container-scoped state roles there, and no identity's RBAC Administrator reaches it. So no stack's identity can change another identity's federated credentials or another stack's state, or read or grant access to a PGP private key.
+
+The Entra groups are not Azure resources: `app-registrations.sh` creates them, `infra/bootstrap/lib.sh` names them (`loaders_group_name`, `pg_admins_group_name`) and `infra/modules/naming` does not. A member signs in to PostgreSQL with the group's name as the user name and their own Entra token.
+
 ## Before deploying Story 1.6 (environments already set up)
 
-Migration `0004_master_audit` needs `pgcrypto` and grants to Dj's login, so on an environment whose step 5 ran before Story 1.6, in this order:
+Migration `0004_master_audit` needs `pgcrypto` and grants to the environment's loaders group (Dj's load-script login), so on an environment whose step 5 ran before Story 1.6, in this order:
 
-1. Re-run step 5 for both environments, as the PostgreSQL Entra admin: `ENVIRONMENT=dev ./database-step5.sh`, then `ENVIRONMENT=prod ./database-step5.sh`. It is idempotent; the new part creates `pgcrypto` in `invoicing_<env>`.
-2. Set the deploy pipeline variable `DJ_USER_UPN` (see **Migrations** below).
-3. Merge. The Dev and Prod migration stages then apply `0004_master_audit`.
+1. Re-run `./app-registrations.sh`. It creates the loaders groups (`grp-01`, `grp-11`) and the pg-admins group (`grp-21`), adds you to each, and prints the pg-admins group's object id and name.
+2. If the PostgreSQL Entra admin is still a user, make it the pg-admins group: set `postgres_entra_admin_object_id`, `postgres_entra_admin_principal_name` and `postgres_entra_admin_principal_type = "Group"` in `infra/shared/foundation/terraform.tfvars` as printed, and let the deploy pipeline apply `shared/foundation`.
+3. Re-run step 5 for both environments, connected as the pg-admins group: `ENVIRONMENT=dev ./database-step5.sh`, then `ENVIRONMENT=prod ./database-step5.sh`. It is idempotent; the new parts create the loaders group's login and rights and `pgcrypto` in `invoicing_<env>`.
+4. Merge. The Dev and Prod migration stages then apply `0004_master_audit`. They need no pipeline variable: `ci/migrate.sh` takes the loaders group's name from `lib.sh`. A leftover `DJ_USER_UPN` pipeline variable is ignored; delete it.
 
 ## Run order
 
@@ -63,11 +66,11 @@ Migration `0004_master_audit` needs `pgcrypto` and grants to Dj's login, so on a
 | 3 | operator | `./rbac-step3.sh` |
 | 4 | env deploy identity (pipeline) | `infra/dev/foundation` (applies automatically), then `infra/prod/foundation` (after Dj approves the `prod` stage) |
 | 4b | operator with Owner, plus Key Vault Secrets Officer on both vaults for this step only | after `<env>/foundation` exists (it creates the `staff-api` identity): `ENVIRONMENT=dev ./pgp-step4b.sh`, then, after `prod/foundation`, `ENVIRONMENT=prod ./pgp-step4b.sh` |
-| 5 | operator as PostgreSQL Entra admin | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
+| 5 | operator as PostgreSQL Entra admin (a member of the pg-admins group `grp-21`) | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
 | 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
 | 8 | operator | `staff-api` redirect URI, then the sign-in check (Story 2.7, below) |
 | Purchasing seed | operator, signed in as the env deploy identity | after the environment's migrations: the synthetic PO and goods-received data (below) |
-| Supplier load | Dj, signed in as himself | after step 4b, step 5, the environment's migrations and `<env>/app`: the synthetic suppliers and their upload links (below) |
+| Supplier load | Dj, signed in as himself, connecting as the environment's loaders group (`grp-01` dev, `grp-11` prod) | after step 4b, step 5, the environment's migrations and `<env>/app`: the synthetic suppliers and their upload links (below) |
 | Alert check | operator | `./test-alerts.sh` once the stacks are applied, then check that Dj received every test email (below) |
 | Pipeline check | operator | after the first Dev code deploy: the metric namespace and the stopped-database wait (below) |
 
@@ -80,6 +83,7 @@ Try each script with `--dry-run` first.
   - every deploy identity: Contributor on its own stack's resource group (`rg-21`, `rg-01` or `rg-11`, never `rg-22`), and Storage Blob Data Contributor on its own state container;
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `shared` state container.
 - `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs: put the `staff-api` one in `infra/<env>/app/terraform.tfvars` as `staff_api_client_id` (Story 2.7; not a secret) before `<env>/app` is planned. The redirect URI is step 8.
+- `app-registrations.sh` also creates the Entra security groups used as PostgreSQL logins (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character role-name limit), and adds the signed-in operator (`az ad signed-in-user show`) as a member of each: the loaders groups `babaloo-sea-lng-grp-01` (dev) and `-grp-11` (prod), the supplier load script's login, and the pg-admins group `babaloo-sea-lng-grp-21`, the PostgreSQL Entra admin. An existing group is kept, and an existing member is not re-added. It prints the pg-admins group's object id and name: before `shared/foundation` is first applied, put them in `infra/shared/foundation/terraform.tfvars` as `postgres_entra_admin_object_id` and `postgres_entra_admin_principal_name`, with `postgres_entra_admin_principal_type = "Group"`. Creating groups and adding members needs Entra rights, not just Owner on the subscription: an Entra role such as Groups Administrator (or Global Administrator), or, for an existing group, being its owner. The creator of a group is its owner. A new member's Azure sign-in picks up the group after `az login` is run again.
 - `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine) and the $8 subscription budget with an alert to `ALERT_EMAIL`. With `SHARED_ACTION_GROUP_ID` set, the alert also goes through the shared action group `ag-21`. An existing budget keeps its amount, start date and thresholds; the only change the script makes to it is adding `ag-21` to its notifications (once). The first run comes before `ag-21` exists, so run it again after step 2.
 
 ### Step 1 (ADO): service connections, environments, pipelines and branch policy
@@ -96,7 +100,7 @@ What the pipelines do:
 
 - **PR build**: `ci/checks.sh lint`, `test`, `audit`, `secrets` and `terraform` as parallel jobs. Run `ci/checks.sh all` locally for the same result.
 - **Deploy** (every merge to `main`, one run at a time): for each stack, a plan stage (`plan -out=tfplan`, then `check_tags.py` on `terraform show -json`) and, only when the plan has changes, an apply stage in the stack's environment that applies that saved plan. So a stack with no changes asks for no approval. Order: `shared/foundation`, `dev/foundation`, Dev migrations, `dev/app`, Dev code deploy, `prod/foundation`, Prod migrations, `prod/app`, Prod code deploy. Dev applies without approval (the recorded terraform.md rule 26/33 exception); `shared` and Prod wait for the approval. A failed or rejected stage stops everything after it.
-- **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists. From Story 1.6 the migrations also grant `master` and `audit` to Dj's user, so the deploy pipeline needs the variable `DJ_USER_UPN` (Dj's Entra UPN, the same value as for `database-step5.sh`). Set it once; it is not a secret: `az pipelines variable create --pipeline-name ocrinvoicing-deploy --name DJ_USER_UPN --value <upn> --org https://dev.azure.com/<ADO_ORG> --project <ADO_PROJECT>`. Without it the migration stage stops with "DJ_USER_UPN must be Dj's Entra UPN" before connecting.
+- **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists. From Story 1.6 the migrations also grant `master` and `audit` to the environment's loaders group (Dj's load-script login), whose name `ci/migrate.sh` takes from `lib.sh`, like the other logins; no pipeline variable is needed.
 - **Weekly scan**: `ci/checks.sh audit` on `main` every Monday, failing on any finding.
 
 Prod can ask for up to four approvals in one run: `prod/foundation`, Prod migrations, `prod/app` and the Prod code deploy. ADO evaluates approvals per stage, and each of these is its own stage so it can be skipped (with no approval asked) when it has nothing to do. The pipeline can't tell whether migrations are pending without connecting to the database, so once migrations exist the Prod migration stage asks every run.
@@ -120,7 +124,7 @@ Manual operator steps after `ado-setup.sh` (no CLI for them):
 
 ### Step 4b: PGP key pair (once per environment)
 
-The private key is readable only by the environment's `staff-api` identity (OCR-129, AD-11). So it does not live in the environment's vault (`kv-01`/`kv-11`), where the env deploy identity (Secrets Officer, and Contributor on the group) could read it, but in the environment's private-key vault in `rg-22` (`kv-22` dev, `kv-23` prod), which no Terraform stack manages and on which no deploy identity, pipeline identity or Dj's load-script user has any role.
+The private key is readable only by the environment's `staff-api` identity (OCR-129, AD-11). So it does not live in the environment's vault (`kv-01`/`kv-11`), where the env deploy identity (Secrets Officer, and Contributor on the group) could read it, but in the environment's private-key vault in `rg-22` (`kv-22` dev, `kv-23` prod), which no Terraform stack manages and on which no deploy identity, pipeline identity or loaders group (Dj's load-script login) has any role.
 
 Preconditions: `state-backend.sh` has created the private-key vaults, and `<env>/foundation` exists (it creates the `staff-api` identity, `babaloo-sea-lng-id-02` dev, `-id-12` prod). The operator is an Owner of the subscription and gives themself Key Vault Secrets Officer on both vaults for this step only:
 
@@ -183,19 +187,25 @@ The env vault has purge protection (Terraform sets it and it can't be turned off
 
 ### Step 5: database logins (once per environment)
 
-`database-step5.sh` connects to the server's `postgres` database as the Entra admin (`PG_ADMIN_USER`, not Dj's load-script user) with an `az` token and runs `database-step5.sql`:
+`database-step5.sh` connects to the server's `postgres` database as the Entra admin, the pg-admins group, with a member's `az` token, and runs `database-step5.sql`. Run it signed in (`az login`) as a member of `babaloo-sea-lng-grp-21`:
 
-- creates the environment's logins with `pgaadauth_create_principal`: the `pipeline`, `staff-api` and `accounts-sim` identities, the deploy identity, and Dj's user (`supplier-api` has none);
+```sh
+PG_ADMIN_USER=babaloo-sea-lng-grp-21 ENVIRONMENT=dev ./database-step5.sh   # then ENVIRONMENT=prod
+```
+
+`PG_ADMIN_USER` must not be the environment's loaders group (the load-script login); the script stops if it is. First it looks up the loaders group (`babaloo-sea-lng-grp-01` dev, `-grp-11` prod) and stops if `app-registrations.sh` has not created it. Then it:
+
+- creates the environment's logins with `pgaadauth_create_principal`: the `pipeline`, `staff-api` and `accounts-sim` identities, the deploy identity, and the loaders group (`supplier-api` has none);
 - makes the deploy identity the owner of `invoicing_<env>`, in one transaction with the temporary role membership it needs;
 - revokes `CONNECT` and `TEMPORARY` from `PUBLIC` on both databases;
 - grants `CONNECT` on `invoicing_<env>` to that environment's logins only;
 - connects to `invoicing_<env>` and creates the `pgcrypto` extension there (Story 1.6: `pgp_pub_encrypt` for bank details). Only the server admin may create an extension on Azure; Terraform allow-lists it. Migration `0004_master_audit` then finds it.
 
-It then gives Dj's user Key Vault Secrets User on the `pgp-public-key` and `hmac-key` secrets only (never the private key, which is in the private-key vault; OCR-129) and Storage Table Data Contributor on the storage account, for the load script. A vault-wide Secrets User assignment from an earlier run of this step is removed. Schema grants are Alembic migrations (step 6), not part of this step.
+It then gives the loaders group (principal type `Group`) Key Vault Secrets User on the `pgp-public-key` and `hmac-key` secrets only (never the private key, which is in the private-key vault; OCR-129) and Storage Table Data Contributor on the storage account, for the load script. A vault-wide Secrets User assignment from an earlier run of this step is removed. Schema grants are Alembic migrations (step 6), not part of this step.
 
-`verify-db-isolation.sh` checks, as the admin, that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it inside a Dev pipeline job signed in as the dev deploy identity with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
+`verify-db-isolation.sh` checks, as the admin (`PG_ADMIN_USER=babaloo-sea-lng-grp-21`), that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it inside a Dev pipeline job signed in as the dev deploy identity with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
 
-Dj's user is one login on the shared server and is granted `CONNECT` by both environments, so it is left out of the cross-check.
+Each environment has its own loaders group, so the loaders groups are cross-checked like the other logins.
 
 ### Step 8: staff-api redirect URI and sign-in check (once per environment, Story 2.7)
 
@@ -242,9 +252,9 @@ The command checks the file before it writes anything, then prints the rows upse
 
 ### Supplier load: suppliers, bank details and upload links (Story 1.6)
 
-The load script creates or updates the supplier master (`master.supplier`, `master.supplier_bank`) from a CSV of **synthetic** suppliers (security.md rule 1), and issues each supplier's upload link. Dj runs it as himself: step 5 gave his user a login, Key Vault Secrets User on `pgp-public-key` and `hmac-key` only, and Storage Table Data Contributor. It never reads the private key and never decrypts.
+The load script creates or updates the supplier master (`master.supplier`, `master.supplier_bank`) from a CSV of **synthetic** suppliers (security.md rule 1), and issues each supplier's upload link. Dj runs it signed in as himself, a member of the environment's loaders group (`babaloo-sea-lng-grp-01` dev, `-grp-11` prod), and connects to PostgreSQL as that group: step 5 gave the group a login, Key Vault Secrets User on `pgp-public-key` and `hmac-key` only, and Storage Table Data Contributor. Audit entries name the group as the actor, not Dj. It never reads the private key and never decrypts.
 
-The CSV has one header row with exactly these columns, in any order: `supplier_id` (required, a UUID; use the ids in `backend/seed/sim_purchasing.json`, rows match on it), `name` (required), `phone`, `tax_id`, `bank_account_number`, `iban`, `swift` (the AD-18 bank field ids). A blank bank, `phone` or `tax_id` cell leaves the stored value unchanged (a new supplier stores it empty). So a blank cell can't clear a phone or tax id, or remove a bank field. To do that, an admin (the PostgreSQL Entra admin, not Dj's load-script login, which has no DELETE) runs the change by hand and records it in the audit log in the same transaction, naming column or field ids only, never values:
+The CSV has one header row with exactly these columns, in any order: `supplier_id` (required, a UUID; use the ids in `backend/seed/sim_purchasing.json`, rows match on it), `name` (required), `phone`, `tax_id`, `bank_account_number`, `iban`, `swift` (the AD-18 bank field ids). A blank bank, `phone` or `tax_id` cell leaves the stored value unchanged (a new supplier stores it empty). So a blank cell can't clear a phone or tax id, or remove a bank field. To do that, an admin (the PostgreSQL Entra admin, the pg-admins group, not the loaders group, which has no DELETE) runs the change by hand and records it in the audit log in the same transaction, naming column or field ids only, never values:
 
 ```sql
 BEGIN;
@@ -254,12 +264,14 @@ INSERT INTO audit.event (id, action, entity, entity_id, detail)
 VALUES (gen_random_uuid(), 'supplier.updated', 'supplier', '<supplier_id>',
         '{"fields": ["phone"], "by_hand": true}');                            -- or 'supplier_bank.removed', {"field_id": "iban"}
 COMMIT;
-``` Keep the file outside the repository, or under the gitignored `.work/`.
+```
+
+Keep the CSV outside the repository, or under the gitignored `.work/`.
 
 ```sh
-az login   # as Dj
+az login   # as Dj, a member of the loaders group
 export PGHOST=babaloo-sea-lng-psql-21.postgres.database.azure.com PGPORT=5432 PGSSLMODE=require
-export PGUSER="<Dj's UPN>" PGDATABASE=invoicing_dev   # prod: invoicing_prod
+export PGUSER=babaloo-sea-lng-grp-01 PGDATABASE=invoicing_dev   # prod: babaloo-sea-lng-grp-11, invoicing_prod
 export PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 uv run --directory backend --locked --no-dev python -m invoicing.tools.load_suppliers \
   --file .work/suppliers.csv \

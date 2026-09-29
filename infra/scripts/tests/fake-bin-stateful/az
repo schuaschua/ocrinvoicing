@@ -13,6 +13,7 @@ Other knobs:
   FAKE_AZ_STAFF_ROLES      how many of the 5 staff-api app roles already exist
   FAKE_AZ_FED_STALE=1      existing federated credentials have an old issuer/subject
   FAKE_AZ_DUPLICATE_APPS=1 a display-name lookup returns two app registrations
+  FAKE_AZ_NO_GROUPS=1      Entra group lookups find nothing (the groups are created)
   FAKE_AZ_SC_BINDING       what an existing ADO service connection is bound to
                            (default WorkloadIdentityFederation|<the fake identity clientId>)
   FAKE_AZ_SC_FEDERATION    "<issuer>|<subject>" an ADO service connection reports
@@ -48,6 +49,8 @@ ROLE_NAMES = {
 STAFF_ROLES = ["admin", "finance", "procurement", "management", "goods_in"]
 FAKE_GUID = "55555555-5555-5555-5555-555555555555"
 FAKE_PIPELINE_ID = "42"
+OPERATOR_ID = "88888888-8888-8888-8888-888888888888"
+NEW_GROUP_ID = "99999999-9999-9999-9999-999999999999"
 
 args = sys.argv[1:]
 log_path = os.environ["FAKE_AZ_LOG"]
@@ -112,8 +115,17 @@ elif has("ad", "app", "show"):
         for r in STAFF_ROLES[: int(os.environ.get("FAKE_AZ_STAFF_ROLES", "5"))]
     ]
     print(json.dumps(roles))
-elif has("ad", "user", "show"):
+elif has("ad", "user", "show") or has("ad", "group", "show"):
     print(FAKE_GUID)
+elif has("ad", "signed-in-user", "show"):
+    print(OPERATOR_ID)
+elif has("ad", "group", "list"):
+    if not os.environ.get("FAKE_AZ_NO_GROUPS"):
+        print(FAKE_GUID)
+elif has("ad", "group", "create"):
+    print(NEW_GROUP_ID)
+elif has("ad", "group", "member", "check"):
+    print("true")
 elif has("devops", "service-endpoint", "list") and "workloadIdentityFederationSubject" in opt("--query"):
     name = re.search(r"name=='([^']+)'", opt("--query")).group(1)
     default = (

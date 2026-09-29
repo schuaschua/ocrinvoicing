@@ -57,7 +57,3 @@ stages:
                     scriptLocation: scriptPath
                     scriptPath: ci/migrate.sh
                     arguments: ${{ parameters.environment }}
-                  # Story 1.6: Dj's UPN, the load-script login `master` is granted to.
-                  # A required pipeline variable (infra/bootstrap/README.md).
-                  env:
-                    DJ_USER_UPN: $(DJ_USER_UPN)

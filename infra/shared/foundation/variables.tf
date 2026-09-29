@@ -46,7 +46,7 @@ variable "email_domain_link_enabled" {
 }
 
 variable "postgres_entra_admin_object_id" {
-  description = "Object id of the PostgreSQL Entra admin (the operator who runs AD-17 step 5)."
+  description = "Object id of the PostgreSQL Entra admin: the pg-admins group (babaloo-sea-lng-grp-21), whose members run AD-17 step 5."
   type        = string
 
   validation {

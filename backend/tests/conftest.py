@@ -155,8 +155,9 @@ class PostgresServer:
     staff_api: str = "staff-api-login"
     # A login with CONNECT but no schema grant (e.g. accounts-sim).
     outsider: str = "accounts-sim-login"
-    # Dj's user, the supplier load script's login (-x dj_role, Story 1.6): a UPN.
-    dj: str = "dj@example.test"
+    # The supplier load script's login (-x dj_role, Story 1.6): the environment's
+    # loaders group, which Dj is a member of (Dj, 2026-09-29: guest UPN over 63 characters).
+    dj: str = "babaloo-sea-lng-grp-01"
 
     def url(self, user: str, database: str) -> URL:
         return URL.create(

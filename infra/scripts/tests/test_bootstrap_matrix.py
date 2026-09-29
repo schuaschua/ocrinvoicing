@@ -34,7 +34,7 @@ FAKE_INPUTS = {
     "ADO_PROJECT": "test-project",
     "ADO_APPROVER": "dj@example.test",
     "ALERT_EMAIL": "alerts@example.test",
-    "PG_ADMIN_USER": "pg-admins@example.test",
+    "PG_ADMIN_USER": "babaloo-sea-lng-grp-21",
     "SP_WAIT_SECONDS": "0",
 }
 
@@ -138,6 +138,9 @@ def test_story_1_1_verify_db_isolation(work_dir: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert "PASS babaloo-sea-lng-id-03 refused on invoicing_prod" in result.stdout
     assert "PASS babaloo-sea-lng-id-13 refused on invoicing_dev" in result.stdout
+    # The per-environment loaders groups (the load-script logins) are checked too.
+    assert "PASS babaloo-sea-lng-grp-01 refused on invoicing_prod" in result.stdout
+    assert "PASS babaloo-sea-lng-grp-11 refused on invoicing_dev" in result.stdout
     assert "All isolation checks passed." in result.stdout
 
     # Privilege check fails when dev can reach prod.
@@ -272,7 +275,7 @@ def test_ocr_129_pgp_step4b_guards(work_dir: Path) -> None:
         assert not any(_starts_with(call, ["keyvault", "secret", "download"]) for call in calls)
 
 
-# --- Step 5: Dj's load-script rights (OCR-129) -------------------------------------------------
+# --- Step 5: the loaders group's load-script rights (OCR-129) -----------------------------------
 
 DEV_VAULT = (
     "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01"
@@ -281,23 +284,27 @@ DEV_VAULT = (
 
 
 def test_ocr_129_database_step5_dj_rights(work_dir: Path) -> None:
-    """database-step5.sh. Covers: Dj is granted the two secrets only (hmac-key and
-    pgp-public-key, Secrets User), nothing deleted; an earlier vault-wide role is removed."""
-    # Grants Dj two secrets only.
-    result, calls = _run(
-        "database-step5.sh", _case(work_dir, "grant"), DJ_USER_UPN="dj@example.test", FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
-    )
+    """database-step5.sh. Covers: the dev loaders group (Dj's load-script login; Dj, 2026-09-29:
+    guest UPN over 63 characters) is looked up before any change and granted the two secrets
+    only (hmac-key and pgp-public-key, Secrets User, as a Group), nothing deleted; an earlier
+    vault-wide role is removed."""
+    # Grants the loaders group two secrets only.
+    result, calls = _run("database-step5.sh", _case(work_dir, "grant"), FAKE_AZ_NO_ROLE_ASSIGNMENTS="1")
     assert result.returncode == 0, result.stdout + result.stderr
+    lookup = calls.index(["ad", "group", "show", "--group", "babaloo-sea-lng-grp-01", "--query", "id", "-o", "tsv"])
+    assert lookup < calls.index(["account", "get-access-token", "--resource-type", "oss-rdbms", "--query", "accessToken", "-o", "tsv"])
+    assert "-v dj_login=babaloo-sea-lng-grp-01 " in result.stdout  # the psql call
     kv = [call for call in _role_creates(calls) if "Microsoft.KeyVault" in call[call.index("--scope") + 1]]
     assert sorted(call[call.index("--scope") + 1] for call in kv) == [
         f"{DEV_VAULT}/secrets/hmac-key",
         f"{DEV_VAULT}/secrets/pgp-public-key",
     ]
     assert all(call[call.index("--role") + 1] == "4633458b-17de-408a-b874-0445c86b69e6" for call in kv)
+    assert all(call[call.index("--assignee-principal-type") + 1] == "Group" for call in _role_creates(calls))
     assert not any(_starts_with(call, ["role", "assignment", "delete"]) for call in calls)
 
     # Removes an earlier vault-wide role.
-    result, calls = _run("database-step5.sh", _case(work_dir, "vault-wide"), DJ_USER_UPN="dj@example.test")
+    result, calls = _run("database-step5.sh", _case(work_dir, "vault-wide"))
     assert result.returncode == 0, result.stdout + result.stderr
     assert _role_creates(calls) == []
     (delete,) = [call for call in calls if _starts_with(call, ["role", "assignment", "delete"])]
@@ -309,7 +316,9 @@ def test_ocr_129_database_step5_dj_rights(work_dir: Path) -> None:
 
 def test_story_1_1_app_registrations(work_dir: Path) -> None:
     """app-registrations.sh. Covers: a missing app role is added keeping the existing role ids;
-    duplicate app registrations stop the script before any update."""
+    existing Entra groups (loaders grp-01/grp-11, pg-admins grp-21) are kept and a member is not
+    re-added; missing groups are created with the operator added; duplicate app registrations
+    stop the script before any update."""
     # A missing app role is added, keeping existing ids.
     run_dir = _case(work_dir, "missing-role")
     result, calls = _run("app-registrations.sh", run_dir, FAKE_AZ_STAFF_ROLES="4")
@@ -326,6 +335,28 @@ def test_story_1_1_app_registrations(work_dir: Path) -> None:
         assert all(role["id"] == "55555555-5555-5555-5555-555555555555" for role in existing)
         assert len(added) == 1 and added[0]["id"] != "55555555-5555-5555-5555-555555555555"
         assert added[0]["allowedMemberTypes"] == ["User"] and added[0]["isEnabled"] is True
+    # Existing groups are kept, and the operator, already a member, is not re-added.
+    assert not any(_starts_with(call, ["ad", "group", "create"]) for call in calls)
+    assert not any(_starts_with(call, ["ad", "group", "member", "add"]) for call in calls)
+    assert "postgres_entra_admin_principal_name = \"babaloo-sea-lng-grp-21\"" in result.stdout
+
+    # Missing groups are created (security groups named by lib.sh), each with the operator
+    # as a member; the pg-admins group's id and name are printed for the shared tfvars.
+    result, calls = _run("app-registrations.sh", _case(work_dir, "new-groups"), FAKE_AZ_NO_GROUPS="1")
+    assert result.returncode == 0, result.stderr
+    creates = [call for call in calls if _starts_with(call, ["ad", "group", "create"])]
+    assert [call[call.index("--display-name") + 1] for call in creates] == [
+        "babaloo-sea-lng-grp-01",
+        "babaloo-sea-lng-grp-11",
+        "babaloo-sea-lng-grp-21",
+    ]
+    adds = [call for call in calls if _starts_with(call, ["ad", "group", "member", "add"])]
+    assert adds == [
+        ["ad", "group", "member", "add", "--group", "99999999-9999-9999-9999-999999999999",
+         "--member-id", "88888888-8888-8888-8888-888888888888"]
+    ] * 3
+    assert 'postgres_entra_admin_object_id      = "99999999-9999-9999-9999-999999999999"' in result.stdout
+    assert 'postgres_entra_admin_principal_type = "Group"' in result.stdout
 
     # Duplicate app registrations stop the script.
     result, calls = _run("app-registrations.sh", _case(work_dir, "duplicates"), FAKE_AZ_DUPLICATE_APPS="1")

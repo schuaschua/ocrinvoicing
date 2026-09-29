@@ -10,8 +10,9 @@
 #   dev deploy identity inside an Azure DevOps job) and tries to open TARGET_DB;
 #   PASS means the connection was refused.
 #
-# Dj's user is one login on the shared server and is granted CONNECT by both
-# environments (it runs the load script), so it is not part of the cross-check.
+# The load script's login is the environment's loaders group (Dj is a member; Dj,
+# 2026-09-29: guest UPN over 63 characters), one per environment, so it is checked
+# like the other logins.
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -112,6 +113,7 @@ if ((DRY_RUN)); then
       log "  $(app_identity_name "$env" "$app"): CONNECT invoicing_$env = yes, other = no"
     done
     log "  $(deploy_identity_name "$env"): CONNECT invoicing_$env = yes, other = no"
+    log "  $(loaders_group_name "$env"): CONNECT invoicing_$env = yes, other = no"
   done
   exit 0
 fi
@@ -134,7 +136,8 @@ for env in dev prod; do
     "$(app_identity_name "$env" pipeline)" \
     "$(app_identity_name "$env" staff-api)" \
     "$(app_identity_name "$env" accounts-sim)" \
-    "$(deploy_identity_name "$env")"; do
+    "$(deploy_identity_name "$env")" \
+    "$(loaders_group_name "$env")"; do
     if [[ "$(role_exists "$login")" != "t" ]]; then
       fail "$login does not exist (run database-step5.sh for $env)"
       continue

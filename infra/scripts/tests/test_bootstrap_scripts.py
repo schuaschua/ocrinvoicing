@@ -29,8 +29,7 @@ FAKE_INPUTS = {
     "ADO_APPROVER": "dj@example.test",
     "ALERT_EMAIL": "alerts@example.test",
     "ENVIRONMENT": "dev",
-    "DJ_USER_UPN": "dj@example.test",
-    "PG_ADMIN_USER": "pg-admins@example.test",
+    "PG_ADMIN_USER": "babaloo-sea-lng-grp-21",
 }
 
 
@@ -253,10 +252,11 @@ def test_ocr_129_pgp_step4b_splits_the_pair_and_grants_only_staff_api() -> None:
 
 
 def test_ocr_129_database_step5_dry_run_plan() -> None:
-    """database-step5.sh --dry-run. Covers: OCR-129 Dj gets two secrets and no vault-wide role
-    (dev); the prod run targets its own database with the prod logins over TLS; the load-script
-    user is refused as the PostgreSQL admin."""
-    # OCR-129: Dj gets two secrets and no vault-wide role
+    """database-step5.sh --dry-run. Covers: OCR-129 the dev loaders group (Dj's load-script
+    login) gets two secrets and no vault-wide role; the prod run targets its own database with
+    the prod logins, including its loaders group, over TLS; the loaders group is refused as the
+    PostgreSQL admin."""
+    # OCR-129: the loaders group gets two secrets and no vault-wide role
     result = _run("database-step5.sh", "--dry-run")
     assert result.returncode == 0, result.stderr
     vault = (
@@ -268,7 +268,9 @@ def test_ocr_129_database_step5_dry_run_plan() -> None:
         f"{vault}/secrets/hmac-key",
         f"{vault}/secrets/pgp-public-key",
     ]
-    assert all("--assignee-principal-type User" in line for line in kv_grants)
+    assert all("--assignee-principal-type Group" in line for line in kv_grants)
+    assert all("--assignee-object-id '<objectId-of-babaloo-sea-lng-grp-01>'" in line for line in kv_grants)
+    assert "dj_login=babaloo-sea-lng-grp-01" in result.stdout
     assert "kv-22" not in result.stdout and "kv-23" not in result.stdout
 
     # targets its own database (prod)
@@ -276,12 +278,13 @@ def test_ocr_129_database_step5_dry_run_plan() -> None:
     assert "env_db=invoicing_prod" in out and "other_db=invoicing_dev" in out
     assert "pipeline_login=babaloo-sea-lng-id-13" in out
     assert "deploy_login=babaloo-sea-lng-id-23" in out
+    assert "dj_login=babaloo-sea-lng-grp-11" in out
     assert "sslmode=require" in out
 
-    # a separate PostgreSQL admin: the load-script user is refused
-    result = _run("database-step5.sh", "--dry-run", PG_ADMIN_USER="dj@example.test")
+    # a separate PostgreSQL admin: the loaders group is refused
+    result = _run("database-step5.sh", "--dry-run", PG_ADMIN_USER="babaloo-sea-lng-grp-01")
     assert result.returncode == 1
-    assert "PG_ADMIN_USER must be a separate principal from DJ_USER_UPN" in result.stderr
+    assert "PG_ADMIN_USER must be a separate principal from babaloo-sea-lng-grp-01" in result.stderr
     assert "[dry-run] psql" not in result.stdout
 
 
@@ -327,7 +330,8 @@ printf '%s\\n' \
   "$(app_identity_name prod pipeline)" \
   "$(deploy_identity_name shared)" "$(deploy_identity_name dev)" "$(deploy_identity_name prod)" \
   "$(postgres_server_name)" "$(document_intelligence_name)" "$(communication_service_name)" \
-  "$(action_group_name shared)" "$(action_group_name dev)" "$(action_group_name prod)"
+  "$(action_group_name shared)" "$(action_group_name dev)" "$(action_group_name prod)" \
+  "$(loaders_group_name dev)" "$(loaders_group_name prod)" "$(pg_admins_group_name)"
 """
     result = subprocess.run(
         ["bash", "-c", script, "bash", str(BOOTSTRAP)], capture_output=True, text=True, check=False
@@ -357,4 +361,8 @@ printf '%s\\n' \
         "babaloo-sea-lng-ag-21",
         "babaloo-sea-lng-ag-01",
         "babaloo-sea-lng-ag-11",
+        # Entra groups (lib.sh only; not Azure resources, so not in the naming module).
+        "babaloo-sea-lng-grp-01",
+        "babaloo-sea-lng-grp-11",
+        "babaloo-sea-lng-grp-21",
     ]

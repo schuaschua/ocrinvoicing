@@ -1,17 +1,18 @@
 """Load the supplier master and issue upload links (Story 1.6, AD-6, AD-11).
 
-    az login   # as Dj's user
+    az login   # as Dj, a member of the environment's loaders group
     PG*=... uv run --directory backend python -m invoicing.tools.load_suppliers \\
         --file suppliers.csv --host <supplier-api host> \\
         --vault-uri https://<env vault>.vault.azure.net/ --account <storage account>
     ... --replace-link <supplier_id>   # revoke the supplier's link, issue a new one
     ... --revoke <supplier_id>         # revoke it without issuing another
 
-The database connection comes from the libpq variables PGHOST, PGPORT, PGUSER (Dj's
-UPN), PGPASSWORD (an Entra token), PGDATABASE and PGSSLMODE, as for the purchasing
-seed. Key Vault and Table Storage are reached with the operator's Azure CLI sign-in:
-Dj holds Key Vault Secrets User on `pgp-public-key` and `hmac-key` only, and Storage
-Table Data Contributor (AD-17 step 5). Nothing here reads the private key or decrypts.
+The database connection comes from the libpq variables PGHOST, PGPORT, PGUSER (the
+loaders group, e.g. babaloo-sea-lng-grp-01), PGPASSWORD (Dj's Entra token), PGDATABASE
+and PGSSLMODE, as for the purchasing seed. Key Vault and Table Storage are reached with
+the operator's Azure CLI sign-in: through the loaders group, Dj holds Key Vault Secrets
+User on `pgp-public-key` and `hmac-key` only, and Storage Table Data Contributor (AD-17
+step 5). Nothing here reads the private key or decrypts.
 
 Order (plan Design Notes): the CSV is checked first; then one database transaction
 writes suppliers, bank rows and their audit entries; only after its commit are links

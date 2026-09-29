@@ -9,7 +9,8 @@
 --   staff_login     the environment's staff-api identity (UAMI name)
 --   accounts_login  the environment's accounts-sim identity (UAMI name)
 --   deploy_login    the environment's deploy identity (UAMI name)
---   dj_login        Dj's user (UPN), for the supplier load script
+--   dj_login        the environment's loaders group (Dj is a member), for the
+--                   supplier load script; members sign in with the group name
 -- supplier-api has no database login (AD-11). Schema grants are Alembic migrations.
 -- It ends connected to env_db, where it creates pgcrypto (Story 1.6).
 

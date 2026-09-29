@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Test double for `psql` on the shared server. Never contacts a database.
 
-Logins map to environments (id-01..04 and id-22 are dev; id-11..14 and id-23 are
-prod). With FAKE_PSQL_CROSS_ENV=refuse (default) a login is refused on the other
+Logins map to environments (id-01..04, id-22 and the loaders group grp-01 are dev;
+id-11..14, id-23 and grp-11 are prod). With FAKE_PSQL_CROSS_ENV=refuse (default) a login is refused on the other
 environment's database, as step 5 intends; with =allow it gets in (the broken case).
 Answers the verify-db-isolation.sh queries the same way; FAKE_PSQL_MISSING_DB names
 a database that does not exist.
@@ -12,8 +12,8 @@ import os
 import re
 import sys
 
-DEV = {f"babaloo-sea-lng-id-{n:02d}" for n in (1, 2, 3, 4, 22)}
-PROD = {f"babaloo-sea-lng-id-{n:02d}" for n in (11, 12, 13, 14, 23)}
+DEV = {f"babaloo-sea-lng-id-{n:02d}" for n in (1, 2, 3, 4, 22)} | {"babaloo-sea-lng-grp-01"}
+PROD = {f"babaloo-sea-lng-id-{n:02d}" for n in (11, 12, 13, 14, 23)} | {"babaloo-sea-lng-grp-11"}
 allow_cross = os.environ.get("FAKE_PSQL_CROSS_ENV", "refuse") == "allow"
 
 

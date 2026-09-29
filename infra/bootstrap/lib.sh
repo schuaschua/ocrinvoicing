@@ -96,6 +96,21 @@ postgres_fqdn() { echo "$(postgres_server_name).postgres.database.azure.com"; }
 document_intelligence_name() { resource_name di 21; }
 communication_service_name() { resource_name acs 21; }
 
+# Entra security groups (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character
+# role-name limit and holds '#', so groups are the database logins he uses). `grp` is
+# this project's type code. They are Entra objects, not Azure resources: app-registrations.sh
+# creates them and infra/modules/naming does not name them. A member signs in to
+# PostgreSQL with the group name as the user and their own Entra token.
+# loaders_group_name <dev|prod> - the supplier load script's login (grp-01 dev, grp-11 prod).
+loaders_group_name() {
+  case "$1" in
+    dev | prod) resource_name grp "$(env_base "$1")" ;;
+    *) die "unknown environment '$1' (expected dev or prod)" ;;
+  esac
+}
+# The PostgreSQL Entra admin (grp-21, shared), set in infra/shared/foundation.
+pg_admins_group_name() { resource_name grp "$(env_base shared)"; }
+
 # ---------------------------------------------------------------------------
 # Built-in role definition ids (identical in every tenant). verify_role_ids
 # checks them against Azure before any assignment is made.

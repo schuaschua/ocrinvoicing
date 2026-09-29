@@ -10,11 +10,9 @@
 # Contract for backend/migrations/env.py (Story 1.3): take the connection from the
 # libpq variables PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE and PGSSLMODE; the
 # roles to grant to come as `-x pipeline_role=<login> -x staff_api_role=<login>`
-# (Story 2.1) and `-x dj_role=<login>` (Story 1.6).
-#
-# DJ_USER_UPN (required unless --check): Dj's Entra UPN, the supplier load script's
-# login, which database-step5.sh created. The pipeline passes it from the pipeline
-# variable of the same name (infra/bootstrap/README.md).
+# (Story 2.1) and `-x dj_role=<login>` (Story 1.6). `dj_role` is the environment's
+# loaders group, the supplier load script's login, which database-step5.sh created
+# (Dj is a member; Dj, 2026-09-29: guest UPN over 63 characters).
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -25,8 +23,7 @@ Usage: ci/migrate.sh [--check] <dev|prod>
 
   --check   only report whether there are migrations (sets hasWork); no Azure call
 Without --check, run inside an AzureCLI@2 task signed in with the environment's
-service connection (azure-dev or azure-prod), with DJ_USER_UPN set to Dj's Entra
-UPN (the load-script login the migrations grant `master` to).
+service connection (azure-dev or azure-prod).
 USAGE
 }
 
@@ -59,20 +56,15 @@ if ((check_only)); then
   exit 0
 fi
 
-# The same shape backend/migrations/env.py accepts. An unset ADO variable arrives as the
-# literal text "$(DJ_USER_UPN)", which this refuses too.
-dj_role="${DJ_USER_UPN:-}"
-[[ "$dj_role" =~ ^[A-Za-z0-9_.@-]{1,63}$ ]] ||
-  die "DJ_USER_UPN must be Dj's Entra UPN (set the pipeline variable DJ_USER_UPN)"
-
 # Names come from the bootstrap naming helpers, so they cannot drift from the logins
-# that database-step5.sh created. The app logins are the roles the migrations grant to
+# that database-step5.sh created. The logins are the roles the migrations grant to
 # (AD-11), passed as `-x` arguments (backend/migrations/env.py), never hard-coded.
 # shellcheck disable=SC2016  # expanded by the inner bash
-names="$(bash -c 'source "$1/infra/bootstrap/lib.sh" && printf "%s %s %s %s %s" \
+names="$(bash -c 'source "$1/infra/bootstrap/lib.sh" && printf "%s %s %s %s %s %s" \
   "$(postgres_fqdn)" "$(deploy_identity_name "$2")" "$(env_database_name "$2")" \
-  "$(app_identity_name "$2" pipeline)" "$(app_identity_name "$2" staff-api)"' bash "$REPO_ROOT" "$env")"
-read -r pg_host pg_user pg_database pipeline_role staff_api_role <<<"$names"
+  "$(app_identity_name "$2" pipeline)" "$(app_identity_name "$2" staff-api)" \
+  "$(loaders_group_name "$2")"' bash "$REPO_ROOT" "$env")"
+read -r pg_host pg_user pg_database pipeline_role staff_api_role dj_role <<<"$names"
 
 token="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 [[ -n "$token" ]] || die "no Entra token for PostgreSQL"

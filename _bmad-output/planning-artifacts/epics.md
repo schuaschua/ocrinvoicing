@@ -354,10 +354,10 @@ So that every later story deploys into named, tagged, budgeted Azure resources i
 
 **Given** the operator database step in the bootstrap README (AD-17 step 5), run once per environment as the PostgreSQL Entra admin
 **When** it finishes
-**Then** that environment's AD-11 logins exist (the `pipeline`, `staff-api` and `accounts-sim` identities, Dj's user and the deploy identity), created with `pgaadauth_create_principal`
+**Then** that environment's AD-11 logins exist (the `pipeline`, `staff-api` and `accounts-sim` identities, Dj's loaders group and the deploy identity), created with `pgaadauth_create_principal`
 **And** the environment's deploy identity owns its database, `CONNECT` is revoked from `PUBLIC`, and only that environment's logins are granted `CONNECT`
 **And** a test shows that a Dev login can't connect to `invoicing_prod`
-**And** Dj's user holds Key Vault Secrets User on only the `pgp-public-key` and `hmac-key` secrets, and Storage Table Data Contributor on that environment's storage account, for the load script
+**And** Dj's loaders group, with Dj as a member, holds Key Vault Secrets User on only the `pgp-public-key` and `hmac-key` secrets, and Storage Table Data Contributor on that environment's storage account, for the load script (Dj, 2026-09-29: guest UPN over 63 characters)
 
 ### Story 1.2: CI/CD pipeline in Azure DevOps
 
@@ -500,11 +500,11 @@ So that suppliers can start uploading without anyone typing bank details into a 
 **Acceptance Criteria:**
 
 **Given** a CSV of synthetic suppliers (`supplier_id`, name, phone, `tax_id`, and one column per AD-18 bank field id: `bank_account_number`, `iban` and `swift`), where `supplier_id` is a required UUID matching the purchasing seed's supplier ids and rows match on it (Dj, 2026-09-29)
-**When** the operator runs the supplier load script against Dev as Dj's user
+**When** the operator runs the supplier load script against Dev as Dj's loaders group, with Dj as a member (Dj, 2026-09-29: guest UPN over 63 characters)
 **Then** the suppliers are created or updated in `master.supplier{id, name, tax_id, phone}` through the application code (the first `master` migration)
 **And** each non-empty bank value is stored as one `master.supplier_bank{supplier_id, field_id, ciphertext, fingerprint}` row, with `pgp_pub_encrypt` ciphertext plus an HMAC-SHA256 fingerprint, normalised first (spaces and hyphens stripped, uppercase), using the public key and the HMAC key from Key Vault (AD-11)
 **And** a bank field, `phone` or `tax_id` left blank in the CSV leaves any stored value for that field unchanged (Dj, 2026-09-29)
-**And** the migration grants `master` per AD-11: read/write for Dj's user, read including ciphertext for `staff-api`, and read without the ciphertext column for `pipeline`
+**And** the migration grants `master` per AD-11: read/write for Dj's loaders group, read including ciphertext for `staff-api`, and read without the ciphertext column for `pipeline`
 **And** it creates `audit.event(id, at, actor, action, entity, entity_id, detail)`, with `INSERT` only for every login that writes it and `SELECT` for `staff-api`
 **And** the script writes an `audit.event` entry when a supplier is created or updated and when a bank field is added or changed, naming field ids only, never values (Dj, 2026-09-29)
 
@@ -528,7 +528,7 @@ So that suppliers can start uploading without anyone typing bank details into a 
 **Then** they contain no token, bank value or phone number
 
 **Tasks:**
-- Prerequisites (Story 1.1): `pgp-public-key` and `hmac-key` in the environment vault (the private key is in the separate private-key vault, readable only by staff-api); Dj's user login, Key Vault Secrets User on those two secrets and Storage Table Data Contributor from the operator database step (AD-17 step 5). This story has no Terraform.
+- Prerequisites (Story 1.1): `pgp-public-key` and `hmac-key` in the environment vault (the private key is in the separate private-key vault, readable only by staff-api); Dj's loaders group login (Dj a member), Key Vault Secrets User on those two secrets and Storage Table Data Contributor from the operator database step (AD-17 step 5). This story has no Terraform.
 - Python: `master` migration with its grants; `SupplierLinkRegistry` port and table adapter; the load script (`--replace-link`, `--revoke`); `audit` append-only table and grants.
 - Tests: `test_story_1_6_*` for encryption, one row per bank field id, fingerprint normalisation, link issue, replace and revoke, `pipeline` refused on the ciphertext column, and log redaction.
 

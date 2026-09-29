@@ -7,6 +7,12 @@
 #                  can request a token for it (AD-10).
 # The staff-api redirect URI is added later (AD-17 step 8). Idempotent: existing
 # registrations are updated in place, and missing app roles are added.
+#
+# Also the Entra security groups used as PostgreSQL logins (Dj, 2026-09-29: his guest
+# UPN is over PostgreSQL's 63-character role-name limit), each with the signed-in
+# operator as a member:
+#   loaders (grp-01 dev, grp-11 prod) - the supplier load script's login (database-step5.sh)
+#   pg-admins (grp-21)                - the PostgreSQL Entra admin (infra/shared/foundation)
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -163,5 +169,75 @@ for env in dev prod; do
   log "$env: staff-api client id $staff_app_id; accounts-sim client id $sim_app_id (needed by <env>/app, Story 1.3)"
 done
 
+# ensure_group NAME DESCRIPTION - creates the security group if absent and sets GROUP_ID
+# to its object id (GROUP_CREATED=1 when this run created it). Stops if the name matches
+# more than one group.
+GROUP_ID=""
+GROUP_CREATED=0
+ensure_group() {
+  local name="$1" description="$2" ids count
+  ids="$(value_or_placeholder "" az ad group list --filter "displayName eq '$name'" --query '[].id' -o tsv)"
+  count="$(printf '%s' "$ids" | grep -c . || true)"
+  if ((count > 1)); then
+    die "display name '$name' matches $count Entra groups; remove the duplicates first"
+  fi
+  if [[ -n "$ids" ]]; then
+    log "exists: group $name ($ids)"
+    GROUP_ID="$ids"
+    GROUP_CREATED=0
+    return 0
+  fi
+  if ((DRY_RUN)); then
+    run az ad group create --display-name "$name" --mail-nickname "$name" --description "$description" \
+      --query id -o tsv
+    GROUP_ID="<objectId-of-$name>"
+    GROUP_CREATED=1
+    return 0
+  fi
+  # The id from create's own output: a list lookup right after create can miss it.
+  _print_cmd "+" az ad group create --display-name "$name" --mail-nickname "$name" \
+    --description "$description" --query id -o tsv
+  GROUP_ID="$(az ad group create --display-name "$name" --mail-nickname "$name" \
+    --description "$description" --query id -o tsv)"
+  [[ -n "$GROUP_ID" ]] || die "az ad group create returned no id for $name"
+  GROUP_CREATED=1
+}
+
+# ensure_member GROUP_ID MEMBER_ID - adds the member unless it already is one. A group
+# created by this run has no members, so it is not checked (a new group can take a
+# while to be visible to lookups).
+ensure_member() {
+  local group_id="$1" member_id="$2" is_member="false"
+  if ((!GROUP_CREATED)); then
+    is_member="$(az ad group member check --group "$group_id" --member-id "$member_id" --query value -o tsv)"
+  fi
+  if [[ "$is_member" == "true" ]]; then
+    log "exists: $member_id is a member of $group_id"
+    return 0
+  fi
+  run az ad group member add --group "$group_id" --member-id "$member_id"
+}
+
+step "Signed-in operator"
+operator_id="$(value_or_placeholder "<objectId-of-signed-in-user>" \
+  az ad signed-in-user show --query id -o tsv)"
+[[ -n "$operator_id" ]] || die "az ad signed-in-user show returned no id"
+
+for env in dev prod; do
+  loaders="$(loaders_group_name "$env")"
+  step "Group $loaders ($env supplier load script login)"
+  ensure_group "$loaders" "Babaloo $env: supplier load script PostgreSQL login (members sign in as $loaders)"
+  ensure_member "$GROUP_ID" "$operator_id"
+done
+
+pg_admins="$(pg_admins_group_name)"
+step "Group $pg_admins (PostgreSQL Entra admin)"
+ensure_group "$pg_admins" "Babaloo shared: PostgreSQL Entra admin (members sign in as $pg_admins)"
+ensure_member "$GROUP_ID" "$operator_id"
+log "infra/shared/foundation/terraform.tfvars:"
+log "  postgres_entra_admin_object_id      = \"$GROUP_ID\""
+log "  postgres_entra_admin_principal_name = \"$pg_admins\""
+log "  postgres_entra_admin_principal_type = \"Group\""
+
 step "Done"
-log "Next: budget-and-roles.sh (see README.md)."
+log "Next: put the pg-admins group in infra/shared/foundation/terraform.tfvars (above), then budget-and-roles.sh (see README.md)."

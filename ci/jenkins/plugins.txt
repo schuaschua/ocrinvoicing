@@ -1,6 +1,7 @@
-# Story 1.2: the Jenkins plugins, every one pinned. The first six are the ones the
-# CI/CD needs (casc.yaml, Jenkinsfile); the rest is their dependency set as resolved for
-# Jenkins 2.568.3 on 2026-09-29, pinned too so a rebuild installs exactly the same.
+# Story 1.2: the Jenkins plugins, every one pinned. The first seven are the ones the
+# CI/CD needs (casc.yaml, Jenkinsfile) and the stage graph on each build (Dj, 2026-09-30);
+# the rest is their dependency set as resolved for Jenkins 2.568.3 on 2026-09-29 and
+# 2026-09-30, pinned too so a rebuild installs exactly the same.
 # To upgrade: bump a version, re-resolve with jenkins-plugin-cli --list, rebuild the image.
 git:5.10.1
 workflow-aggregator:608.v67378e9d3db_1
@@ -8,6 +9,7 @@ terraform:1.0.10
 credentials-binding:728.v902a_273b_8947
 configuration-as-code:2130.v3ef02f16a_34b_
 job-dsl:3732.v9a_c49a_61a_313
+pipeline-graph-view:1041.v107d70db_b_1a_f
 
 # Dependencies
 antisamy-markup-formatter:173.v680e3a_b_69ff3
@@ -30,6 +32,7 @@ instance-identity:203.v15e81a_1b_7a_38
 ionicons-api:94.vcc3065403257
 jackson-annotations2-api:2.22-19.v10a_a_582ea_26e
 jackson2-api:2.22.2-445.vdc613f1d8012
+jackson3-api:3.2.3-101.v69fc84453a_8e
 jakarta-activation-api:2.1.4-1
 jakarta-mail-api:2.1.5-1
 jakarta-xml-bind-api:4.0.9-19.v2b_a_5b_44d9a_1c
@@ -55,6 +58,7 @@ prism-api:1.30.0-741.v034eb_0b_0a_a_fa_
 scm-api:728.vc30dcf7a_0df5
 script-security:1429.v0810f1b_530f5
 snakeyaml-api:2.5-149.v72471e9c6371
+snakeyaml-engine-api:3.1.1-12.v4320c7d6f89c
 ssh-credentials:372.va_250881b_08cd
 structs:362.va_b_695ef4fdf9
 variant:70.va_d9f17f859e0

@@ -42,6 +42,8 @@ class QueueRow:
     supplier_name: str | None
     invoice_total: Decimal | None
     reasons: tuple[str, ...]
+    # Story 2.10: an admin corrected its current run, and the re-check routed it again.
+    returned_after_correction: bool = False
 
 
 @dataclass(frozen=True)

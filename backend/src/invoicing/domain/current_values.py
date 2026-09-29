@@ -74,6 +74,11 @@ class LineValue:
     unit_price: Decimal | None = None
     amount: Decimal | None = None
     po_line_id: UUID | None = None
+    # Story 2.10: the rest of the row, so an admin's corrected line is written whole
+    # (AD-18); readers that never write a line leave them unset.
+    unit: str | None = None
+    tax: Decimal | None = None
+    material_id: UUID | None = None
 
 
 @dataclass(frozen=True)

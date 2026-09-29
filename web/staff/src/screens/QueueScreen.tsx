@@ -10,6 +10,7 @@ import { ApiError } from "@/api";
 import { getQueue, type QueuePage } from "@/api/queue";
 import { ReasonChip } from "@/components/ReasonChip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -300,6 +301,13 @@ export function QueueScreen() {
                     {amountText(item.amount, item.currency)}
                   </TableCell>
                   <TableCell>
+                    {item.returnedAfterCorrection ? (
+                      // Story 2.10: the re-check flagged it again; the chips are
+                      // its new reasons only.
+                      <Badge variant="outline" className="mb-1">
+                        {strings.queue.returned}
+                      </Badge>
+                    ) : null}
                     <ul className="flex flex-wrap gap-1">
                       {item.reasons.map((code) => (
                         <li key={code}>

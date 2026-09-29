@@ -79,8 +79,9 @@ class BankChange:
 
 @dataclass(frozen=True)
 class AdminItem:
-    """What the admin item screen shows. `supplier_phone` and `bank_changes` are set
-    only when `BANK_CHANGED` is open; `pages` are empty for a run saved before page
+    """What the admin item screen shows. `supplier_phone` is set only when
+    `BANK_CHANGED`, `UNREADABLE` or `UNSUPPORTED_DOCUMENT` is open, and `bank_changes`
+    only for `BANK_CHANGED`; `pages` are empty for a run saved before page
     sizes were kept."""
 
     invoice_id: UUID
@@ -94,6 +95,13 @@ class AdminItem:
     lines: tuple[ItemLine, ...]
     pages: tuple[PageSize, ...]
     bank_changes: tuple[BankChange, ...] = ()
+    # Story 2.10: the admin actions the open reasons allow (`domain/actions.py`).
+    allowed_actions: tuple[str, ...] = ()
+    # The routing the admin sees: every action sends it back, so an invoice routed
+    # again meanwhile is refused as already handled (Story 2.10).
+    routing_id: UUID | None = None
+    # The missing checked header fields Correct may add (`domain/actions.py`).
+    addable_fields: tuple[str, ...] = ()
 
 
 class AdminItemReader(Protocol):

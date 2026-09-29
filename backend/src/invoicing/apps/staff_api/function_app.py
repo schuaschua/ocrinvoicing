@@ -7,14 +7,18 @@ from pathlib import Path
 import azure.functions as func
 from azure.identity import ManagedIdentityCredential
 
+from invoicing.adapters.blob_corrections import BlobCorrectionsStore
 from invoicing.adapters.blob_images import BlobImageStore
 from invoicing.adapters.key_vault import PrivateKeyLoader
 from invoicing.adapters.logging import log_event
+from invoicing.adapters.postgres.admin_actions import PostgresAdminActions
 from invoicing.adapters.postgres.admin_item import PostgresAdminItemReader
 from invoicing.adapters.postgres.admin_queue import PostgresAdminQueueReader
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
+from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.static import spa_endpoint
 from invoicing.apps.common import health_endpoint, load_settings, start_telemetry
+from invoicing.apps.staff_api.actions import action_endpoints
 from invoicing.apps.staff_api.item import item_endpoints
 from invoicing.apps.staff_api.me import me_endpoint
 from invoicing.apps.staff_api.queue import queue_endpoint
@@ -117,6 +121,44 @@ async def admin_item_image(req: func.HttpRequest) -> func.HttpResponse:
 async def admin_bank_reveal(req: func.HttpRequest) -> func.HttpResponse:
     """One changed bank value in full, audited: 200, 400, 401, 403, 404 or 503."""
     return await bank_reveal_api(req)
+
+
+# Story 2.10: the admin actions. Each commits first; the stage queue message (as
+# staff-api's identity, Queue Data Message Sender) and the corrections blob follow.
+_account = settings.storage_account_name
+queue_sender = StorageQueueSender.with_managed_identity(_account, _identity)
+corrections = BlobCorrectionsStore.with_managed_identity(_account, _identity)
+correct_api, reextract_api, retry_intake_api, reject_api = action_endpoints(
+    PostgresAdminActions(engine, currency=settings.invoice_currency),
+    lambda: queue_sender,
+    lambda: corrections,
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/admin/items/{invoice_id}/correct", methods=["POST"])
+async def admin_correct(req: func.HttpRequest) -> func.HttpResponse:
+    """Save an admin's corrections and re-check: 200, 400, 401, 403, 404, 409 or 503."""
+    return await correct_api(req)
+
+
+@app.route(route="api/admin/items/{invoice_id}/reextract", methods=["POST"])
+async def admin_reextract(req: func.HttpRequest) -> func.HttpResponse:
+    """Extract the invoice again: 200, 400, 401, 403, 404, 409 or 503."""
+    return await reextract_api(req)
+
+
+@app.route(route="api/admin/items/{invoice_id}/retry-intake", methods=["POST"])
+async def admin_retry_intake(req: func.HttpRequest) -> func.HttpResponse:
+    """Send the upload through the quality check again: 200, 400, 401, 403, 404, 409
+    or 503."""
+    return await retry_intake_api(req)
+
+
+@app.route(route="api/admin/items/{invoice_id}/reject", methods=["POST"])
+async def admin_reject(req: func.HttpRequest) -> func.HttpResponse:
+    """Reject the invoice with a reason: 200, 400, 401, 403, 404, 409 or 503."""
+    return await reject_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

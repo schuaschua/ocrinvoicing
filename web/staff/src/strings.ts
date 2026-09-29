@@ -137,6 +137,8 @@ export const strings = {
     noAmount: "Not read yet",
     /** A reason code this build doesn't know yet (a newer API). */
     otherReason: "Needs a look",
+    /** Story 2.10: corrected, then flagged again by the re-check. */
+    returned: "Returned after correction",
     blocking: "Blocking",
     filters: {
       reason: "Reason",
@@ -231,6 +233,62 @@ export const strings = {
       warning: "The account number hides in 10 seconds.",
       hidden: "The account number is hidden again.",
       failed: "Couldn't show the account number. Try again.",
+    },
+    /** Story 2.10: UNREADABLE and UNSUPPORTED_DOCUMENT (EXPERIENCE.md). */
+    resend: {
+      heading: "Ask for a new copy",
+      prompt: "Ask the supplier to send it again.",
+    },
+    /** Story 2.10: the admin actions (EXPERIENCE.md Admin actions). */
+    actions: {
+      label: "Actions",
+      correct: "Correct",
+      reextract: "Re-extract",
+      retryIntake: "Retry intake",
+      reject: "Reject",
+      cancel: "Cancel",
+      working: "Working…",
+      /** An invoice with an accounts reference: only Approve (Story 3.3). */
+      none: "This invoice is already in the accounts system, so it can only be approved.",
+      alreadyHandled: "Already handled by another admin.",
+      notAllowed: "That action isn't allowed for this invoice any more.",
+      sentForRecheck: "Sent for re-check",
+      sentForExtraction: "Sent for extraction again",
+      sentForIntake: "Sent through the quality check again",
+      rejected: "Invoice rejected",
+      reextractDialog: {
+        heading: "Extract this invoice again?",
+        body: "It is read again and uses pages from this month's limit. Earlier corrections are dropped.",
+        confirm: "Re-extract",
+      },
+      retryIntakeDialog: {
+        heading: "Retry intake?",
+        body: "The upload goes through the quality check again, then on to extraction.",
+        confirm: "Retry intake",
+      },
+      rejectDialog: {
+        heading: "Reject this invoice?",
+        body: "It won't be paid. The reason is kept in the audit log.",
+        reason: "Reason",
+        hint: (left: number) =>
+          `${left} ${left === 1 ? "character" : "characters"} left`,
+        required: "Enter a reason to reject.",
+        confirm: "Reject invoice",
+      },
+    },
+    /** Story 2.10: Correct mode (EXPERIENCE.md Field list). */
+    correct: {
+      heading: "Correct the fields",
+      intro:
+        "Fix what was misread, then save. Flagged fields you leave are confirmed as they are.",
+      corrected: "Corrected",
+      bankLocked: "Bank fields can't be edited.",
+      dateHint: "YYYY-MM-DD",
+      amountHint: "Like 1250.50",
+      line: (n: number) => `Line ${n}`,
+      save: "Save and re-check",
+      nothing: "Change at least one field or line.",
+      restored: "Your unsaved corrections were restored.",
     },
   },
   /** AD-18 field ids as the admin reads them; any other id is shown as it is. */

@@ -57,3 +57,25 @@ class ImageStore(Protocol):
         there. True when written now, False when it already existed (a replayed
         upload, AD-6). Raises `ServiceUnavailableError` when storage can't answer."""
         ...
+
+
+# --- corrections (Story 2.10, FR10, AD-15) -----------------------------------------
+
+CORRECTIONS_CONTAINER = "corrections"
+
+
+def correction_blob_name(invoice_id: UUID, correction_id: UUID) -> str:
+    """`<invoice_id>/<uuid7>.json` inside `corrections`: one blob per Save and
+    re-check, never overwritten."""
+    return f"{invoice_id}/{correction_id}.json"
+
+
+class CorrectionsStore(Protocol):
+    """Writes an admin's raw correction for later model training (FR10). The JSON never
+    holds a bank value: bank fields can't be corrected (AD-11)."""
+
+    async def put(self, invoice_id: UUID, correction_id: UUID, data: bytes) -> None:
+        """Store `data` at `corrections/<invoice_id>/<correction_id>.json`, never
+        overwriting a blob. Raises `ServiceUnavailableError` when storage can't
+        answer."""
+        ...

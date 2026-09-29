@@ -34,6 +34,8 @@ class ErrorCode(StrEnum):
     IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT"
     # An admin item's image was deleted by the 30-day retention rule (AD-15): HTTP 404.
     IMAGE_DELETED = "IMAGE_DELETED"
+    # An admin action the invoice's open reasons don't allow (Story 2.10): HTTP 409.
+    ACTION_NOT_ALLOWED = "ACTION_NOT_ALLOWED"
 
 
 class DomainError(Exception):
@@ -144,6 +146,25 @@ class ForbiddenError(DomainError):
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.FORBIDDEN, "You don't have access to that page.")
+
+
+ALREADY_HANDLED = "Already handled by another admin."
+ACTION_NOT_ALLOWED_MESSAGE = "That action isn't allowed for this invoice."
+
+
+class ConflictError(DomainError):
+    """An admin action that can't apply now (Story 2.10, AD-3): another admin acted
+    first (`CONFLICT`), or the open reasons don't allow it (`ACTION_NOT_ALLOWED`)."""
+
+    def __init__(self, code: ErrorCode = ErrorCode.CONFLICT) -> None:
+        if code not in (ErrorCode.CONFLICT, ErrorCode.ACTION_NOT_ALLOWED):
+            raise ValueError("a conflict is CONFLICT or ACTION_NOT_ALLOWED")
+        super().__init__(
+            code,
+            ALREADY_HANDLED
+            if code is ErrorCode.CONFLICT
+            else ACTION_NOT_ALLOWED_MESSAGE,
+        )
 
 
 class ImageDeletedError(DomainError):

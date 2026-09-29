@@ -24,9 +24,15 @@ from invoicing.adapters.postgres.schema import (
     extraction_run,
     invoice,
     invoice_field,
+    invoice_line,
 )
 from invoicing.adapters.postgres.suppliers import supplier_names
-from invoicing.domain.current_values import FieldValue, RunRow, current_values
+from invoicing.domain.current_values import (
+    ADMIN_SOURCE,
+    FieldValue,
+    RunRow,
+    current_values,
+)
 from invoicing.domain.status import InvoiceStatus
 from invoicing.domain.validation import INVOICE_TOTAL
 from invoicing.ports.admin_queue import (
@@ -112,6 +118,7 @@ class PostgresAdminQueueReader:
         reasons: dict[UUID, list[str]] = defaultdict(list)
         runs: dict[UUID, list[RunRow]] = defaultdict(list)
         totals: dict[UUID, list[FieldValue]] = defaultdict(list)
+        corrected: set[tuple[UUID, UUID]] = set()
         if ids:
             for item in connection.execute(
                 select(admin_item.c.invoice_id, admin_item.c.reason)
@@ -156,6 +163,20 @@ class PostgresAdminQueueReader:
                         value_number=field.value_number,
                     )
                 )
+            # Story 2.10: (invoice, run) pairs with an admin row, for "Returned after
+            # correction" (admin rows exist on the current run).
+            for table in (invoice_field, invoice_line):
+                corrected.update(
+                    (row.invoice_id, row.run_id)
+                    for row in connection.execute(
+                        select(table.c.invoice_id, table.c.run_id)
+                        .distinct()
+                        .where(
+                            table.c.invoice_id.in_(ids),
+                            table.c.source == ADMIN_SOURCE,
+                        )
+                    )
+                )
         # The supplier filter's options: every queued invoice's supplier, whatever
         # the filters.
         queued = [
@@ -181,6 +202,8 @@ class PostgresAdminQueueReader:
                     if total_field is None
                     else total_field.value_number,
                     reasons=tuple(reasons.get(row.id, [])),
+                    returned_after_correction=values is not None
+                    and (row.id, values.run_id) in corrected,
                 )
             )
         suppliers = sorted(

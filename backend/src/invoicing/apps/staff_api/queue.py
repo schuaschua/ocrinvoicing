@@ -73,6 +73,7 @@ def _item(row: QueueRow, currency: str) -> dict[str, object]:
         "amount": amount,
         "currency": None if amount is None else currency,
         "reasons": list(row.reasons),
+        "returned_after_correction": row.returned_after_correction,
     }
 
 

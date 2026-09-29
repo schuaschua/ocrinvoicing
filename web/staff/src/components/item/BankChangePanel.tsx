@@ -15,7 +15,7 @@ interface BankChangePanelProps {
  * EXPERIENCE.md Bank-change panel (UX-DR13, AD-19): the supplier's phone number on file
  * to call back, and for each changed bank field the value on file (or "No account on
  * file") and the new one, both masked with Show. The call-back checklist and Approve
- * belong to the admin actions (Story 2.10).
+ * are Story 3.3's.
  */
 export function BankChangePanel({
   invoiceId,

@@ -5,9 +5,20 @@ import { strings } from "@/strings";
 
 /** Fired on `apiEvents` when the API answers 401: the sign-in has expired. */
 export const SESSION_EXPIRED = "session-expired";
+/** Fired on `apiEvents` on the first successful call after a 401: signed in again. */
+export const SESSION_RESTORED = "session-restored";
 /** Fired on `apiEvents` when the API answers 503 `DB_OFFLINE` (AD-12). */
 export const OFFLINE = "offline";
-export type ApiEventType = typeof SESSION_EXPIRED | typeof OFFLINE;
+export type ApiEventType =
+  typeof SESSION_EXPIRED | typeof SESSION_RESTORED | typeof OFFLINE;
+
+// Whether the last answer was a 401, so the next success is a new sign-in.
+let expired = false;
+
+function sessionExpired(): void {
+  expired = true;
+  apiEvents.dispatchEvent(new Event(SESSION_EXPIRED));
+}
 
 /** Session-expired and offline notices listen here. */
 export const apiEvents = new EventTarget();
@@ -141,11 +152,15 @@ export async function apiRequest<T>(
   }
 
   if (response.type === "opaqueredirect") {
-    apiEvents.dispatchEvent(new Event(SESSION_EXPIRED));
+    sessionExpired();
     throw new ApiError(strings.errors.generic, 401, null, null);
   }
 
   if (response.ok) {
+    if (expired) {
+      expired = false;
+      apiEvents.dispatchEvent(new Event(SESSION_RESTORED));
+    }
     if (response.status === 204) {
       return undefined as T;
     }
@@ -172,7 +187,7 @@ export async function apiRequest<T>(
   );
   // A supplier link that isn't valid is not an expired staff sign-in.
   if (response.status === 401 && code !== LINK_NOT_VALID) {
-    apiEvents.dispatchEvent(new Event(SESSION_EXPIRED));
+    sessionExpired();
   } else if (response.status === 503 && code === "DB_OFFLINE") {
     apiEvents.dispatchEvent(new Event(OFFLINE));
   }

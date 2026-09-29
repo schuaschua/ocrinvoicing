@@ -473,6 +473,15 @@ def test_story_2_9_admin_item(
                 # 4 characters or fewer: on file and read, but no digits.
                 {"field_id": "payment[0].swift", "on_file": "", "new": ""},
             ],
+            # Story 2.10: LOW_CONFIDENCE allows Correct; BANK_CHANGED only Reject here.
+            "allowed_actions": ["correct", "reject"],
+            "routing_id": str(_routing(2)),
+            "addable_fields": [
+                "invoice_number",
+                "sub_total",
+                "purchase_order",
+                "vendor_tax_id",
+            ],
         }
         # Only masks leave the server by default (AD-11).
         for value in (NEW_IBAN, ON_FILE_IBAN, NEW_SWIFT, ON_FILE_SWIFT):

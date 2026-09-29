@@ -25,6 +25,7 @@ from sqlalchemy import (
     Connection,
     Engine,
     case,
+    exists,
     func,
     literal,
     select,
@@ -42,12 +43,14 @@ from invoicing.adapters.postgres.schema import (
     invoice,
     invoice_field,
     invoice_line,
+    status_history,
 )
 from invoicing.adapters.postgres.suppliers import (
     supplier,
     supplier_bank,
     write_audit,
 )
+from invoicing.domain.actions import addable_fields, allowed_actions, shown
 from invoicing.domain.current_values import (
     ADMIN_SOURCE,
     CurrentValues,
@@ -77,6 +80,14 @@ MASK_LENGTH = 4
 # pgcrypto's error class for a wrong key or corrupt ciphertext.
 EXTERNAL_ROUTINE_ERROR = "39000"
 BANK_UNAVAILABLE = "Bank details can't be shown right now. Try again later."
+# The reasons whose panel shows the supplier's phone number (UX-DR13, Story 2.10).
+_PHONE_REASONS = frozenset(
+    {
+        ReasonCode.BANK_CHANGED.value,
+        ReasonCode.UNREADABLE.value,
+        ReasonCode.UNSUPPORTED_DOCUMENT.value,
+    }
+)
 
 _logger = logging.getLogger("invoicing.admin_item")
 
@@ -106,7 +117,18 @@ def _queued(invoice_id: UUID) -> list[ColumnElement[bool]]:
     ]
 
 
-def _open_reasons(connection: Connection, invoice_id: UUID) -> list[ItemReason]:
+def latest_routing_id(connection: Connection, invoice_id: UUID) -> UUID | None:
+    """The invoice's latest `routing_id` (AD-4), None when it was never routed."""
+    value: UUID | None = connection.execute(
+        select(admin_item.c.routing_id)
+        .where(admin_item.c.invoice_id == invoice_id)
+        .order_by(admin_item.c.routing_id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return value
+
+
+def open_reasons(connection: Connection, invoice_id: UUID) -> list[ItemReason]:
     return [
         ItemReason(row.reason, tuple(row.field_ids), dict(row.detail or {}))
         for row in connection.execute(
@@ -118,6 +140,24 @@ def _open_reasons(connection: Connection, invoice_id: UUID) -> list[ItemReason]:
             .order_by(admin_item.c.id)
         )
     ]
+
+
+def quality_done(connection: Connection, invoice_id: UUID) -> bool:
+    """Whether the quality stage ever completed: the invoice once moved from `received`
+    to `awaiting_extraction` (Story 2.10: no image hash or photo date alone tells a PDF
+    that passed from one that never ran)."""
+    return bool(
+        connection.execute(
+            select(
+                exists().where(
+                    status_history.c.invoice_id == invoice_id,
+                    status_history.c.from_status == InvoiceStatus.RECEIVED.value,
+                    status_history.c.to_status
+                    == InvoiceStatus.AWAITING_EXTRACTION.value,
+                )
+            )
+        ).scalar_one()
+    )
 
 
 def _bank_field_ids(reasons: Iterable[ItemReason]) -> tuple[str, ...]:
@@ -140,11 +180,12 @@ def _polygon(value: object) -> tuple[float, ...] | None:
     return tuple(float(point) for point in value)
 
 
-def _current(
+def current_of(
     connection: Connection, invoice_id: UUID, field_id: str | None = None
 ) -> CurrentValues | None:
-    """The invoice's AD-18 current values (only `field_id` and no lines when given).
-    Never reads a bank ciphertext."""
+    """The invoice's AD-18 current values (only `field_id` and no lines when given),
+    lines with every column (Story 2.10 writes a corrected line whole). Never reads a
+    bank ciphertext."""
     runs = [
         RunRow(row.run_id, row.created_at)
         for row in connection.execute(
@@ -203,6 +244,10 @@ def _current(
                 quantity=row.quantity,
                 unit_price=row.unit_price,
                 amount=row.amount,
+                po_line_id=row.po_line_id,
+                unit=row.unit,
+                tax=row.tax,
+                material_id=row.material_id,
             )
             for row in connection.execute(
                 select(
@@ -217,20 +262,14 @@ def _current(
                     invoice_line.c.quantity,
                     invoice_line.c.unit_price,
                     invoice_line.c.amount,
+                    invoice_line.c.po_line_id,
+                    invoice_line.c.unit,
+                    invoice_line.c.tax,
+                    invoice_line.c.material_id,
                 ).where(invoice_line.c.invoice_id == invoice_id)
             )
         ]
     return current_values(runs, fields, lines)
-
-
-def _value_text(row: FieldValue) -> str | None:
-    if row.value_text is not None:
-        return row.value_text
-    if row.value_number is not None:
-        return str(row.value_number)
-    if row.value_date is not None:
-        return row.value_date.isoformat()
-    return None
 
 
 def _item_field(row: FieldValue, flagged: frozenset[str]) -> ItemField:
@@ -238,7 +277,7 @@ def _item_field(row: FieldValue, flagged: frozenset[str]) -> ItemField:
     return ItemField(
         field_id=row.field_id,
         # AD-11: a bank field has no plaintext column; its mask is in the bank panel.
-        value=None if bank else _value_text(row),
+        value=None if bank else shown(row),
         currency=row.currency,
         # AD-18: an admin correction counts as confidence 1.0.
         confidence=1.0 if row.source == ADMIN_SOURCE else row.confidence,
@@ -341,14 +380,17 @@ class PostgresAdminItemReader:
     ) -> AdminItem | None:
         head = connection.execute(
             select(
-                invoice.c.created_at, invoice.c.content_type, invoice.c.supplier_id
+                invoice.c.created_at,
+                invoice.c.content_type,
+                invoice.c.supplier_id,
+                invoice.c.accounts_ref,
             ).where(*_queued(invoice_id))
         ).one_or_none()
         if head is None:
             return None
-        reasons = _open_reasons(connection, invoice_id)
+        reasons = open_reasons(connection, invoice_id)
         flagged = frozenset(f for reason in reasons for f in reason.field_ids)
-        values = _current(connection, invoice_id)
+        values = current_of(connection, invoice_id)
         pages: tuple[PageSize, ...] = ()
         fields: tuple[ItemField, ...] = ()
         lines: tuple[ItemLine, ...] = ()
@@ -380,20 +422,30 @@ class PostgresAdminItemReader:
         changes: tuple[BankChange, ...] = ()
         if bank_ids:
             changes = self._bank_changes(connection, head.supplier_id, bank_ids, values)
-        banked = any(r.code == ReasonCode.BANK_CHANGED.value for r in reasons)
+        codes = [reason.code for reason in reasons]
+        call_back = any(code in _PHONE_REASONS for code in codes)
+        actions = allowed_actions(
+            codes,
+            accounts_ref=head.accounts_ref is not None,
+            quality_done=quality_done(connection, invoice_id),
+        )
         return AdminItem(
             invoice_id=invoice_id,
             received_at=head.created_at,
             content_type=head.content_type,
             supplier_id=head.supplier_id,
             supplier_name=None if master is None else master.name,
-            # UX-DR13: the number to call back, only when the bank details changed.
-            supplier_phone=master.phone if banked and master is not None else None,
+            # UX-DR13: the number to call back when the bank details changed, or to ask
+            # for the invoice again when it can't be read (Story 2.10).
+            supplier_phone=master.phone if call_back and master is not None else None,
             reasons=tuple(reasons),
             fields=fields,
             lines=lines,
             pages=pages,
             bank_changes=changes,
+            allowed_actions=tuple(action.value for action in actions),
+            routing_id=latest_routing_id(connection, invoice_id),
+            addable_fields=addable_fields(values),
         )
 
     def _bank_changes(
@@ -458,11 +510,11 @@ class PostgresAdminItemReader:
             ).scalar_one_or_none()
             if supplier_id is None:
                 return None
-            if field_id not in _bank_field_ids(_open_reasons(connection, invoice_id)):
+            if field_id not in _bank_field_ids(open_reasons(connection, invoice_id)):
                 return None
             value: str | None
             if which is RevealWhich.NEW:
-                values = _current(connection, invoice_id, field_id)
+                values = current_of(connection, invoice_id, field_id)
                 row = None if values is None else values.fields.get(field_id)
                 if row is None:
                     return None

@@ -14,6 +14,8 @@ export interface QueueItem {
   currency: string | null;
   /** The open reasons (AD-4). A code this build doesn't know is kept as sent. */
   reasons: string[];
+  /** Story 2.10: corrected by an admin, then flagged again by the re-check. */
+  returnedAfterCorrection: boolean;
 }
 
 /** One page of the queue, and the page-cap warning (only from 80 %, server-decided). */
@@ -69,6 +71,7 @@ function item(value: unknown): QueueItem {
     reasons: Array.isArray(value.reasons)
       ? value.reasons.filter((r): r is string => typeof r === "string")
       : [],
+    returnedAfterCorrection: value.returned_after_correction === true,
   };
 }
 

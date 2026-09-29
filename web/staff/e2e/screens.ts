@@ -62,7 +62,8 @@ const ADMIN_QUEUE: Record<string, ApiAnswer> = {
   },
 };
 
-/** Story 2.9: an admin item with a bank change, its image and two flag boxes. */
+/** Story 2.9: an admin item with a bank change, its image and two flag boxes; Story
+ * 2.10: its action bar. */
 const ITEM_ID = "0192f0c1-7a2b-7c3d-8e4f-000000000003";
 const ITEM_PATH = `/api/admin/items/${ITEM_ID}`;
 // A 1x1 PNG (synthetic): the viewer and its boxes render over it.
@@ -123,6 +124,8 @@ const ADMIN_ITEM: Record<string, ApiAnswer> = {
       bank_changes: [
         { field_id: "payment[0].iban", on_file: "4821", new: "9930" },
       ],
+      // Story 2.10: the action bar the open reasons allow.
+      allowed_actions: ["correct", "reject"],
     },
   },
 };
@@ -137,7 +140,7 @@ async function itemImage(page: Page): Promise<void> {
 export const SCREENS: Screen[] = [
   {
     story: "2.9",
-    name: "admin item with a bank change",
+    name: "admin item with a bank change and its actions",
     path: `/queue/${ITEM_ID}`,
     api: { ...me("admin"), ...ADMIN_ITEM },
     setup: itemImage,

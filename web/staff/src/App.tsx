@@ -14,6 +14,7 @@ import { QueueScreen } from "@/screens/QueueScreen";
 import { SignedOut, signInHref } from "@/screens/SignedOut";
 import { SurfacePage } from "@/screens/SurfacePage";
 import { Nav } from "@/shell/Nav";
+import { leftFor, useNotice } from "@/shell/notices";
 import { strings } from "@/strings";
 import {
   canOpen,
@@ -81,6 +82,8 @@ export function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const path = usePath();
   const notAllowed = useNotAllowed();
+  const notice = useNotice(path);
+  useEffect(() => leftFor(path), [path]);
   const sheetHeading = useId();
   const dialogHeading = useId();
 
@@ -229,13 +232,18 @@ export function App() {
           </aside>
         ) : null}
         <main id="main" className="flex min-w-0 flex-1 flex-col gap-4 p-4">
-          {/* One live region for the shell's notices, in the page from the start so its
-              new text is announced (4.1.3): the one-shot "Not allowed" alert and the
-              offline line. */}
+          {/* Live regions for the shell's notices, in the page from the start so their
+              new text is announced (4.1.3): the one-shot "Not allowed" alert, the
+              offline line and a screen's alert; and, once signed in, the Toast (Story
+              2.10). Inline, so they never cover the focused element (2.4.11). */}
           <div role="alert" data-testid="shell-notice">
             {offline ? (
               <p className="max-w-prose rounded-md border px-4 py-3">
                 {strings.offline}
+              </p>
+            ) : notice?.kind === "alert" ? (
+              <p className="max-w-prose rounded-md border border-destructive px-4 py-3">
+                {notice.message}
               </p>
             ) : notAllowed && route?.kind === "page" ? (
               <p className="rounded-md border border-destructive px-4 py-3">
@@ -243,6 +251,15 @@ export function App() {
               </p>
             ) : null}
           </div>
+          {session.kind === "ready" ? (
+            <div role="status" data-testid="shell-toast">
+              {notice?.kind === "status" && !offline ? (
+                <p className="max-w-prose rounded-md border bg-card px-4 py-3 font-medium">
+                  {notice.message}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {content}
         </main>
       </div>

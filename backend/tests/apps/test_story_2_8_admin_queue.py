@@ -258,6 +258,8 @@ def test_story_2_8_admin_queue(
                     "amount": "1100.50",
                     "currency": "SGD",
                     "reasons": ["PO_MISMATCH"],
+                    # Story 2.10: an admin row on the current run.
+                    "returned_after_correction": True,
                 },
                 {
                     "invoice_id": str(second),
@@ -267,6 +269,7 @@ def test_story_2_8_admin_queue(
                     "amount": None,
                     "currency": None,
                     "reasons": ["BANK_CHANGED", "DUPLICATE"],
+                    "returned_after_correction": False,
                 },
             ],
             "page": 1,

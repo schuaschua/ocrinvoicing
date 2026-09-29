@@ -40,7 +40,8 @@ from invoicing.ports.blobs import ImageNotFoundError, ImageReader
 MAX_REVEAL_BODY = 1024
 
 
-def _invoice_id(req: func.HttpRequest) -> UUID:
+def invoice_id_of(req: func.HttpRequest) -> UUID:
+    """The route's invoice id; 404 when it is not a UUID."""
     invoice_id = parse_uuid(req.route_params.get("invoice_id"))
     if invoice_id is None:
         raise NotFoundError(NOT_FOUND_MESSAGE)
@@ -98,6 +99,9 @@ def _body(item: AdminItem, image_available: bool) -> dict[str, object]:
             {"field_id": c.field_id, "on_file": c.on_file, "new": c.new}
             for c in item.bank_changes
         ],
+        "allowed_actions": list(item.allowed_actions),
+        "routing_id": None if item.routing_id is None else str(item.routing_id),
+        "addable_fields": list(item.addable_fields),
     }
 
 
@@ -135,7 +139,7 @@ def item_endpoints(
     async def admin_item(
         req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
     ) -> func.HttpResponse:
-        invoice_id = _invoice_id(req)
+        invoice_id = invoice_id_of(req)
         item = await reader.read(invoice_id)
         if item is None:
             raise NotFoundError(NOT_FOUND_MESSAGE)
@@ -147,7 +151,7 @@ def item_endpoints(
     async def admin_item_image(
         req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
     ) -> func.HttpResponse:
-        invoice_id = _invoice_id(req)
+        invoice_id = invoice_id_of(req)
         content_type = await reader.content_type(invoice_id)
         if content_type is None:
             raise NotFoundError(NOT_FOUND_MESSAGE)
@@ -166,7 +170,7 @@ def item_endpoints(
     async def admin_bank_reveal(
         req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
     ) -> func.HttpResponse:
-        invoice_id = _invoice_id(req)
+        invoice_id = invoice_id_of(req)
         field_id, which = _reveal_request(req)
         if not principal.oid:
             # UX-DR14: every reveal's audit entry names the admin; without an object

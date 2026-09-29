@@ -67,6 +67,7 @@ STATUS_BY_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.SERVICE_UNAVAILABLE: 503,
     ErrorCode.IDEMPOTENCY_KEY_CONFLICT: 409,
     ErrorCode.IMAGE_DELETED: 404,
+    ErrorCode.ACTION_NOT_ALLOWED: 409,
 }
 
 # Extra headers some error codes carry: when to retry a 503, and the scheme a 401

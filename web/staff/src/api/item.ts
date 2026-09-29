@@ -60,9 +60,25 @@ export interface AdminItem {
   lines: ItemLine[];
   pages: PageSize[];
   bankChanges: BankChange[];
+  /** What the open reasons allow; the server applies the same guard (UX-DR12). */
+  allowedActions: AdminAction[];
+  /** The routing this page shows; every action sends it back (stale-page guard). */
+  routingId: string | null;
+  /** The missing checked fields Correct may add, as the server decides them. */
+  addableFields: string[];
 }
 
 export type RevealWhich = "new" | "on_file";
+
+/** Story 2.10: an admin action, as the server names it. */
+export type AdminAction = "correct" | "reextract" | "retry_intake" | "reject";
+
+const ACTIONS: readonly AdminAction[] = [
+  "correct",
+  "reextract",
+  "retry_intake",
+  "reject",
+];
 
 type Wire = Record<string, unknown>;
 
@@ -186,6 +202,11 @@ export async function getItem(
         ? []
         : [{ fieldId, onFile: str(c.on_file), newValue: str(c.new) }];
     }),
+    allowedActions: textList(body.allowed_actions).filter(
+      (a): a is AdminAction => (ACTIONS as readonly string[]).includes(a),
+    ),
+    routingId: str(body.routing_id),
+    addableFields: textList(body.addable_fields),
   };
 }
 
@@ -205,4 +226,61 @@ export async function revealBankValue(
   const value = isWire(body) ? str(body.value) : null;
   if (value === null) throw broken();
   return value;
+}
+
+/** A Correct request: header values by field id, and each line's changed columns
+ * by their AD-18 id (`product_code`, `unit_price`, …); the server writes the whole
+ * line, copying the rest. A line with no changes confirms it as read. */
+export interface Corrections {
+  fields: Record<string, string>;
+  lines: { lineNo: number; changes: Record<string, string | null> }[];
+}
+
+/**
+ * Save and re-check (Story 2.10). `routingId` is the item's: the server refuses a
+ * stale page. Rejects with the client's `ApiError`: 400 for a value the server
+ * refuses, 409 `CONFLICT` when another admin acted first (or it was routed again),
+ * 409 `ACTION_NOT_ALLOWED` when the reasons no longer allow it.
+ */
+export async function correctItem(
+  invoiceId: string,
+  routingId: string | null,
+  corrections: Corrections,
+): Promise<void> {
+  await apiRequest<unknown>(`${itemPath(invoiceId)}/correct`, {
+    method: "POST",
+    json: {
+      routing_id: routingId,
+      fields: corrections.fields,
+      lines: corrections.lines.map((l) => ({
+        line_no: l.lineNo,
+        ...l.changes,
+      })),
+    },
+  });
+}
+
+/** Re-extract or Retry intake (Story 2.10); rejects like `correctItem`. */
+export async function rerunItem(
+  invoiceId: string,
+  routingId: string | null,
+  action: "reextract" | "retry_intake",
+): Promise<void> {
+  const path = action === "reextract" ? "reextract" : "retry-intake";
+  await apiRequest<unknown>(`${itemPath(invoiceId)}/${path}`, {
+    method: "POST",
+    json: { routing_id: routingId },
+  });
+}
+
+/** Reject with a reason (500 characters at most); rejects like `correctItem`. */
+export async function rejectItem(
+  invoiceId: string,
+  routingId: string | null,
+  reason: string,
+): Promise<void> {
+  await apiRequest<unknown>(`${itemPath(invoiceId)}/reject`, {
+    method: "POST",
+    json: { routing_id: routingId, reason },
+  });
 }

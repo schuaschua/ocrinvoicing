@@ -43,3 +43,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-2-2-the-pipeline-never-loses-an-invoice.md`
   summary: Confirm in Azure that OpenTelemetry custom metrics appear under the `azure.applicationinsights` metric namespace with the `queue` dimension, and that both alert rules fire (one test poison message, one stuck invoice in Dev).
   evidence: Unverified (medium): verified offline only; the namespace is marked `[ASSUMPTION]` in `infra/modules/env-app/main.tf` and the rules use `skip_metric_validation`. The steps are the "Pipeline check" in `infra/bootstrap/README.md`.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-1-private-key-vault.md`
+  summary: Teach the stateful fake `az` to hold role assignments at several scopes and apply the `--query` scope filter, then test that `remove_role_assignment` and `ensure_role_assignment` touch only the exact scope.
+  evidence: The fake echoes one id built from `--scope` and ignores the filter, so a dropped or loosened filter would pass every test (review V2, B8; the casing concern is unverified and would be settled by a live `az role assignment list`).
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-1-private-key-vault.md`
+  summary: Move the `rg-22` paragraph in `infra/bootstrap/README.md` below the names table, so the App registrations, budget and action group rows render as table rows.
+  evidence: Pre-existing at `ef927f0`: the paragraph sits between table rows (review B12).

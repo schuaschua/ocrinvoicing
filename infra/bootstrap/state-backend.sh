@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# AD-17 step 1 (part 1): resource providers, the three resource groups, Terraform
-# state storage and the three deploy identities with their federated credentials
-# and role assignments. Idempotent: re-running skips what exists and re-applies
-# settings and tags.
+# AD-17 step 1 (part 1): resource providers, the four resource groups, Terraform
+# state storage, the two private-key vaults (OCR-129) and the three deploy identities
+# with their federated credentials and role assignments. Idempotent: re-running skips
+# what exists and re-applies settings and tags.
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -109,6 +109,30 @@ for container in "${STATE_CONTAINERS[@]}"; do
   fi
 done
 
+# Private-key vaults (OCR-129): kv-22 (dev) and kv-23 (prod) in rg-22 hold only each
+# environment's pgp-private-key. RBAC mode, purge protection, 7-day soft delete and
+# public network access, like the environment vaults. Nobody gets a role here: the
+# operator adds pgp-private-key and staff-api's secret-scoped read in step 4b.
+for env in dev prod; do
+  pk_vault="$(private_key_vault_name "$env")"
+  step "Private-key vault $pk_vault ($env)"
+  set_tags "$env"
+  if exists az keyvault show --name "$pk_vault" --resource-group "$STATE_RG"; then
+    # Soft delete is always on and its retention is fixed at creation.
+    run az keyvault update --name "$pk_vault" --resource-group "$STATE_RG" \
+      --enable-rbac-authorization true --enable-purge-protection true \
+      --public-network-access Enabled --default-action Allow --bypass AzureServices --output none
+    run az resource tag --resource-group "$STATE_RG" --name "$pk_vault" \
+      --resource-type Microsoft.KeyVault/vaults --tags "${TAGS[@]}" --output none
+  else
+    run az keyvault create --name "$pk_vault" --resource-group "$STATE_RG" \
+      --location "$LOCATION" --sku standard \
+      --enable-rbac-authorization true --enable-purge-protection true --retention-days 7 \
+      --public-network-access Enabled --default-action Allow --bypass AzureServices \
+      --tags "${TAGS[@]}" --output none
+  fi
+done
+
 # Deploy identities (id-21 shared, id-22 dev, id-23 prod) with ADO federation.
 for owner in shared dev prod; do
   identity="$(deploy_identity_name "$owner")"
@@ -175,4 +199,5 @@ done
 
 step "Done"
 log "State: $STATE_ACCOUNT (containers: ${STATE_CONTAINERS[*]}) in $STATE_RG."
+log "Private-key vaults: $(private_key_vault_name dev) (dev), $(private_key_vault_name prod) (prod) in $STATE_RG."
 log "Next: app-registrations.sh, then budget-and-roles.sh (see README.md)."

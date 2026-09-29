@@ -122,6 +122,7 @@ variables {
     resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
     uri         = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
   }
+  private_key_vault_uri   = "https://babaloo-sea-lng-kv-22.vault.azure.net/"
   application_insights_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
   action_group_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"
   metric_alert_names = {
@@ -235,7 +236,7 @@ run "app_settings_hold_no_secrets" {
   assert {
     condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
       supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
-      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI"])
+      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI"])
       pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER"])
       accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
     }
@@ -323,7 +324,6 @@ run "runtime_roles_are_exactly_ad17" {
       "10000000-0000-0000-0000-000000000002 | Storage Blob Data Contributor | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/corrections",
       "10000000-0000-0000-0000-000000000002 | Storage Queue Data Message Sender | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01",
       "10000000-0000-0000-0000-000000000002 | Storage Table Data Contributor | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01",
-      "10000000-0000-0000-0000-000000000002 | Key Vault Secrets User | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01/secrets/pgp-private-key",
       "10000000-0000-0000-0000-000000000002 | Key Vault Secrets User | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01/secrets/pgp-public-key",
       "10000000-0000-0000-0000-000000000002 | Key Vault Secrets User | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01/secrets/hmac-key",
       "10000000-0000-0000-0000-000000000002 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/deploy-staff-api",
@@ -346,7 +346,7 @@ run "runtime_roles_are_exactly_ad17" {
       "10000000-0000-0000-0000-000000000003 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-secrets",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-hosts",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-secrets",
-    ]) && length(azurerm_role_assignment.runtime) == 31
+    ]) && length(azurerm_role_assignment.runtime) == 30
     error_message = "runtime roles must be exactly the AD-17 table (minus DI and ACS, Stories 2.3 and 5.2) plus Blob Data Owner on the two Functions host containers."
   }
   assert {
@@ -354,8 +354,8 @@ run "runtime_roles_are_exactly_ad17" {
     error_message = "no runtime role may be scoped to the subscription or a resource group (azure.md rule 9)."
   }
   assert {
-    condition     = length([for ra in azurerm_role_assignment.runtime : ra if ra.principal_id == "10000000-0000-0000-0000-000000000003" && endswith(ra.scope, "/secrets/pgp-private-key")]) == 0
-    error_message = "the pipeline must never read the PGP private key (AD-11)."
+    condition     = length([for ra in azurerm_role_assignment.runtime : ra if strcontains(ra.scope, "pgp-private-key")]) == 0
+    error_message = "Terraform must grant no identity any role on pgp-private-key: operator step 4b grants staff-api alone in the private-key vault (OCR-129, AD-11)."
   }
   assert {
     condition = length([
@@ -368,6 +368,42 @@ run "runtime_roles_are_exactly_ad17" {
     condition     = alltrue([for ra in azurerm_role_assignment.runtime : ra.principal_type == "ServicePrincipal"])
     error_message = "runtime roles are for managed identities (ServicePrincipal)."
   }
+}
+
+# OCR-129: staff-api is told where the private-key vault is; no other app is.
+run "private_key_vault_setting" {
+  command = plan
+
+  assert {
+    condition     = local.app_settings["staff_api"].PGP_PRIVATE_KEY_VAULT_URI == "https://babaloo-sea-lng-kv-22.vault.azure.net/"
+    error_message = "staff-api must get PGP_PRIVATE_KEY_VAULT_URI, the private-key vault's URI."
+  }
+  assert {
+    condition = alltrue([
+      for app in ["supplier_api", "pipeline", "accounts_sim"] : !contains(keys(local.app_settings[app]), "PGP_PRIVATE_KEY_VAULT_URI")
+    ])
+    error_message = "only staff-api may be told where the private key is (OCR-129)."
+  }
+}
+
+run "private_key_vault_uri_must_be_a_vault_uri" {
+  command = plan
+
+  variables {
+    private_key_vault_uri = "http://babaloo-sea-lng-kv-22.vault.azure.net/"
+  }
+
+  expect_failures = [var.private_key_vault_uri]
+}
+
+run "private_key_vault_must_not_be_the_env_vault" {
+  command = plan
+
+  variables {
+    private_key_vault_uri = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
+  }
+
+  expect_failures = [var.private_key_vault_uri]
 }
 
 run "environment_must_be_dev_or_prod" {

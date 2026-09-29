@@ -50,7 +50,12 @@ locals {
   # Each app's pydantic-settings class (backend/src/invoicing/apps/<app>/settings.py).
   app_specific_settings = {
     supplier_api = { STORAGE_ACCOUNT_NAME = var.storage_account.name }
-    staff_api    = { STORAGE_ACCOUNT_NAME = var.storage_account.name, KEY_VAULT_URI = var.key_vault.uri }
+    # OCR-129: pgp-private-key is in a separate private-key vault (not a secret: its URI).
+    staff_api = {
+      STORAGE_ACCOUNT_NAME      = var.storage_account.name
+      KEY_VAULT_URI             = var.key_vault.uri
+      PGP_PRIVATE_KEY_VAULT_URI = var.private_key_vault_uri
+    }
     # Story 2.1: the database and the login the pipeline signs in as with an Entra
     # token (its identity's name, AD-11); no password setting exists.
     pipeline = {
@@ -70,11 +75,12 @@ locals {
   container_scopes = {
     for name in ["images", "corrections"] : name => "${local.storage_id}/blobServices/default/containers/${name}"
   }
-  # Secrets are scoped one by one so the pipeline never reads the PGP private key
-  # (AD-11: only staff-api can decrypt). hmac-key comes from <env>/foundation, the
-  # PGP pair from operator step 4b.
+  # Secrets are scoped one by one. hmac-key comes from <env>/foundation, pgp-public-key
+  # from operator step 4b. pgp-private-key is not in this vault: step 4b stores it in
+  # the environment's private-key vault in rg-22 and gives staff-api, and nobody else,
+  # read on it (OCR-129, AD-11). Terraform grants nothing on it.
   secret_scopes = {
-    for name in ["hmac-key", "pgp-public-key", "pgp-private-key"] : name => "${var.key_vault.resource_id}/secrets/${name}"
+    for name in ["hmac-key", "pgp-public-key"] : name => "${var.key_vault.resource_id}/secrets/${name}"
   }
 
   # Where AD-17 names no container, queue or table, the role covers the account's
@@ -101,11 +107,9 @@ locals {
     "staff_api/table/account" = {
       app = "staff_api", role = "Storage Table Data Contributor", scope = local.storage_id
     }
-    # staff-api decrypts bank details for admins, and encrypts and fingerprints an
-    # admin's corrected bank field (AD-3 Correct, AD-11), so it reads all three.
-    "staff_api/secret/pgp-private-key" = {
-      app = "staff_api", role = "Key Vault Secrets User", scope = local.secret_scopes["pgp-private-key"]
-    }
+    # staff-api encrypts and fingerprints an admin's corrected bank field (AD-3 Correct,
+    # AD-11). Its read on pgp-private-key, to decrypt for admins, is granted by
+    # operator step 4b in the private-key vault (OCR-129).
     "staff_api/secret/pgp-public-key" = {
       app = "staff_api", role = "Key Vault Secrets User", scope = local.secret_scopes["pgp-public-key"]
     }

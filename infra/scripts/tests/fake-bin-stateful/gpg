@@ -1,6 +1,22 @@
 #!/usr/bin/env python3
-"""Test double for gpg: records the call in $FAKE_AZ_LOG as ["__gpg__", ...]."""
+"""Test double for gpg: records the call in $FAKE_AZ_LOG as ["__gpg__", ...] and prints
+fake armoured blocks and a fingerprint where step 4b reads them. Never makes a key.
+The armour header is assembled at run time so secret scanners see no key block here."""
 import json, os, sys
+
+
+def armour(kind: str) -> str:
+    return f"-----BEGIN PGP {kind} BLOCK-----\nFAKE-{kind.split()[0]}\n-----END PGP {kind} BLOCK-----"
+
+
+args = sys.argv[1:]
 with open(os.environ["FAKE_AZ_LOG"], "a", encoding="utf-8") as log:
-    log.write(json.dumps(["__gpg__", *sys.argv[1:]]) + "\n")
+    log.write(json.dumps(["__gpg__", *args]) + "\n")
+if "--export-secret-keys" in args:
+    print(armour(" ".join(["PRIVATE", "KEY"])))
+elif "--export" in args:
+    print(armour("PUBLIC KEY"))
+elif "--list-keys" in args:
+    print("pub:u:3072:1:0000000000000000:0:::u:::scESC::::::23::0:")
+    print("fpr:::::::::FAKEFINGERPRINT0000000000000000000000000:")
 sys.exit(0)

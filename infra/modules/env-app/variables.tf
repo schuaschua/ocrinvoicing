@@ -81,6 +81,20 @@ variable "key_vault" {
   })
 }
 
+variable "private_key_vault_uri" {
+  description = "URI of this environment's private-key vault in rg-22 (kv-22 dev, kv-23 prod), which holds only pgp-private-key (OCR-129). Built from the naming convention; not a secret. staff-api's PGP_PRIVATE_KEY_VAULT_URI setting."
+  type        = string
+
+  validation {
+    condition     = can(regex("^https://[a-z0-9-]{3,24}\\.vault\\.azure\\.net/$", var.private_key_vault_uri))
+    error_message = "private_key_vault_uri must be a Key Vault URI: https://<vault name>.vault.azure.net/."
+  }
+  validation {
+    condition     = lower(var.private_key_vault_uri) != lower(var.key_vault.uri)
+    error_message = "private_key_vault_uri must name the private-key vault, not the environment's vault (OCR-129)."
+  }
+}
+
 variable "application_insights_id" {
   description = "Resource id of the environment's Application Insights (Monitoring Metrics Publisher scope)."
   type        = string

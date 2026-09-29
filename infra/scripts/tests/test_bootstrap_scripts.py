@@ -169,6 +169,104 @@ def test_state_backend_plan_matches_ad17() -> None:
     assert "ServicePrincipal" in out and "--condition-version 2.0" in out
 
 
+# --- OCR-129: the PGP private key lives in a private-key vault only staff-api reads ------
+
+KV_SECRETS_USER = "4633458b-17de-408a-b874-0445c86b69e6"
+KV_SECRETS_OFFICER = "b86a8fe4-44ce-4948-aee5-eccb2c155cd7"
+RG22 = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-22"
+
+
+def _role_creates(out: str) -> list[str]:
+    return [line for line in out.splitlines() if "az role assignment create" in line]
+
+
+def test_ocr_129_state_backend_creates_the_private_key_vaults_in_rg22() -> None:
+    out = _run("state-backend.sh", "--dry-run").stdout
+    for vault, env in (("babaloo-sea-lng-kv-22", "dev"), ("babaloo-sea-lng-kv-23", "prod")):
+        (create,) = [line for line in out.splitlines() if f"az keyvault create --name {vault} " in line]
+        assert "--resource-group babaloo-sea-lng-rg-22" in create
+        assert "--enable-rbac-authorization true" in create
+        assert "--enable-purge-protection true" in create and "--retention-days 7" in create
+        assert "--public-network-access Enabled" in create
+        tags = create[create.index("--tags ") :]
+        for tag in (
+            "owner=test-owner",
+            "costCentre=test-cc",
+            f"environment={env}",
+            "application=test-app",
+            "dataClassification=test-class",
+        ):
+            assert tag in tags
+
+
+def test_ocr_129_nobody_gets_a_role_on_the_private_key_vaults_or_rg22_in_step_1() -> None:
+    out = _run("state-backend.sh", "--dry-run").stdout
+    creates = _role_creates(out)
+    assert creates
+    assert not any("babaloo-sea-lng-kv-22" in line or "babaloo-sea-lng-kv-23" in line for line in creates)
+    # In rg-22 only the container-scoped state roles exist.
+    rg22 = [line for line in creates if f"--scope {RG22}" in line]
+    assert rg22 and all("/blobServices/default/containers/" in line for line in rg22)
+    assert not any(f"--scope {RG22} " in line or line.endswith(f"--scope {RG22}") for line in creates)
+
+
+@pytest.mark.parametrize("script", ["state-backend.sh", "rbac-step3.sh"])
+def test_ocr_129_no_rbac_administrator_reaches_rg22(script: str) -> None:
+    out = _run(script, "--dry-run").stdout
+    admin = [line for line in _role_creates(out) if f"--role {RBAC_ADMIN}" in line]
+    assert admin
+    scopes = [re.search(r"--scope (\S+)", line).group(1) for line in admin]
+    assert not any("babaloo-sea-lng-rg-22" in scope for scope in scopes)
+    if script == "state-backend.sh":
+        # The env deploy identities' conditioned RBAC Administrator: their own group only.
+        assert sorted(scopes) == [
+            "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01",
+            "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11",
+        ]
+
+
+@pytest.mark.parametrize(
+    ("environment", "env_vault", "pk_vault", "staff_identity", "env_rg"),
+    [
+        ("dev", "babaloo-sea-lng-kv-01", "babaloo-sea-lng-kv-22", "babaloo-sea-lng-id-02", "babaloo-sea-lng-rg-01"),
+        ("prod", "babaloo-sea-lng-kv-11", "babaloo-sea-lng-kv-23", "babaloo-sea-lng-id-12", "babaloo-sea-lng-rg-11"),
+    ],
+)
+def test_ocr_129_pgp_step4b_splits_the_pair_and_grants_only_staff_api(
+    environment: str, env_vault: str, pk_vault: str, staff_identity: str, env_rg: str
+) -> None:
+    result = _run("pgp-step4b.sh", "--dry-run", ENVIRONMENT=environment)
+    assert result.returncode == 0, result.stderr
+    out = result.stdout
+    sets = [line for line in out.splitlines() if "az keyvault secret set" in line]
+    assert len(sets) == 2
+    assert f"--vault-name {pk_vault} --name pgp-private-key" in sets[0]  # private first
+    assert f"--vault-name {env_vault} --name pgp-public-key" in sets[1]
+    (grant,) = _role_creates(out)
+    assert f"--assignee-object-id '<principalId-of-{staff_identity}>'" in grant
+    assert f"--role {KV_SECRETS_USER}" in grant and "--assignee-principal-type ServicePrincipal" in grant
+    assert grant.endswith(f"--scope {RG22}/providers/Microsoft.KeyVault/vaults/{pk_vault}/secrets/pgp-private-key")
+    # The identity is looked up in the environment's group, before any write.
+    assert f"az identity show --name {staff_identity} --resource-group {env_rg}" in result.stderr
+    assert out.index("az keyvault secret set") > out.index("==> Check existing secrets")
+
+
+def test_ocr_129_database_step5_gives_dj_two_secrets_and_no_vault_wide_role() -> None:
+    result = _run("database-step5.sh", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    vault = (
+        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01"
+        "/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
+    )
+    kv_grants = [line for line in _role_creates(result.stdout) if KV_SECRETS_USER in line or KV_SECRETS_OFFICER in line]
+    assert sorted(line.rsplit("--scope ", 1)[1] for line in kv_grants) == [
+        f"{vault}/secrets/hmac-key",
+        f"{vault}/secrets/pgp-public-key",
+    ]
+    assert all("--assignee-principal-type User" in line for line in kv_grants)
+    assert "kv-22" not in result.stdout and "kv-23" not in result.stdout
+
+
 def test_rbac_step3_conditions_only_runtime_roles() -> None:
     out = _run("rbac-step3.sh", "--dry-run").stdout
     assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 4
@@ -408,6 +506,7 @@ def test_lib_names_match_the_naming_module() -> None:
 source "$1/lib.sh"
 printf '%s\\n' \
   "$(key_vault_name dev)" "$(key_vault_name prod)" \
+  "$(private_key_vault_name dev)" "$(private_key_vault_name prod)" \
   "$(env_storage_name dev)" "$(env_storage_name prod)" \
   "$(rg_name dev)" "$(rg_name prod)" "$(rg_name shared)" "$STATE_RG" "$STATE_ACCOUNT" \
   "$(app_identity_name dev supplier-api)" "$(app_identity_name dev accounts-sim)" \
@@ -423,6 +522,8 @@ printf '%s\\n' \
     assert result.stdout.split() == [
         "babaloo-sea-lng-kv-01",
         "babaloo-sea-lng-kv-11",
+        "babaloo-sea-lng-kv-22",
+        "babaloo-sea-lng-kv-23",
         "babaloosealngst01",
         "babaloosealngst11",
         "babaloo-sea-lng-rg-01",

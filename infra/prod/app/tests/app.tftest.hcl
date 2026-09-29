@@ -197,7 +197,7 @@ run "prod_app" {
       "Storage Blob Data Contributor", "Storage Blob Data Owner", "Storage Queue Data Contributor",
       "Storage Queue Data Message Sender", "Storage Table Data Contributor", "Key Vault Secrets User",
       "Monitoring Metrics Publisher",
-    ]) && length(output.role_assignments) == 31
+    ]) && length(output.role_assignments) == 30
     error_message = "only the AD-17 runtime roles, plus Blob Data Owner on the two Functions host containers (platform requirement), may be assigned (DI and ACS come with Stories 2.3 and 5.2)."
   }
   assert {
@@ -240,6 +240,21 @@ run "prod_app" {
       alert.tags.environment == "prod" && length(alert.tags) == 5
     ])
     error_message = "the prod metric alerts must watch prod's Application Insights, notify prod's action group and carry the five P-17 tags."
+  }
+
+  # OCR-129: staff-api reads pgp-private-key from the prod private-key vault in rg-22,
+  # and no role on it comes from Terraform.
+  assert {
+    condition     = module.naming.private_key_vault_name == "babaloo-sea-lng-kv-23"
+    error_message = "the prod private-key vault must be kv-23 (OCR-129)."
+  }
+  assert {
+    condition     = module.app.staff_api_app_settings.PGP_PRIVATE_KEY_VAULT_URI == "https://babaloo-sea-lng-kv-23.vault.azure.net/"
+    error_message = "staff-api must be told the prod private-key vault's URI, kv-23 (OCR-129)."
+  }
+  assert {
+    condition     = length([for ra in output.role_assignments : ra if strcontains(ra.scope, "pgp-private-key")]) == 0
+    error_message = "Terraform must grant no role on pgp-private-key (OCR-129: operator step 4b grants staff-api)."
   }
 
   # Story 1.5: the apps sample at their own ratio (default 0.5).

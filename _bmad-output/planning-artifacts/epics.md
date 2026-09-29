@@ -349,14 +349,15 @@ So that every later story deploys into named, tagged, budgeted Azure resources i
 
 **Given** the operator PGP key step in the bootstrap README (AD-17 step 4b), run once per environment
 **When** it is done
-**Then** the vault holds `pgp-public-key` and `pgp-private-key` (an RSA 3072, ASCII-armoured OpenPGP key pair with no passphrase, made offline with `gpg`), no local copy remains, and Terraform does not manage either secret
+**Then** the environment vault holds `pgp-public-key`, and a separate bootstrap-only private-key vault in `babaloo-sea-lng-rg-22` (`kv-22` Dev, `kv-23` Prod) holds `pgp-private-key` (an RSA 3072, ASCII-armoured OpenPGP key pair with no passphrase, made offline with `gpg`); no local copy remains, and Terraform does not manage either secret
+**And** only the environment's `staff-api` identity can read `pgp-private-key`: no deploy identity, pipeline identity or Dj's everyday user has a role on the private-key vault (Dj, 2026-09-29)
 
 **Given** the operator database step in the bootstrap README (AD-17 step 5), run once per environment as the PostgreSQL Entra admin
 **When** it finishes
 **Then** that environment's AD-11 logins exist (the `pipeline`, `staff-api` and `accounts-sim` identities, Dj's user and the deploy identity), created with `pgaadauth_create_principal`
 **And** the environment's deploy identity owns its database, `CONNECT` is revoked from `PUBLIC`, and only that environment's logins are granted `CONNECT`
 **And** a test shows that a Dev login can't connect to `invoicing_prod`
-**And** Dj's user holds Key Vault Secrets User and Storage Table Data Contributor on that environment's vault and storage account, for the load script
+**And** Dj's user holds Key Vault Secrets User on only the `pgp-public-key` and `hmac-key` secrets, and Storage Table Data Contributor on that environment's storage account, for the load script
 
 ### Story 1.2: CI/CD pipeline in Azure DevOps
 
@@ -521,7 +522,7 @@ So that suppliers can start uploading without anyone typing bank details into a 
 **Then** they contain no token, bank value or phone number
 
 **Tasks:**
-- Prerequisites (Story 1.1): the PGP key pair and HMAC key in Key Vault; Dj's user login, Key Vault Secrets User and Storage Table Data Contributor from the operator database step (AD-17 step 5). This story has no Terraform.
+- Prerequisites (Story 1.1): `pgp-public-key` and `hmac-key` in the environment vault (the private key is in the separate private-key vault, readable only by staff-api); Dj's user login, Key Vault Secrets User on those two secrets and Storage Table Data Contributor from the operator database step (AD-17 step 5). This story has no Terraform.
 - Python: `master` migration with its grants; `SupplierLinkRegistry` port and table adapter; the load script (`--replace-link`, `--revoke`); `audit` append-only table and grants.
 - Tests: `test_story_1_6_*` for encryption, one row per bank field id, fingerprint normalisation, link issue, replace and revoke, `pipeline` refused on the ciphertext column, and log redaction.
 

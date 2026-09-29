@@ -286,7 +286,7 @@ stateDiagram-v2
 
   - **Where bank details are protected.** In `master` and in extracted invoice fields alike, each value is stored as `pgp_pub_encrypt` ciphertext plus an HMAC-SHA256 fingerprint, from its first write (the `extract` stage).
     - Before fingerprinting, the value is normalised by stripping spaces and hyphens and converting to uppercase.
-    - The public key and the HMAC key are in Key Vault, readable by `pipeline` and the load script. The private key is readable only by `staff-api`, so only it can decrypt.
+    - The public key and the HMAC key are in the environment's Key Vault, readable by `pipeline` and the load script (per secret). The private key lives in a separate private-key vault in the bootstrap-only resource group `rg-22` (`kv-22` Dev, `kv-23` Prod), created by the bootstrap and filled by the operator step 4b. Only that environment's `staff-api` identity has a role on it, so no deploy identity, pipeline identity or operator's everyday login can read it, and only `staff-api` can decrypt (Dj, 2026-09-29).
   - **How they are compared.** CAP-8 compares fingerprints field by field (the same bank field id on both sides) and never decrypts.
   - **Who can see them.**
     - Correction JSON, `audit.event.detail` and logs never hold plaintext bank values.

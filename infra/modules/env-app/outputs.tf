@@ -63,3 +63,8 @@ output "staff_api_auth" {
     site_id                       = azapi_update_resource.staff_api_auth.parent_id
   }
 }
+
+output "staff_api_app_settings" {
+  description = "staff-api's app settings as this module sets them (no secrets: the Application Insights connection string is passed to the AVM module separately)."
+  value       = local.app_settings["staff_api"]
+}

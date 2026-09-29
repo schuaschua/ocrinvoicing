@@ -38,8 +38,9 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | Resource groups | `babaloo-sea-lng-rg-21` (shared stack), `-rg-01` (dev), `-rg-11` (prod), and `-rg-22` (bootstrap-only: state and deploy identities) |
 | State storage | `babaloosealngst21` in `rg-22`; containers `shared`, `dev`, `prod`; key `foundation.tfstate` per stack |
 | Deploy identities | `babaloo-sea-lng-id-21` (shared), `-id-22` (dev), `-id-23` (prod), all in `rg-22` |
+| Private-key vaults (OCR-129) | `babaloo-sea-lng-kv-22` (dev), `-kv-23` (prod), in `rg-22`; each holds only its environment's `pgp-private-key`; no diagnostic settings, by decision (Dj, 2026-09-29) |
 
-`rg-22` is created and managed only by these scripts. No Terraform stack manages it and no deploy identity holds Contributor on it; each deploy identity has only its container-scoped state roles there. So no stack's identity can change another identity's federated credentials or another stack's state.
+`rg-22` is created and managed only by these scripts. No Terraform stack manages it and no deploy identity holds Contributor on it; each deploy identity has only its container-scoped state roles there, and no identity's RBAC Administrator reaches it. So no stack's identity can change another identity's federated credentials or another stack's state, or read or grant access to a PGP private key.
 | App registrations | `babaloo-sea-lng-staff-api-<env>`, `babaloo-sea-lng-accounts-sim-<env>` |
 | Subscription budget | `babaloo-sea-lng-budget-22` ($8) |
 | Action groups (all email Dj) | `babaloo-sea-lng-ag-21` (shared: the `shared` and subscription budgets), `-ag-01` (dev), `-ag-11` (prod) |
@@ -53,7 +54,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | 2 | `shared` deploy identity (pipeline) | `infra/shared/foundation`: fill `terraform.tfvars`; the deploy pipeline plans it, Dj approves the `shared` stage, it applies the saved plan. Then add the email domain's DNS records (below), and re-run `SHARED_ACTION_GROUP_ID=<ag-21 id> ./budget-and-roles.sh` so the subscription budget notifies through `ag-21` |
 | 3 | operator | `./rbac-step3.sh` |
 | 4 | env deploy identity (pipeline) | `infra/dev/foundation` (applies automatically), then `infra/prod/foundation` (after Dj approves the `prod` stage) |
-| 4b | operator with Key Vault Secrets Officer on the vault | `ENVIRONMENT=dev ./pgp-step4b.sh`, then `ENVIRONMENT=prod ./pgp-step4b.sh` |
+| 4b | operator with Owner, plus Key Vault Secrets Officer on both vaults for this step only | after `<env>/foundation` exists (it creates the `staff-api` identity): `ENVIRONMENT=dev ./pgp-step4b.sh`, then, after `prod/foundation`, `ENVIRONMENT=prod ./pgp-step4b.sh` |
 | 5 | operator as PostgreSQL Entra admin | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
 | 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
 | 8 | operator | `staff-api` redirect URI, then the sign-in check (Story 2.7, below) |
@@ -65,7 +66,7 @@ Try each script with `--dry-run` first.
 
 ### Step 1: state, groups, identities, app registrations, role, budget
 
-- `state-backend.sh` registers the resource providers and waits for each (the `azurerm` provider has `resource_provider_registrations = "none"`), creates the four tagged resource groups, the state account (LRS, shared-key access off, public blob access off, TLS 1.2, versioning and 7-day soft delete) and its three containers, and the three deploy identities with a federated credential for their Azure DevOps service connection (issuer `https://vstoken.dev.azure.com/<ADO_ORG_ID>`, subject `sc://<org>/<project>/<connection>`). An existing credential whose issuer or subject differs from the current inputs is updated.
+- `state-backend.sh` registers the resource providers and waits for each (the `azurerm` provider has `resource_provider_registrations = "none"`), creates the four tagged resource groups, the state account (LRS, shared-key access off, public blob access off, TLS 1.2, versioning and 7-day soft delete) and its three containers, the two private-key vaults `kv-22` (dev) and `kv-23` (prod) in `rg-22` (RBAC mode, purge protection, 7-day soft delete, public network access like the environment vaults, the five tags with `environment` set to their environment; an existing vault has these settings and its tags re-applied, and nobody gets a role on it), and the three deploy identities with a federated credential for their Azure DevOps service connection (issuer `https://vstoken.dev.azure.com/<ADO_ORG_ID>`, subject `sc://<org>/<project>/<connection>`). An existing credential whose issuer or subject differs from the current inputs is updated.
 - Deploy identity rights (azure.md rule 31 and AD-17 "Deploy identity rights"):
   - every deploy identity: Contributor on its own stack's resource group (`rg-21`, `rg-01` or `rg-11`, never `rg-22`), and Storage Blob Data Contributor on its own state container;
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `shared` state container.
@@ -110,11 +111,66 @@ Manual operator steps after `ado-setup.sh` (no CLI for them):
 
 ### Step 4b: PGP key pair (once per environment)
 
-Precondition: the operator holds Key Vault Secrets Officer on the vault, for example:
-`az role assignment create --assignee <your object id> --role "Key Vault Secrets Officer" --scope <vault id>`
-(remove it afterwards if you want).
+The private key is readable only by the environment's `staff-api` identity (OCR-129, AD-11). So it does not live in the environment's vault (`kv-01`/`kv-11`), where the env deploy identity (Secrets Officer, and Contributor on the group) could read it, but in the environment's private-key vault in `rg-22` (`kv-22` dev, `kv-23` prod), which no Terraform stack manages and on which no deploy identity, pipeline identity or Dj's load-script user has any role.
 
-`pgp-step4b.sh` generates an RSA 3072 key pair with no passphrase in a throwaway `GNUPGHOME` under the gitignored `.work/` folder, stores the ASCII-armoured keys as `pgp-private-key` first and `pgp-public-key` last (both tagged `fingerprint=<key fingerprint>`), and deletes the local copies. If both secrets exist it does nothing; if only one exists it stops (a new pair would make existing ciphertext unreadable). Terraform never manages these two secrets.
+Preconditions: `state-backend.sh` has created the private-key vaults, and `<env>/foundation` exists (it creates the `staff-api` identity, `babaloo-sea-lng-id-02` dev, `-id-12` prod). The operator is an Owner of the subscription and gives themself Key Vault Secrets Officer on both vaults for this step only:
+
+```sh
+me="$(az ad signed-in-user show --query id -o tsv)"
+sub="/subscriptions/$ARM_SUBSCRIPTION_ID"
+env_vault="$sub/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"  # prod: rg-11, kv-11
+pk_vault="$sub/resourceGroups/babaloo-sea-lng-rg-22/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-22"   # prod: kv-23
+for scope in "$env_vault" "$pk_vault"; do
+  az role assignment create --assignee-object-id "$me" --assignee-principal-type User --role "Key Vault Secrets Officer" --scope "$scope"
+done
+```
+
+`pgp-step4b.sh`:
+
+1. stops before writing anything if the `staff-api` identity or the private-key vault does not exist, naming the step to run first;
+2. stops if `pgp-private-key` is still in the environment's vault (stored there before OCR-129; see "Moving an existing private key" below). It never copies it;
+3. if `pgp-public-key` (environment vault) and `pgp-private-key` (private-key vault) both exist, generates nothing; if only one exists it stops (a new pair would make existing ciphertext unreadable);
+4. otherwise generates an RSA 3072 key pair with no passphrase in a throwaway `GNUPGHOME` under the gitignored `.work/` folder, stores the ASCII-armoured keys as `pgp-private-key` in the private-key vault first and `pgp-public-key` in the environment's vault last (both tagged `fingerprint=<key fingerprint>`), and deletes the local copies;
+5. gives the `staff-api` identity Key Vault Secrets User on the `pgp-private-key` secret only (checked on every run, so a re-run completes a grant an earlier run missed).
+
+Terraform never manages these two secrets or the private-key vault. `<env>/app` tells `staff-api` where the key is with the app setting `PGP_PRIVATE_KEY_VAULT_URI` (e.g. `https://babaloo-sea-lng-kv-22.vault.azure.net/`) and grants nothing on it.
+
+Afterwards, remove your two Secrets Officer assignments (same loop with `az role assignment delete --assignee "$me" --role "Key Vault Secrets Officer" --scope "$scope"`).
+
+**Moving an existing private key** (an environment whose step 4b ran before OCR-129, so `pgp-private-key` is in `kv-01`/`kv-11`). Do it once, as the Owner with the two Secrets Officer assignments above, before `<env>/app` is next applied (that apply removes `staff-api`'s old role on the env-vault secret):
+
+```sh
+( # a subshell, so set -eu, umask 077 and the trap stay local to it
+set -eu
+env_kv=babaloo-sea-lng-kv-01; pk_kv=babaloo-sea-lng-kv-22   # prod: kv-11, kv-23
+umask 077; mkdir -p .work
+work="$(mktemp -d .work/pgp-move.XXXXXX)"
+cleanup() {
+  set +e; GNUPGHOME="$work/gnupg" gpgconf --kill gpg-agent 2>/dev/null
+  for f in "$work"/*.asc; do [ -e "$f" ] && { rm -P "$f" 2>/dev/null || shred -u "$f"; }; done   # macOS / Linux
+  rm -rf "$work"
+}
+trap cleanup EXIT
+# key_fpr <file>: the real fingerprint of the key in <file>, read in a throwaway GNUPGHOME.
+key_fpr() {
+  rm -rf "$work/gnupg"; mkdir "$work/gnupg"
+  GNUPGHOME="$work/gnupg" gpg --batch --quiet --import "$1"
+  GNUPGHOME="$work/gnupg" gpg --batch --with-colons --list-secret-keys | awk -F: '/^fpr:/ { print $10; exit }'
+}
+want="$(az keyvault secret show --vault-name "$env_kv" --name pgp-public-key --query tags.fingerprint -o tsv)"
+[ -n "$want" ] || { echo "pgp-public-key has no fingerprint tag; nothing moved" >&2; exit 1; }
+az keyvault secret download --vault-name "$env_kv" --name pgp-private-key --file "$work/source.asc"
+[ "$(key_fpr "$work/source.asc")" = "$want" ] || { echo "the env-vault private key does not match pgp-public-key; nothing moved" >&2; exit 1; }
+az keyvault secret set --vault-name "$pk_kv" --name pgp-private-key --file "$work/source.asc" \
+  --content-type application/pgp-keys --tags "fingerprint=$want" --output none
+# Check the copy as stored, before the env copy is deleted.
+az keyvault secret download --vault-name "$pk_kv" --name pgp-private-key --file "$work/copy.asc"
+[ "$(key_fpr "$work/copy.asc")" = "$want" ] || { echo "the copy in $pk_kv does not match pgp-public-key; the env copy is kept" >&2; exit 1; }
+az keyvault secret delete --vault-name "$env_kv" --name pgp-private-key --output none
+)
+```
+
+The env vault has purge protection (Terraform sets it and it can't be turned off), so the deleted secret can't be purged: with all its versions, it stays recoverable by an identity with Secrets Officer there (the env deploy identity has it) until the vault's 7-day soft-delete retention ends, and is then removed for good. Dj accepted this 7-day window (2026-09-29). Only after those 7 days does `az keyvault secret list-deleted --vault-name "$env_kv"` stop listing it; check it then, not straight away. Right after the move, run `pgp-step4b.sh`: it finds both keys, generates nothing and grants `staff-api` on the moved key.
 
 ### Step 5: database logins (once per environment)
 
@@ -125,7 +181,7 @@ Precondition: the operator holds Key Vault Secrets Officer on the vault, for exa
 - revokes `CONNECT` and `TEMPORARY` from `PUBLIC` on both databases;
 - grants `CONNECT` on `invoicing_<env>` to that environment's logins only.
 
-It then gives Dj's user Key Vault Secrets User on the vault and Storage Table Data Contributor on the storage account, for the load script. Schema grants are Alembic migrations (step 6), not part of this step.
+It then gives Dj's user Key Vault Secrets User on the `pgp-public-key` and `hmac-key` secrets only (never the private key, which is in the private-key vault; OCR-129) and Storage Table Data Contributor on the storage account, for the load script. A vault-wide Secrets User assignment from an earlier run of this step is removed. Schema grants are Alembic migrations (step 6), not part of this step.
 
 `verify-db-isolation.sh` checks, as the admin, that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it inside a Dev pipeline job signed in as the dev deploy identity with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
 

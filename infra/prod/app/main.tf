@@ -39,6 +39,9 @@ module "app" {
     resource_id = local.foundation.key_vault.resource_id
     uri         = local.foundation.key_vault.uri
   }
+  # OCR-129: the private-key vault in rg-22 is made by the bootstrap scripts, so its
+  # URI comes from the naming convention, not from a stack's state.
+  private_key_vault_uri   = "https://${module.naming.private_key_vault_name}.vault.azure.net/"
   application_insights_id = local.foundation.application_insights.resource_id
   # Story 2.2: the poison_message and stuck_invoices alerts go to the env action group.
   action_group_id                        = local.foundation.action_group_id

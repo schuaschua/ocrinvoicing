@@ -4,10 +4,12 @@
 Records each invocation (one JSON array per line) to $FAKE_AZ_LOG and answers
 show/list/lookup calls as if the resource were there. Never contacts Azure.
 
-Knobs for failure cases (each a substring matched against the joined arguments):
+Knobs for failure cases (each a substring matched against the joined arguments;
+FAKE_AZ_NOT_FOUND_MATCH takes several, separated by "||"):
   FAKE_AZ_FAIL_MATCH       fail with a non-NotFound error (AuthorizationFailed)
   FAKE_AZ_NOT_FOUND_MATCH  fail with a NotFound error (the resource is absent)
 Other knobs:
+  FAKE_AZ_NO_ROLE_ASSIGNMENTS=1  role assignment lookups find nothing
   FAKE_AZ_STAFF_ROLES      how many of the 5 staff-api app roles already exist
   FAKE_AZ_FED_STALE=1      existing federated credentials have an old issuer/subject
   FAKE_AZ_DUPLICATE_APPS=1 a display-name lookup returns two app registrations
@@ -20,7 +22,7 @@ Other knobs:
   FAKE_AZ_BUDGET_NO_NOTIFICATIONS=1  the existing subscription budget has no notifications
   FAKE_AZ_NO_RECEIVERS=1   action groups have no email receivers
 Pipelines have integer ids (FAKE_PIPELINE_ID).
-Files passed as @path or --in-file path are copied into $FAKE_AZ_LOG.files (JSON lines) before the
+Files passed as @path, --in-file path or --file path are copied into $FAKE_AZ_LOG.files (JSON lines) before the
 script can delete them.
 """
 
@@ -52,7 +54,7 @@ log_path = os.environ["FAKE_AZ_LOG"]
 with open(log_path, "a", encoding="utf-8") as log:
     log.write(json.dumps(args) + "\n")
 for index, arg in enumerate(args):
-    path = arg[1:] if arg.startswith("@") else (arg if index and args[index - 1] == "--in-file" else "")
+    path = arg[1:] if arg.startswith("@") else (arg if index and args[index - 1] in ("--in-file", "--file") else "")
     if path and os.path.isfile(path):
         with open(path, encoding="utf-8") as src, open(log_path + ".files", "a", encoding="utf-8") as out:
             out.write(json.dumps({"args": args, "content": src.read()}) + "\n")
@@ -61,7 +63,7 @@ joined = " ".join(args)
 if os.environ.get("FAKE_AZ_FAIL_MATCH") and os.environ["FAKE_AZ_FAIL_MATCH"] in joined:
     print("ERROR: (AuthorizationFailed) The client does not have authorization to perform action.", file=sys.stderr)
     sys.exit(1)
-if os.environ.get("FAKE_AZ_NOT_FOUND_MATCH") and os.environ["FAKE_AZ_NOT_FOUND_MATCH"] in joined:
+if any(match and match in joined for match in os.environ.get("FAKE_AZ_NOT_FOUND_MATCH", "").split("||")):
     print("ERROR: (NotFound) The resource could not be found.", file=sys.stderr)
     sys.exit(3)
 
@@ -78,7 +80,12 @@ if has("role", "definition", "list"):
     name = opt("--name")
     print(FAKE_GUID if "--custom-role-only" in args else ROLE_NAMES.get(name, ""))
 elif has("role", "assignment", "list"):
-    print("1")
+    found = not os.environ.get("FAKE_AZ_NO_ROLE_ASSIGNMENTS")
+    if opt("--query").endswith(".id"):
+        if found:
+            print(f"{opt('--scope')}/providers/Microsoft.Authorization/roleAssignments/{FAKE_GUID}")
+    else:
+        print("1" if found else "0")
 elif has("account", "show"):
     print(os.environ.get("ARM_TENANT_ID", ""))
 elif has("account", "get-access-token"):

@@ -18,6 +18,11 @@ output "metric_alert_names" {
   value       = local.metric_alerts
 }
 
+output "private_key_vault_name" {
+  description = "Name of this environment's private-key vault in rg-22 (kv-22 dev, kv-23 prod; OCR-129), created by infra/bootstrap/state-backend.sh, not Terraform. Null for shared."
+  value       = local.private_key_vault
+}
+
 output "tags" {
   description = "The five P-17 tags, to pass unchanged to every taggable resource."
   value       = local.tags

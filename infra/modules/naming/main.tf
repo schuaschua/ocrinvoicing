@@ -51,6 +51,11 @@ locals {
     if var.environment != "shared"
   }
 
+  # OCR-129: each environment's private-key vault (kv-22 Dev, kv-23 Prod) lives in the
+  # bootstrap-only rg-22 and is created by infra/bootstrap/state-backend.sh, never by
+  # Terraform. Named here only so staff-api can be told where pgp-private-key is.
+  private_key_vault = lookup({ dev = format("%s-kv-22", local.prefix), prod = format("%s-kv-23", local.prefix) }, var.environment, null)
+
   # Azure Monitor metric alert rules (azure.md: `ar`), numbered from the base in this
   # order. Story 2.2 adds the first two; Story 2.3's di_pages_used_pct comes next.
   metric_alert_order = ["poison_message", "stuck_invoices"]

@@ -49,6 +49,7 @@ CREATE_CALLS = [
     ["role", "definition", "create"],
     ["ad", "app", "create"],
     ["ad", "sp", "create"],
+    ["keyvault", "create"],
 ]
 
 
@@ -110,6 +111,16 @@ def test_state_backend_rerun_updates_tags_and_settings(work_dir: Path) -> None:
     assert any(_starts_with(call, ["storage", "account", "update"]) and "--allow-shared-key-access" in call for call in calls)
     assert sum(_starts_with(call, ["identity", "update"]) for call in calls) == 3
     assert "exists: container dev" in result.stdout
+    # OCR-129: the private-key vaults keep their settings and get their tags re-applied.
+    vault_updates = [call for call in calls if _starts_with(call, ["keyvault", "update"])]
+    assert [call[call.index("--name") + 1] for call in vault_updates] == ["babaloo-sea-lng-kv-22", "babaloo-sea-lng-kv-23"]
+    for call in vault_updates:
+        assert call[call.index("--resource-group") + 1] == "babaloo-sea-lng-rg-22"
+        assert call[call.index("--enable-rbac-authorization") + 1] == "true"
+        assert call[call.index("--enable-purge-protection") + 1] == "true"
+    tags = [call for call in calls if _starts_with(call, ["resource", "tag"])]
+    assert [call[call.index("--name") + 1] for call in tags] == ["babaloo-sea-lng-kv-22", "babaloo-sea-lng-kv-23"]
+    assert "environment=dev" in tags[0] and "environment=prod" in tags[1]
 
 
 def test_app_registrations_rerun_keeps_existing_roles(work_dir: Path) -> None:
@@ -208,23 +219,51 @@ def test_stale_federated_credentials_are_updated(work_dir: Path) -> None:
 # --- PGP key pair guards (step 4b) ---------------------------------------------------------------
 
 
+# The dev vaults and staff-api's secret-scoped role (OCR-129).
+ENV_PRIVATE = "--vault-name babaloo-sea-lng-kv-01 --name pgp-private-key"
+ENV_PUBLIC = "--vault-name babaloo-sea-lng-kv-01 --name pgp-public-key"
+PK_PRIVATE = "--vault-name babaloo-sea-lng-kv-22 --name pgp-private-key"
+PRIVATE_SECRET_SCOPE = (
+    "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-22"
+    "/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-22/secrets/pgp-private-key"
+)
+
+
 def _assert_no_key_generation(calls: list[list[str]]) -> None:
     assert _tool_calls(calls, "gpg") == []
     assert not any(_starts_with(call, ["keyvault", "secret", "set"]) for call in calls)
 
 
+def _role_creates(calls: list[list[str]]) -> list[list[str]]:
+    return [call for call in calls if _starts_with(call, ["role", "assignment", "create"])]
+
+
 def test_pgp_both_secrets_exist_does_nothing(work_dir: Path) -> None:
-    result, calls = _run("pgp-step4b.sh", work_dir)
+    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=ENV_PRIVATE)
     assert result.returncode == 0, result.stderr
-    assert "nothing to do" in result.stdout
+    assert "nothing to generate" in result.stdout
     _assert_no_key_generation(calls)
+    assert _role_creates(calls) == []
+    assert f"exists: role 4633458b-17de-408a-b874-0445c86b69e6 for 55555555-5555-5555-5555-555555555555 at {PRIVATE_SECRET_SCOPE}" in result.stdout
 
 
-def test_pgp_only_one_secret_exists_stops(work_dir: Path) -> None:
-    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="--name pgp-public-key")
+def test_pgp_rerun_after_a_missed_grant_only_grants_staff_api(work_dir: Path) -> None:
+    result, calls = _run(
+        "pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=ENV_PRIVATE, FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
+    )
+    assert result.returncode == 0, result.stderr
+    _assert_no_key_generation(calls)
+    (grant,) = _role_creates(calls)
+    assert grant[grant.index("--scope") + 1] == PRIVATE_SECRET_SCOPE
+
+
+@pytest.mark.parametrize("absent", [ENV_PUBLIC, PK_PRIVATE])
+def test_pgp_only_one_secret_exists_stops(absent: str, work_dir: Path) -> None:
+    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=f"{ENV_PRIVATE}||{absent}")
     assert result.returncode == 1
-    assert "only one of pgp-public-key / pgp-private-key exists" in result.stderr
+    assert "only one of pgp-public-key (babaloo-sea-lng-kv-01) / pgp-private-key (babaloo-sea-lng-kv-22) exists" in result.stderr
     _assert_no_key_generation(calls)
+    assert _role_creates(calls) == []
 
 
 def test_pgp_secret_lookup_error_stops_without_generating(work_dir: Path) -> None:
@@ -232,6 +271,87 @@ def test_pgp_secret_lookup_error_stops_without_generating(work_dir: Path) -> Non
     assert result.returncode == 1
     assert "lookup failed, and not with NotFound" in result.stderr
     _assert_no_key_generation(calls)
+
+
+def test_ocr_129_pgp_new_environment_splits_the_pair_and_grants_staff_api(work_dir: Path) -> None:
+    result, calls = _run(
+        "pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="keyvault secret show", FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    sets = [call for call in calls if _starts_with(call, ["keyvault", "secret", "set"])]
+    assert [(call[call.index("--vault-name") + 1], call[call.index("--name") + 1]) for call in sets] == [
+        ("babaloo-sea-lng-kv-22", "pgp-private-key"),
+        ("babaloo-sea-lng-kv-01", "pgp-public-key"),
+    ]
+    stored = {entry["args"][entry["args"].index("--vault-name") + 1]: entry["content"] for entry in _files(work_dir)}
+    assert "BEGIN PGP PRIVATE KEY BLOCK" in stored["babaloo-sea-lng-kv-22"]
+    assert "PRIVATE" not in stored["babaloo-sea-lng-kv-01"]
+    (grant,) = _role_creates(calls)
+    assert grant[grant.index("--assignee-object-id") + 1] == "55555555-5555-5555-5555-555555555555"
+    assert grant[grant.index("--assignee-principal-type") + 1] == "ServicePrincipal"
+    assert grant[grant.index("--role") + 1] == "4633458b-17de-408a-b874-0445c86b69e6"
+    assert grant[grant.index("--scope") + 1] == PRIVATE_SECRET_SCOPE
+    assert calls.index(grant) > calls.index(sets[-1])
+    # The throwaway GNUPGHOME is gone.
+    assert not any((REPO_ROOT / ".work" / "bootstrap").glob("tmp.*/private.asc"))
+
+
+def test_ocr_129_pgp_stops_before_writing_when_staff_api_identity_is_missing(work_dir: Path) -> None:
+    result, calls = _run(
+        "pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="identity show --name babaloo-sea-lng-id-02"
+    )
+    assert result.returncode == 1
+    assert "staff-api identity babaloo-sea-lng-id-02 not found in babaloo-sea-lng-rg-01" in result.stderr
+    assert "apply dev/foundation (AD-17 step 4) first" in result.stderr
+    _assert_no_key_generation(calls)
+    assert _role_creates(calls) == []
+
+
+def test_ocr_129_pgp_stops_when_the_private_key_vault_is_missing(work_dir: Path) -> None:
+    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="keyvault show --name babaloo-sea-lng-kv-22")
+    assert result.returncode == 1
+    assert "run state-backend.sh (AD-17 step 1) first" in result.stderr
+    _assert_no_key_generation(calls)
+
+
+@pytest.mark.parametrize("pk_private", ["absent", "present"])
+def test_ocr_129_pgp_legacy_private_key_in_the_env_vault_stops_without_copying(pk_private: str, work_dir: Path) -> None:
+    not_found = PK_PRIVATE if pk_private == "absent" else ""
+    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=not_found)
+    assert result.returncode == 1
+    assert "pgp-private-key is in babaloo-sea-lng-kv-01" in result.stderr
+    assert "Move it to babaloo-sea-lng-kv-22, then delete and purge it" in result.stderr
+    _assert_no_key_generation(calls)
+    assert _role_creates(calls) == []
+    assert not any(_starts_with(call, ["keyvault", "secret", "download"]) for call in calls)
+
+
+# --- Step 5: Dj's load-script rights (OCR-129) -------------------------------------------------
+
+DEV_VAULT = (
+    "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01"
+    "/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
+)
+
+
+def test_ocr_129_database_step5_grants_dj_two_secrets_only(work_dir: Path) -> None:
+    result, calls = _run("database-step5.sh", work_dir, DJ_USER_UPN="dj@example.test", FAKE_AZ_NO_ROLE_ASSIGNMENTS="1")
+    assert result.returncode == 0, result.stdout + result.stderr
+    kv = [call for call in _role_creates(calls) if "Microsoft.KeyVault" in call[call.index("--scope") + 1]]
+    assert sorted(call[call.index("--scope") + 1] for call in kv) == [
+        f"{DEV_VAULT}/secrets/hmac-key",
+        f"{DEV_VAULT}/secrets/pgp-public-key",
+    ]
+    assert all(call[call.index("--role") + 1] == "4633458b-17de-408a-b874-0445c86b69e6" for call in kv)
+    assert not any(_starts_with(call, ["role", "assignment", "delete"]) for call in calls)
+
+
+def test_ocr_129_database_step5_removes_an_earlier_vault_wide_role(work_dir: Path) -> None:
+    result, calls = _run("database-step5.sh", work_dir, DJ_USER_UPN="dj@example.test")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _role_creates(calls) == []
+    (delete,) = [call for call in calls if _starts_with(call, ["role", "assignment", "delete"])]
+    assert delete[delete.index("--ids") + 1].startswith(f"{DEV_VAULT}/providers/Microsoft.Authorization/roleAssignments/")
 
 
 # --- App registrations ----------------------------------------------------------------------------

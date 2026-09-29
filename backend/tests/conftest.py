@@ -33,8 +33,12 @@ APP_SETTINGS = {
 
 # Settings only one app gets (infra/modules/env-app app_specific_settings). Story 2.1:
 # the pipeline's database and login (no password: Entra token); supplier-api has no
-# database setting at all (AD-6, AD-11).
+# database setting at all (AD-6, AD-11). OCR-129: only staff-api knows the private-key
+# vault.
 APP_ONLY_SETTINGS = {
+    "staff_api": {
+        "PGP_PRIVATE_KEY_VAULT_URI": "https://babaloo-sea-lng-kv-22.vault.azure.net/",
+    },
     "pipeline": {
         "POSTGRES_HOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",
         "POSTGRES_DATABASE": "invoicing_dev",

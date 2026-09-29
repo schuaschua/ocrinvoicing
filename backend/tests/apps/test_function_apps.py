@@ -31,6 +31,7 @@ REQUIRED = {
         "AZURE_CLIENT_ID",
         "STORAGE_ACCOUNT_NAME",
         "KEY_VAULT_URI",
+        "PGP_PRIVATE_KEY_VAULT_URI",
     ],
     "pipeline": [
         "APP_ENVIRONMENT",
@@ -251,10 +252,22 @@ def test_story_1_3_settings_come_from_the_environment(
     assert settings.azure_client_id == UUID(app_settings["AZURE_CLIENT_ID"])
 
 
+@pytest.mark.app("staff_api")
+def test_ocr_129_staff_api_reads_the_private_key_vault_uri(
+    app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
+) -> None:
+    settings = load_app("staff_api").settings
+    assert (
+        settings.pgp_private_key_vault_uri == app_settings["PGP_PRIVATE_KEY_VAULT_URI"]
+    )
+    assert settings.pgp_private_key_vault_uri != settings.key_vault_uri
+
+
 BAD_VALUES = {
     "AZURE_CLIENT_ID": "not-a-client-id",
     "STORAGE_ACCOUNT_NAME": "Bad_Account-Name",
     "KEY_VAULT_URI": "http://plain-http-vault.example",
+    "PGP_PRIVATE_KEY_VAULT_URI": "http://plain-http-private-vault.example",
     # Story 2.1: a host, database or login that could smuggle in libpq options.
     "POSTGRES_HOST": "db.example host=evil",
     "POSTGRES_DATABASE": "invoicing dev",
@@ -459,6 +472,7 @@ def test_story_1_5_without_an_authentication_string_the_app_identity_signs_in(
     assert credentials == [app_settings["AZURE_CLIENT_ID"]]
 
 
+@pytest.mark.app("staff_api")
 @pytest.mark.parametrize("ratio", ["0", "1", "1.5", "-0.1", "half"])
 def test_story_1_5_sampling_off_or_malformed_stops_the_app(
     ratio: str,

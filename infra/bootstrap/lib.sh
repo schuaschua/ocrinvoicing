@@ -76,6 +76,16 @@ app_identity_name() { resource_name id "$(($(env_base "$1") + $(app_offset "$2")
 function_app_name() { resource_name func "$(($(env_base "$1") + $(app_offset "$2")))"; }
 
 key_vault_name() { resource_name kv "$(env_base "$1")"; }
+# Private-key vaults (OCR-129): one per environment in the bootstrap-only rg-22, kv-22 Dev
+# and kv-23 Prod. They hold only pgp-private-key, which only the environment's staff-api
+# identity may read. No Terraform stack manages them (infra/modules/naming only names them).
+private_key_vault_name() {
+  case "$1" in
+    dev) resource_name kv 22 ;;
+    prod) resource_name kv 23 ;;
+    *) die "unknown environment '$1' (expected dev or prod)" ;;
+  esac
+}
 # The Azure Monitor action group of each stack (ag-01 dev, ag-11 prod, ag-21 shared).
 action_group_name() { resource_name ag "$(env_base "$1")"; }
 env_storage_name() { storage_name st "$(env_base "$1")"; }
@@ -363,6 +373,29 @@ ensure_role_assignment() {
     args+=(--condition "$condition" --condition-version "2.0")
   fi
   run "${args[@]}"
+}
+
+# remove_role_assignment PRINCIPAL_ID ROLE_ID SCOPE - deletes the assignment made at
+# exactly SCOPE, if there is one (assignments inherited from a parent scope are untouched).
+remove_role_assignment() {
+  local principal_id="$1" role_id="$2" scope="$3"
+  local ids
+  if ((DRY_RUN)); then
+    ids=""
+    _print_cmd "[dry-run] (lookup)" az role assignment list --assignee-object-id "$principal_id" \
+      --fill-principal-name false --role "$role_id" --scope "$scope" >&2
+  else
+    ids="$(az role assignment list --assignee-object-id "$principal_id" --fill-principal-name false \
+      --role "$role_id" --scope "$scope" --query "[?scope=='$scope'].id" -o tsv)"
+  fi
+  if [[ -z "$ids" ]]; then
+    log "absent: role $role_id for $principal_id at $scope"
+    return 0
+  fi
+  local id
+  for id in $ids; do
+    run az role assignment delete --ids "$id"
+  done
 }
 
 identity_principal_id() {

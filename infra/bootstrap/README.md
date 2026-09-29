@@ -322,7 +322,7 @@ Every alert goes through an action group that emails Dj: `ag-21` for the `shared
 2. **Check that Dj received it:** one test email per action group at each address the script lists, each naming its group. Look in the spam folder too, and mark the sender as safe.
 3. If one is missing, check that group's email receiver in its stack's `terraform.tfvars` (`alert_email`) and re-run. An alert that doesn't reach Dj is not an alert.
 
-Application Insights in each environment has alerting on custom metric dimensions on, so `poison_message{queue}` keeps its queue. `<env>/app` holds the `poison_message` and `stuck_invoices` alert rules (`ar-01`/`ar-02` in Dev, `ar-11`/`ar-12` in Prod, Story 2.2); Story 2.3 adds `di_pages_used_pct`. There is no separate log-cap alert: the 0.08 GB daily cap bounds ingestion (AD-17).
+Application Insights in each environment has alerting on custom metric dimensions on, so `poison_message{queue}` keeps its queue. `<env>/app` holds the `poison_message` and `stuck_invoices` alert rules (`ar-01`/`ar-02` in Dev, `ar-11`/`ar-12` in Prod, Story 2.2) and `di_pages_used_pct` (`ar-03` Dev, `ar-13` Prod, Story 2.3), which fires at 80 % of the environment's monthly page cap (Dev 100, Prod 400). There is no separate log-cap alert: the 0.08 GB daily cap bounds ingestion (AD-17).
 
 ### Pipeline check: first Dev deploy (Story 2.2)
 

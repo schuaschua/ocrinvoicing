@@ -47,7 +47,12 @@ from azure.core.exceptions import AzureError
 from sqlalchemy import Engine, NullPool, create_engine, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from invoicing.adapters.key_vault import SecretReadError, read_secrets
+from invoicing.adapters.key_vault import (
+    HMAC_KEY_SECRET,
+    PUBLIC_KEY_SECRET,
+    SecretReadError,
+    read_secrets,
+)
 from invoicing.adapters.postgres.suppliers import (
     LINK_ISSUED,
     LINK_REPLACED,
@@ -69,8 +74,6 @@ from invoicing.domain.suppliers import (
 from invoicing.ports.links import SupplierLink, SupplierLinkRegistry
 
 PROD_DATABASE = "invoicing_prod"
-PUBLIC_KEY_SECRET = "pgp-public-key"  # noqa: S105  # the secret's name, not a value
-HMAC_KEY_SECRET = "hmac-key"  # noqa: S105  # the secret's name, not a value
 
 # A bare host name (the supplier-api app's `<name>.azurewebsites.net`): no scheme or path.
 _LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"

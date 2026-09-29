@@ -64,3 +64,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-2-ci-cd-on-jenkins.md`
   summary: Harden branch builds so they can't reach the metadata endpoint (a separate Docker network with IMDS blocked; deploy only from main's job) before anyone else gets push access or before Prod.
   evidence: Reviews B1, B2, E9; accepted for the PoC by Dj on 2026-09-30.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-3-invoice-fields-extracted-by-document-intelligence.md`
+  summary: Story 2.5's migration must grant the pipeline login UPDATE (po_line_id, material_id) on intake.invoice_line, the only columns validate fills.
+  evidence: AD-18 says validate fills these columns; migration 0005 gives the pipeline SELECT, INSERT only on invoice_line (append-only for DI rows).

@@ -1,6 +1,7 @@
 """Story 1.6: the Key Vault secret reader (AD-11) with a fake `SecretClient`, and the
 load script's exit when the keys can't be read. No Azure is called."""
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -65,6 +66,14 @@ def test_story_1_6_key_vault_reads_report_codes_only_and_stop_the_load(
         "pgp-public-key": "PUBLIC",
         "hmac-key": "HMAC",
     }
+    # Story 2.3: the pipeline's loader reads both secrets once, then keeps them.
+    loader = key_vault.BankKeysLoader(VAULT, lambda: None)  # type: ignore[arg-type,return-value]
+    closed = FakeSecretClient.closed
+    keys = asyncio.run(loader())
+    assert (keys.public_key, keys.hmac_key) == ("PUBLIC", "HMAC")
+    FakeSecretClient.answers = {}
+    assert asyncio.run(loader()) is keys
+    assert FakeSecretClient.closed == closed + 1
     for answer, code in (
         ("", "EMPTY"),
         (None, "EMPTY"),

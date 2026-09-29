@@ -1,9 +1,11 @@
 """Story 2.1: the Alembic migrations (AD-11, AD-17 step 6) against PostgreSQL 18, run
 through the CLI exactly as ci/migrate.sh does: PG* variables and `-x` role names."""
 
+from uuid import uuid4
+
 import pytest
 from sqlalchemy import Engine, create_engine, inspect, text
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from conftest import PostgresServer
 
@@ -44,6 +46,11 @@ REFUSED = [
     "UPDATE intake.admin_item SET reason = 'DUPLICATE'",
     "UPDATE intake.image_hash SET phash = 0",
     "TRUNCATE intake.invoice CASCADE",
+    # Story 2.3: extraction runs, fields and lines are append-only (AD-18).
+    "UPDATE intake.extraction_run SET pages = 0",
+    "UPDATE intake.invoice_field SET confidence = 1",
+    "UPDATE intake.invoice_line SET confidence = 1",
+    "DELETE FROM intake.invoice_field",
     # Never DDL on the schema the deployer owns.
     "CREATE TABLE intake.sneaky (id int)",
 ]
@@ -77,3 +84,49 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             connection.execute(text("SELECT count(*) FROM intake.invoice"))
     finally:
         outsider.dispose()
+
+    # Story 2.3 (AD-11): a bank field never holds a plaintext value, and only a bank
+    # field holds ciphertext. Written as the owner, inside a rolled-back transaction.
+    owner = _engine(postgres_server, postgres_server.deployer, intake_database)
+    field = (
+        "INSERT INTO intake.invoice_field (id, invoice_id, run_id, field_id, source, {})"
+        " VALUES (gen_random_uuid(), :invoice, :run, '{}', 'di', {})"
+    )
+    try:
+        with owner.connect() as connection, connection.begin():
+            ids = {"invoice": uuid4(), "run": uuid4()}
+            connection.execute(
+                text(
+                    "INSERT INTO intake.invoice (id, correlation_id, source, supplier_id,"
+                    " content_type, device_check, status) VALUES (:invoice,"
+                    " gen_random_uuid(), 'link', gen_random_uuid(), 'image/jpeg',"
+                    " 'passed', 'extracting')"
+                ),
+                ids,
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO intake.extraction_run (run_id, invoice_id, model_id,"
+                    " api_version, pages) VALUES (:run, :invoice, 'm', 'v', 1)"
+                ),
+                ids,
+            )
+            for columns, field_id, values in (
+                ("value_text", "payment[0].iban", "'SG12ABCD'"),
+                (
+                    "bank_ciphertext, bank_fingerprint",
+                    "vendor_name",
+                    f"'\\x00'::bytea, '{'0' * 64}'",
+                ),
+            ):
+                # The savepoint rolls back the refused insert only.
+                with (
+                    pytest.raises(IntegrityError, match="ck_invoice_field_bank"),
+                    connection.begin_nested(),
+                ):
+                    connection.execute(
+                        text(field.format(columns, field_id, values)), ids
+                    )
+            connection.rollback()
+    finally:
+        owner.dispose()

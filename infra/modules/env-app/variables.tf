@@ -106,12 +106,53 @@ variable "action_group_id" {
 }
 
 variable "metric_alert_names" {
-  description = "Metric alert rule names from the naming module (metric_alert_names output), keyed by metric: poison_message and stuck_invoices (P-16)."
+  description = "Metric alert rule names from the naming module (metric_alert_names output), keyed by metric: poison_message, stuck_invoices and di_pages_used_pct (P-16)."
   type        = map(string)
 
   validation {
-    condition     = toset(keys(var.metric_alert_names)) == toset(["poison_message", "stuck_invoices"])
-    error_message = "metric_alert_names must have exactly the keys poison_message and stuck_invoices."
+    condition     = toset(keys(var.metric_alert_names)) == toset(["poison_message", "stuck_invoices", "di_pages_used_pct"])
+    error_message = "metric_alert_names must have exactly the keys poison_message, stuck_invoices and di_pages_used_pct."
+  }
+}
+
+variable "document_intelligence_id" {
+  description = "Resource id of the shared Document Intelligence F0 resource (shared/foundation, through <env>/foundation). The pipeline identity gets Cognitive Services User on it (AD-8)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.CognitiveServices/accounts/[^/]+$", var.document_intelligence_id))
+    error_message = "document_intelligence_id must be a Cognitive Services account's resource id."
+  }
+}
+
+variable "document_intelligence_endpoint" {
+  description = "Custom-subdomain endpoint of the shared Document Intelligence resource (managed identity only, AD-8); the pipeline's DI_ENDPOINT setting."
+  type        = string
+
+  validation {
+    condition     = can(regex("^https://[a-z0-9-]+\\.cognitiveservices\\.azure\\.com/?$", var.document_intelligence_endpoint))
+    error_message = "document_intelligence_endpoint must be the resource's custom subdomain: https://<name>.cognitiveservices.azure.com/."
+  }
+}
+
+variable "di_monthly_page_cap" {
+  description = "Pages this environment may analyse per calendar month on the shared F0 resource (AD-8: Dev 100, Prod 400); DI_MONTHLY_PAGE_CAP, and the di_pages_used_pct alert fires at 80 % of it."
+  type        = number
+
+  validation {
+    condition     = var.di_monthly_page_cap > 0 && var.di_monthly_page_cap <= 500 && floor(var.di_monthly_page_cap) == var.di_monthly_page_cap
+    error_message = "di_monthly_page_cap must be a whole number from 1 to 500 (F0's monthly pages)."
+  }
+}
+
+variable "invoice_currency" {
+  description = "ISO 4217 currency of every invoice (INVOICE_CURRENCY); DI does not report SGD (AD-8)."
+  type        = string
+  default     = "SGD"
+
+  validation {
+    condition     = can(regex("^[A-Z]{3}$", var.invoice_currency))
+    error_message = "invoice_currency must be a three-letter ISO 4217 code."
   }
 }
 

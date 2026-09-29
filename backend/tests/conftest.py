@@ -43,6 +43,10 @@ APP_ONLY_SETTINGS = {
         "POSTGRES_HOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",
         "POSTGRES_DATABASE": "invoicing_dev",
         "POSTGRES_USER": "babaloo-sea-lng-id-03",
+        # Story 2.3: the shared DI resource's custom subdomain and Dev's page cap.
+        "DI_ENDPOINT": "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/",
+        "DI_MONTHLY_PAGE_CAP": "100",
+        "INVOICE_CURRENCY": "SGD",
     },
 }
 
@@ -339,7 +343,8 @@ def pipeline_engine(
         connection.execute(
             text(
                 "TRUNCATE intake.admin_item, intake.image_hash, intake.status_history,"
-                " intake.invoice"
+                " intake.invoice_field, intake.invoice_line, intake.extraction_run,"
+                " intake.di_operation, intake.di_usage, intake.invoice"
             )
         )
     owner.dispose()

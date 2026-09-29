@@ -23,9 +23,9 @@ type PasswordProvider = Callable[[], str]
 _logger = logging.getLogger("invoicing.postgres")
 
 # One connection per `pipeline` function that can run at once on its single instance
-# (AD-2: quality, the four poison triggers and the sweeper; each later stage adds
-# one). Dev and Prod together stay far inside the B1ms connection limit (AD-12).
-POOL_SIZE = 6
+# (AD-2: quality, extract, the four poison triggers and the sweeper; each later stage
+# adds one). Dev and Prod together stay far inside the B1ms connection limit (AD-12).
+POOL_SIZE = 7
 
 
 class DatabaseBusyError(RuntimeError):

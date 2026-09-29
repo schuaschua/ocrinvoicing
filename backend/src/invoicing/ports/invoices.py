@@ -116,6 +116,13 @@ class InvoiceRepository(Protocol):
         written and the message is acknowledged."""
         ...
 
+    async def release_claim(self, claim: Claim) -> bool:
+        """End `claim`'s lease now, leaving the status as it is, so the stage's own
+        retry (a DI 429 re-enqueue, a host retry) can reclaim it at once (AD-3: an
+        expired lease may be reclaimed). False when the invoice is no longer in the
+        claim status."""
+        ...
+
     async def stale(
         self, stale_after: timedelta, *, stages: frozenset[Stage], limit: int
     ) -> StaleScan:

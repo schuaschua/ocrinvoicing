@@ -14,7 +14,7 @@ output "app_names" {
 }
 
 output "metric_alert_names" {
-  description = "Per AD-17 custom metric that has an alert (poison_message, stuck_invoices): the metric alert rule's name. Empty for shared."
+  description = "Per AD-17 custom metric that has an alert (poison_message, stuck_invoices, di_pages_used_pct): the metric alert rule's name. Empty for shared."
   value       = local.metric_alerts
 }
 

@@ -1,11 +1,13 @@
 """Reads secrets from an environment's Key Vault (AD-11): the supplier load script
-(Story 1.6) reads `pgp-public-key` and `hmac-key`, signed in as the operator.
+(Story 1.6) reads `pgp-public-key` and `hmac-key`, signed in as the operator, and the
+pipeline's `extract` stage (Story 2.3) reads the same two once, as its identity.
 
 Secret values are never logged, printed or put in an error. A failure is reported by
 its code only: the SDK's exception text may carry the request URL.
 """
 
-from collections.abc import Sequence
+import asyncio
+from collections.abc import Callable, Sequence
 
 from azure.core.credentials import TokenCredential
 from azure.core.exceptions import (
@@ -15,6 +17,11 @@ from azure.core.exceptions import (
     ResourceNotFoundError,
 )
 from azure.keyvault.secrets import SecretClient
+
+from invoicing.adapters.postgres.suppliers import BankKeys
+
+PUBLIC_KEY_SECRET = "pgp-public-key"  # noqa: S105  # the secret's name, not a value
+HMAC_KEY_SECRET = "hmac-key"  # noqa: S105  # the secret's name, not a value
 
 
 class SecretReadError(Exception):
@@ -55,3 +62,30 @@ def read_secrets(
     finally:
         client.close()
     return values
+
+
+class BankKeysLoader:
+    """The environment's `BankKeys`, read from Key Vault on first use and then kept
+    for the life of the app (Story 2.3): only a run with a bank value needs them."""
+
+    def __init__(
+        self, vault_uri: str, credential: Callable[[], TokenCredential]
+    ) -> None:
+        self._vault_uri = vault_uri
+        self._credential = credential
+        self._keys: BankKeys | None = None
+        self._lock = asyncio.Lock()
+
+    async def __call__(self) -> BankKeys:
+        async with self._lock:
+            if self._keys is None:
+                self._keys = await asyncio.to_thread(self._read)
+        return self._keys
+
+    def _read(self) -> BankKeys:
+        values = read_secrets(
+            self._vault_uri, (PUBLIC_KEY_SECRET, HMAC_KEY_SECRET), self._credential()
+        )
+        return BankKeys(
+            public_key=values[PUBLIC_KEY_SECRET], hmac_key=values[HMAC_KEY_SECRET]
+        )

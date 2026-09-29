@@ -3,26 +3,36 @@
 
 Queue and timer triggers only, never HTTP routes (AD-1). Story 2.1 adds the `quality`
 stage on `q-quality`; Story 2.2 the poison triggers, the AD-7 database wait and the
-sweeper timer. The other stages arrive with their stories.
+sweeper timer; Story 2.3 the `extract` stage on `q-extract`. The other stages arrive
+with their stories.
 """
 
 import azure.functions as func
+from azure.identity import ManagedIdentityCredential
+from azure.identity.aio import (
+    ManagedIdentityCredential as AsyncManagedIdentityCredential,
+)
 
 from invoicing.adapters.blob_images import BlobImageStore
+from invoicing.adapters.document_intelligence import DocumentIntelligenceAnalyzer
 from invoicing.adapters.documents import load_quality_thresholds
+from invoicing.adapters.key_vault import BankKeysLoader
 from invoicing.adapters.metrics import OpenTelemetryMetrics
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
+from invoicing.adapters.postgres.extraction import PostgresExtractionRepository
 from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
 from invoicing.adapters.purchasing_factory import purchasing_port
 from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import load_settings, start_telemetry
 from invoicing.apps.pipeline.dbwait import wait_for_database
+from invoicing.apps.pipeline.extract import ExtractDependencies, extract_handler
 from invoicing.apps.pipeline.poison import poison_handler
 from invoicing.apps.pipeline.quality import quality_handler
 from invoicing.apps.pipeline.settings import PipelineSettings
 from invoicing.apps.pipeline.sweeper import SWEEP_SCHEDULE, Sweeper
 from invoicing.domain.status import Stage
+from invoicing.ports.extraction import DefaultModelSelector
 from invoicing.ports.queue import POISON_QUEUES, QueueName
 
 # Fails at start-up, naming any missing setting.
@@ -57,6 +67,37 @@ thresholds = load_quality_thresholds()
 quality_stage = wait_for_database(
     QueueName.QUALITY, queue, quality_handler(images, invoices, queue, thresholds)
 )
+# Story 2.3: the bank keys are read from Key Vault once, when a run first holds a
+# bank value (AD-11); DI is called through its one adapter only (AD-8).
+extractions = PostgresExtractionRepository(
+    engine,
+    invoices,
+    BankKeysLoader(
+        settings.key_vault_uri, lambda: ManagedIdentityCredential(client_id=_identity)
+    ),
+)
+analyzer = DocumentIntelligenceAnalyzer(
+    endpoint=settings.di_endpoint,
+    credential=AsyncManagedIdentityCredential(client_id=_identity),
+    engine=engine,
+    page_cap=settings.di_monthly_page_cap,
+    currency=settings.invoice_currency,
+)
+extract_stage = wait_for_database(
+    QueueName.EXTRACT,
+    queue,
+    extract_handler(
+        ExtractDependencies(
+            images=images,
+            invoices=invoices,
+            extractions=extractions,
+            analyzer=analyzer,
+            models=DefaultModelSelector(),
+            queue=queue,
+            metrics=metrics,
+        )
+    ),
+)
 poison_stages = {
     stage: wait_for_database(
         POISON_QUEUES[stage], queue, poison_handler(stage, images, invoices, metrics)
@@ -74,6 +115,15 @@ sweeper_job = Sweeper(invoices, upload_keys, images, queue, metrics)
 async def quality(msg: func.QueueMessage) -> None:
     """The quality stage: create the invoice row and check readability (Story 2.1)."""
     await quality_stage(msg.get_body())
+
+
+@app.queue_trigger(
+    arg_name="msg", queue_name=QueueName.EXTRACT.value, connection="AzureWebJobsStorage"
+)
+async def extract(msg: func.QueueMessage) -> None:
+    """The extract stage: read the invoice's fields with Document Intelligence
+    (Story 2.3)."""
+    await extract_stage(msg.get_body())
 
 
 # AD-2: one trigger per poison queue; each routes PROCESSING_FAILED under the guard.

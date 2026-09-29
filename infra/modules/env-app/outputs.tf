@@ -39,14 +39,21 @@ output "metric_alerts" {
   description = "The AD-17 metric alert rules, keyed by metric: name, resource id, scopes, action group ids and tags."
   value = {
     for metric, alert in {
-      poison_message = azurerm_monitor_metric_alert.poison_message
-      stuck_invoices = azurerm_monitor_metric_alert.stuck_invoices
+      poison_message    = azurerm_monitor_metric_alert.poison_message
+      stuck_invoices    = azurerm_monitor_metric_alert.stuck_invoices
+      di_pages_used_pct = azurerm_monitor_metric_alert.di_pages_used_pct
       } : metric => {
       name             = alert.name
       resource_id      = alert.id
       scopes           = alert.scopes
       action_group_ids = [for action in alert.action : action.action_group_id]
       tags             = alert.tags
+      # The one criterion's metric, operator and threshold.
+      criteria = {
+        metric_name = one(alert.criteria).metric_name
+        operator    = one(alert.criteria).operator
+        threshold   = one(alert.criteria).threshold
+      }
     }
   }
 }
@@ -67,4 +74,9 @@ output "staff_api_auth" {
 output "staff_api_app_settings" {
   description = "staff-api's app settings as this module sets them (no secrets: the Application Insights connection string is passed to the AVM module separately)."
   value       = local.app_settings["staff_api"]
+}
+
+output "pipeline_app_settings" {
+  description = "The pipeline's app settings as this module sets them (no secrets)."
+  value       = local.app_settings["pipeline"]
 }

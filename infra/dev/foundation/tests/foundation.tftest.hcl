@@ -67,7 +67,9 @@ override_data {
         dev  = "invoicing_dev"
         prod = "invoicing_prod"
       }
-      postgres_fqdn = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
+      postgres_fqdn                  = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
+      document_intelligence_id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21"
+      document_intelligence_endpoint = "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/"
     }
   }
 }
@@ -131,6 +133,10 @@ run "dev_foundation" {
   assert {
     condition     = output.database.name == "invoicing_dev"
     error_message = "dev must read its database name from the shared stack's remote state."
+  }
+  assert {
+    condition     = output.document_intelligence_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21" && output.document_intelligence_endpoint == "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/"
+    error_message = "dev must pass the shared DI resource's id and endpoint through to dev/app (Story 2.3)."
   }
   assert {
     condition     = var.budget_amount == 2

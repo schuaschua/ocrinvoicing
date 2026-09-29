@@ -68,6 +68,10 @@ def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper
     }
     assert {b["type"] for b in poison.values()} == {"queueTrigger"}
     assert {b["connection"] for b in poison.values()} == {"AzureWebJobsStorage"}
+    # Story 2.3: the extract stage consumes q-extract.
+    (extract,) = [b.get_dict_repr() for b in functions["extract"].get_bindings()]
+    assert (extract["type"], extract["queueName"]) == ("queueTrigger", "q-extract")
+    assert extract["connection"] == "AzureWebJobsStorage"
     (timer,) = [b.get_dict_repr() for b in functions["sweeper"].get_bindings()]
     assert timer["type"] == "timerTrigger"
     # AD-2: every 15 minutes, NCRONTAB in UTC; no run on a cold start.

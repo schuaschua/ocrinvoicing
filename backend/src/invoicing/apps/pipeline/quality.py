@@ -56,8 +56,8 @@ class StageFailed(Exception):
     Raised `from None` with a fixed text and a code only, so the host never logs the
     original exception's text, which may hold values (security.md rule 31)."""
 
-    def __init__(self, code: str) -> None:
-        super().__init__(f"quality stage failed: {code}")
+    def __init__(self, code: str, stage: Stage = Stage.QUALITY) -> None:
+        super().__init__(f"{stage} stage failed: {code}")
         self.code = code
 
 
@@ -68,7 +68,8 @@ _FAILURE_CODES: Mapping[type[Exception], str] = {
 }
 
 
-def _failure_code(error: Exception) -> str:
+def failure_code(error: Exception) -> str:
+    """The code a failed stage logs and raises: a known code, else the class name."""
     if isinstance(error, StageFailed):
         return error.code
     for kind, code in _FAILURE_CODES.items():
@@ -224,7 +225,7 @@ def quality_handler(
                 raise
             except Exception as error:  # noqa: BLE001  # re-raised as StageFailed
                 # The exception text may hold values: log a code, raise only the code.
-                code = _failure_code(error)
+                code = failure_code(error)
                 log_event(
                     _logger,
                     "quality.failed",

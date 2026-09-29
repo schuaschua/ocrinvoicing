@@ -43,7 +43,11 @@ module "app" {
   # URI comes from the naming convention, not from a stack's state.
   private_key_vault_uri   = "https://${module.naming.private_key_vault_name}.vault.azure.net/"
   application_insights_id = local.foundation.application_insights.resource_id
-  # Story 2.2: the poison_message and stuck_invoices alerts go to the env action group.
+  # Story 2.3: the shared DI resource, through <env>/foundation, and this env's cap.
+  document_intelligence_id       = local.foundation.document_intelligence_id
+  document_intelligence_endpoint = local.foundation.document_intelligence_endpoint
+  di_monthly_page_cap            = local.di_monthly_page_cap
+  # Stories 2.2 and 2.3: the pipeline metric alerts go to the env action group.
   action_group_id                        = local.foundation.action_group_id
   metric_alert_names                     = module.naming.metric_alert_names
   application_insights_connection_string = local.foundation.application_insights_connection_string

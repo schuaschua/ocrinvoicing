@@ -9,7 +9,7 @@ output "role_assignments" {
 }
 
 output "metric_alerts" {
-  description = "The AD-17 metric alert rules (poison_message, stuck_invoices): name, resource id, scopes, action group ids and tags."
+  description = "The AD-17 metric alert rules (poison_message, stuck_invoices, di_pages_used_pct): name, resource id, scopes, action group ids, tags and criterion."
   value       = module.app.metric_alerts
 }
 

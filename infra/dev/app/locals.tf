@@ -7,4 +7,7 @@ locals {
   tags      = module.naming.tags
 
   foundation = data.terraform_remote_state.foundation.outputs
+
+  # AD-8: this environment's share of F0's 500 pages a month (Dev 100, Prod 400).
+  di_monthly_page_cap = 100
 }

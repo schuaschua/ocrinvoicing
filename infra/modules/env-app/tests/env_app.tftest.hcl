@@ -126,9 +126,13 @@ variables {
   application_insights_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
   action_group_id         = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"
   metric_alert_names = {
-    poison_message = "babaloo-sea-lng-ar-01"
-    stuck_invoices = "babaloo-sea-lng-ar-02"
+    poison_message    = "babaloo-sea-lng-ar-01"
+    stuck_invoices    = "babaloo-sea-lng-ar-02"
+    di_pages_used_pct = "babaloo-sea-lng-ar-03"
   }
+  document_intelligence_id               = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21"
+  document_intelligence_endpoint         = "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/"
+  di_monthly_page_cap                    = 100
   telemetry_sampling_ratio               = 0.5
   staff_api_client_id                    = "30000000-0000-0000-0000-0000000000a1"
   application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
@@ -254,6 +258,8 @@ run "story_1_3_env_app_applied" {
       "10000000-0000-0000-0000-000000000003 | Key Vault Secrets User | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01/secrets/hmac-key",
       "10000000-0000-0000-0000-000000000003 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/deploy-pipeline",
       "10000000-0000-0000-0000-000000000003 | Monitoring Metrics Publisher | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01",
+      # Story 2.3 (AD-8): the one DI caller, on the shared F0 resource.
+      "10000000-0000-0000-0000-000000000003 | Cognitive Services User | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/deploy-accounts-sim",
       "10000000-0000-0000-0000-000000000004 | Monitoring Metrics Publisher | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01",
       # Functions host containers: platform requirement beyond AD-17 (overnight decision).
@@ -265,8 +271,8 @@ run "story_1_3_env_app_applied" {
       "10000000-0000-0000-0000-000000000003 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-secrets",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-hosts",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-secrets",
-    ]) && length(azurerm_role_assignment.runtime) == 30
-    error_message = "runtime roles must be exactly the AD-17 table (minus DI and ACS, Stories 2.3 and 5.2) plus Blob Data Owner on the two Functions host containers."
+    ]) && length(azurerm_role_assignment.runtime) == 31
+    error_message = "runtime roles must be exactly the AD-17 table (minus ACS, Story 5.2) plus Blob Data Owner on the two Functions host containers."
   }
   assert {
     condition     = alltrue([for ra in azurerm_role_assignment.runtime : can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/.+", ra.scope))])
@@ -286,6 +292,20 @@ run "story_1_3_env_app_applied" {
   assert {
     condition     = alltrue([for ra in azurerm_role_assignment.runtime : ra.principal_type == "ServicePrincipal"])
     error_message = "runtime roles are for managed identities (ServicePrincipal)."
+  }
+  assert {
+    condition     = [for ra in azurerm_role_assignment.runtime : ra.principal_id if ra.role_definition_name == "Cognitive Services User"] == ["10000000-0000-0000-0000-000000000003"]
+    error_message = "only the pipeline identity may call Document Intelligence (AD-8: one caller)."
+  }
+  # Story 2.3: di_pages_used_pct alerts Dj at 80 % of the page cap (AD-8, AD-17).
+  assert {
+    condition = (
+      output.metric_alerts["di_pages_used_pct"].name == "babaloo-sea-lng-ar-03" &&
+      output.metric_alerts["di_pages_used_pct"].criteria == { metric_name = "di_pages_used_pct", operator = "GreaterThanOrEqual", threshold = 80 } &&
+      output.metric_alerts["di_pages_used_pct"].action_group_ids == [var.action_group_id] &&
+      output.metric_alerts["di_pages_used_pct"].scopes == toset([var.application_insights_id])
+    )
+    error_message = "di_pages_used_pct must alert the action group at 80 % of the cap, on this environment's Application Insights."
   }
   # --- staff_api_built_in_auth
   # Story 2.7: staff-api signs in with Entra through built-in auth (AD-14).
@@ -362,7 +382,7 @@ run "story_1_3_env_app_settings_plan" {
     condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
       supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
       staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI"])
-      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER"])
+      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_ENDPOINT", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
       accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
     }
     error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
@@ -389,9 +409,12 @@ run "story_1_3_env_app_settings_plan" {
     condition = (
       local.app_settings["pipeline"].POSTGRES_HOST == "babaloo-sea-lng-psql-21.postgres.database.azure.com" &&
       local.app_settings["pipeline"].POSTGRES_DATABASE == "invoicing_dev" &&
-      local.app_settings["pipeline"].POSTGRES_USER == "babaloo-sea-lng-id-03"
+      local.app_settings["pipeline"].POSTGRES_USER == "babaloo-sea-lng-id-03" &&
+      local.app_settings["pipeline"].DI_ENDPOINT == "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/" &&
+      local.app_settings["pipeline"].DI_MONTHLY_PAGE_CAP == "100" &&
+      local.app_settings["pipeline"].INVOICE_CURRENCY == "SGD"
     )
-    error_message = "the pipeline must connect to its environment's database as its own identity's login."
+    error_message = "the pipeline must connect to its environment's database as its own identity's login, and to DI with its cap and currency (Story 2.3)."
   }
   assert {
     condition = alltrue([

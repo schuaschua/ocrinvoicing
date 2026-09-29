@@ -55,8 +55,9 @@ locals {
   private_key_vault = lookup({ dev = format("%s-kv-22", local.prefix), prod = format("%s-kv-23", local.prefix) }, var.environment, null)
 
   # Azure Monitor metric alert rules (azure.md: `ar`), numbered from the base in this
-  # order. Story 2.2 adds the first two; Story 2.3's di_pages_used_pct comes next.
-  metric_alert_order = ["poison_message", "stuck_invoices"]
+  # order. Story 2.2 added the first two, Story 2.3 di_pages_used_pct (ar-03 Dev,
+  # ar-13 Prod).
+  metric_alert_order = ["poison_message", "stuck_invoices", "di_pages_used_pct"]
   metric_alerts = {
     for index, metric in local.metric_alert_order :
     metric => format("%s-ar-%02d", local.prefix, var.number_base + index)

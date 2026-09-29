@@ -164,6 +164,9 @@ class PostgresInvoiceRepository:
     async def claim(self, claim: Claim) -> bool:
         return await asyncio.to_thread(self._in_transaction, self._claim, claim)
 
+    async def release_claim(self, claim: Claim) -> bool:
+        return await asyncio.to_thread(self._in_transaction, self._release, claim)
+
     async def stale(
         self, stale_after: timedelta, *, stages: frozenset[Stage], limit: int
     ) -> StaleScan:
@@ -183,6 +186,23 @@ class PostgresInvoiceRepository:
         except _Discard:
             # Raised inside the transaction, so everything it wrote is rolled back.
             return False
+
+    def transition_in(self, connection: Connection, plan: Transition) -> bool:
+        """Run `plan` inside the caller's transaction, ending any lease: the target is
+        a waiting status (Story 2.3 saves a run with it, AD-3 save-before-finish)."""
+        return self._transition(connection, plan, None, {"claimed_until": None})
+
+    def _release(self, connection: Connection, claim: Claim) -> bool:
+        released = connection.execute(
+            update(invoice)
+            .where(
+                invoice.c.id == claim.invoice_id,
+                invoice.c.status == claim.claim_status.value,
+            )
+            .values(claimed_until=func.now())
+            .returning(invoice.c.id)
+        ).first()
+        return released is not None
 
     def _status(self, invoice_id: UUID) -> InvoiceStatus | None:
         with open_connection(self._engine) as connection:

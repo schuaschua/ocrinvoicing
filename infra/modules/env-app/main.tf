@@ -1,10 +1,10 @@
 # AD-17 step 7: one environment's four Flex Consumption apps (AD-1), each in its own
 # plan with its own user-assigned identity from <env>/foundation, their deployment
 # containers, app settings (no secrets) and the AD-17 runtime role assignments.
-# The DI Cognitive Services User assignment (2.3), the ACS Email Sender assignment
-# (5.2) and the di_pages_used_pct alert (2.3) are added later; Story 1.5 added the
-# telemetry settings, Story 2.2 the pipeline's poison_message and stuck_invoices
-# metric alerts and Story 2.7 staff-api's built-in auth.
+# The ACS Email Sender assignment (5.2) is added later; Story 1.5 added the telemetry
+# settings, Story 2.2 the pipeline's poison_message and stuck_invoices metric alerts,
+# Story 2.3 the pipeline's DI settings, its Cognitive Services User assignment and the
+# di_pages_used_pct alert, and Story 2.7 staff-api's built-in auth.
 
 locals {
   apps = toset(keys(var.app_names))
@@ -64,6 +64,11 @@ locals {
       POSTGRES_HOST        = var.database.fqdn
       POSTGRES_DATABASE    = var.database.name
       POSTGRES_USER        = var.identities["pipeline"].name
+      # Story 2.3 (AD-8): the shared DI resource's custom subdomain (managed identity,
+      # no key), this environment's monthly page cap and the invoice currency.
+      DI_ENDPOINT         = var.document_intelligence_endpoint
+      DI_MONTHLY_PAGE_CAP = tostring(var.di_monthly_page_cap)
+      INVOICE_CURRENCY    = var.invoice_currency
     }
     accounts_sim = {}
   }
@@ -130,6 +135,11 @@ locals {
     }
     "pipeline/secret/hmac-key" = {
       app = "pipeline", role = "Key Vault Secrets User", scope = local.secret_scopes["hmac-key"]
+    }
+    # Story 2.3 (AD-8): the one DI caller, on the shared F0 resource in rg-21. The deploy
+    # identity may assign only this role there (bootstrap rbac-step3.sh, AD-17 step 3).
+    "pipeline/cognitive/di" = {
+      app = "pipeline", role = "Cognitive Services User", scope = var.document_intelligence_id
     }
   }
 
@@ -388,6 +398,34 @@ resource "azurerm_monitor_metric_alert" "stuck_invoices" {
     aggregation            = "Maximum"
     operator               = "GreaterThan"
     threshold              = 0
+    skip_metric_validation = true
+  }
+
+  action {
+    action_group_id = var.action_group_id
+  }
+
+  tags = var.tags
+}
+
+# di_pages_used_pct: this environment's DI pages this month as a percentage of its cap
+# (AD-8). The extract stage emits it after each analysis; the alert fires at 80 %.
+resource "azurerm_monitor_metric_alert" "di_pages_used_pct" {
+  name                = var.metric_alert_names["di_pages_used_pct"]
+  resource_group_name = local.resource_group_name
+  scopes              = [var.application_insights_id]
+  description         = "Document Intelligence pages used this month reached 80% of this environment's cap of ${var.di_monthly_page_cap} (AD-8). At 100% new invoices go to the admin queue as EXTRACTION_QUOTA until the month ends."
+  severity            = 2
+  frequency           = "PT1H"
+  window_size         = "PT6H"
+  auto_mitigate       = true
+
+  criteria {
+    metric_namespace       = local.custom_metrics_namespace
+    metric_name            = "di_pages_used_pct"
+    aggregation            = "Maximum"
+    operator               = "GreaterThanOrEqual"
+    threshold              = 80
     skip_metric_validation = true
   }
 

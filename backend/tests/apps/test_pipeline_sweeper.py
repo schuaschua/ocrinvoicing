@@ -142,10 +142,13 @@ def test_story_2_2_sweeper_map_re_enqueues_stale_received_to_quality(
     sweep: Sweep, caplog: pytest.LogCaptureFixture
 ) -> None:
     stale = sweep.seed(1, S.RECEIVED)
+    # Story 2.3: extract is a consumed queue now, so it is swept too.
+    waiting = sweep.seed(2, S.AWAITING_EXTRACTION)
     with caplog.at_level(logging.DEBUG, logger="invoicing"):
         result = sweep.run()
+    assert sweep.sent()[waiting] is QueueName.EXTRACT
     # The invoice's own trace, first enqueued when it was created.
-    assert sweep.queue.sent == [
+    assert [sent for sent in sweep.queue.sent if sent[1].invoice_id == stale] == [
         (
             QueueName.QUALITY,
             QueueMessage(
@@ -157,11 +160,11 @@ def test_story_2_2_sweeper_map_re_enqueues_stale_received_to_quality(
             0,
         )
     ]
-    assert result == SweepResult("swept", requeued=1)
-    assert sweep.stuck() == [1]
+    assert result == SweepResult("swept", requeued=2)
+    assert sweep.stuck() == [2]
     assert _done(caplog) == {
         "code": "swept",
-        "requeued": 1,
+        "requeued": 2,
         "orphans": 0,
         "deleted": 0,
         "failures": 0,

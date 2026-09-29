@@ -124,6 +124,8 @@ override_data {
         resource_id                  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-11"
         custom_metrics_opted_in_type = "WithDimensions"
       }
+      document_intelligence_id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21"
+      document_intelligence_endpoint = "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/"
       database = {
         name = "invoicing_prod"
         fqdn = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
@@ -196,9 +198,9 @@ run "prod_app" {
     condition = toset([for ra in output.role_assignments : ra.role]) == toset([
       "Storage Blob Data Contributor", "Storage Blob Data Owner", "Storage Queue Data Contributor",
       "Storage Queue Data Message Sender", "Storage Table Data Contributor", "Key Vault Secrets User",
-      "Monitoring Metrics Publisher",
-    ]) && length(output.role_assignments) == 30
-    error_message = "only the AD-17 runtime roles, plus Blob Data Owner on the two Functions host containers (platform requirement), may be assigned (DI and ACS come with Stories 2.3 and 5.2)."
+      "Monitoring Metrics Publisher", "Cognitive Services User",
+    ]) && length(output.role_assignments) == 31
+    error_message = "only the AD-17 runtime roles, plus Blob Data Owner on the two Functions host containers (platform requirement), may be assigned (ACS comes with Story 5.2)."
   }
   assert {
     condition = alltrue([
@@ -207,7 +209,7 @@ run "prod_app" {
     error_message = "each role must go to the identity of the app it is for."
   }
   assert {
-    condition     = alltrue([for ra in output.role_assignments : startswith(ra.scope, "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/")])
+    condition     = alltrue([for key, ra in output.role_assignments : startswith(ra.scope, "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/") if key != "pipeline/cognitive/di"])
     error_message = "every runtime role must be scoped inside the prod resource group, never the subscription."
   }
   assert {
@@ -227,10 +229,37 @@ run "prod_app" {
   # Application Insights and action group.
   assert {
     condition = { for metric, alert in output.metric_alerts : metric => alert.name } == {
-      poison_message = "babaloo-sea-lng-ar-11"
-      stuck_invoices = "babaloo-sea-lng-ar-12"
+      poison_message    = "babaloo-sea-lng-ar-11"
+      stuck_invoices    = "babaloo-sea-lng-ar-12"
+      di_pages_used_pct = "babaloo-sea-lng-ar-13"
     }
-    error_message = "the prod metric alerts must be ar-11 (poison_message) and ar-12 (stuck_invoices) (P-16)."
+    error_message = "the prod metric alerts must be ar-11 (poison_message), ar-12 (stuck_invoices) and ar-13 (di_pages_used_pct) (P-16)."
+  }
+  # Story 2.3 (AD-8): the prod pipeline identity alone is Cognitive Services User on the
+  # shared DI resource, gets its endpoint and the prod cap of 400 pages, and Dj is
+  # alerted at 80 % of it.
+  assert {
+    condition = (
+      output.role_assignments["pipeline/cognitive/di"] == {
+        role         = "Cognitive Services User"
+        scope        = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21"
+        principal_id = "10000000-0000-0000-0000-000000000013"
+      } &&
+      length([for ra in output.role_assignments : ra if ra.role == "Cognitive Services User"]) == 1
+    )
+    error_message = "the prod pipeline identity, and no other, must have Cognitive Services User on the shared DI resource (AD-8)."
+  }
+  assert {
+    condition = (
+      module.app.pipeline_app_settings.DI_ENDPOINT == "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/" &&
+      module.app.pipeline_app_settings.DI_MONTHLY_PAGE_CAP == "400" &&
+      module.app.pipeline_app_settings.INVOICE_CURRENCY == "SGD"
+    )
+    error_message = "the prod pipeline must call the shared DI endpoint with a cap of 400 pages a month in SGD (AD-8)."
+  }
+  assert {
+    condition     = output.metric_alerts["di_pages_used_pct"].criteria == { metric_name = "di_pages_used_pct", operator = "GreaterThanOrEqual", threshold = 80 }
+    error_message = "the prod di_pages_used_pct alert must fire at 80 % of the cap (AD-17)."
   }
   assert {
     condition = alltrue([

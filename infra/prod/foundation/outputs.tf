@@ -51,3 +51,13 @@ output "database" {
     fqdn = data.terraform_remote_state.shared.outputs.postgres_fqdn
   }
 }
+
+output "document_intelligence_id" {
+  description = "Resource id of the shared Document Intelligence F0 resource (from shared/foundation), for the pipeline's Cognitive Services User role in <env>/app (AD-8)."
+  value       = data.terraform_remote_state.shared.outputs.document_intelligence_id
+}
+
+output "document_intelligence_endpoint" {
+  description = "Custom-subdomain endpoint of the shared Document Intelligence resource (from shared/foundation), the pipeline's DI_ENDPOINT in <env>/app (AD-8)."
+  value       = data.terraform_remote_state.shared.outputs.document_intelligence_endpoint
+}

@@ -7,9 +7,13 @@ from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
     Column,
+    Date,
+    Double,
     ForeignKey,
     Integer,
+    LargeBinary,
     MetaData,
+    Numeric,
     Table,
     Text,
     Uuid,
@@ -77,5 +81,81 @@ image_hash = Table(
     metadata,
     Column("invoice_id", Uuid, ForeignKey("intake.invoice.id"), primary_key=True),
     Column("phash", BigInteger, nullable=False),
+    Column("created_at", TIMESTAMP(timezone=True), nullable=False),
+)
+
+# AD-18: one row per extraction, the saved result of AD-3. The raw DI result is not
+# stored. Append-only, like its fields and lines (migration 0005).
+extraction_run = Table(
+    "extraction_run",
+    metadata,
+    Column("run_id", Uuid, primary_key=True),
+    Column("invoice_id", Uuid, ForeignKey("intake.invoice.id"), nullable=False),
+    Column("model_id", Text, nullable=False),
+    Column("api_version", Text, nullable=False),
+    Column("pages", Integer, nullable=False),
+    Column("created_at", TIMESTAMP(timezone=True), nullable=False),
+)
+
+# AD-18: one row per header field. A bank field (AD-11) holds ciphertext plus
+# fingerprint and never a value.
+invoice_field = Table(
+    "invoice_field",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("invoice_id", Uuid, ForeignKey("intake.invoice.id"), nullable=False),
+    Column("run_id", Uuid, ForeignKey("intake.extraction_run.run_id"), nullable=False),
+    Column("field_id", Text, nullable=False),
+    Column("value_text", Text),
+    Column("value_number", Numeric(asdecimal=True)),
+    Column("value_date", Date),
+    Column("currency", Text),
+    Column("confidence", Double),
+    Column("page", Integer),
+    Column("polygon", JSONB),
+    Column("source", Text, nullable=False),
+    Column("bank_ciphertext", LargeBinary),
+    Column("bank_fingerprint", Text),
+    Column("created_at", TIMESTAMP(timezone=True), nullable=False),
+)
+
+# AD-18: one row per line; `po_line_id` and `material_id` are the validate stage's.
+invoice_line = Table(
+    "invoice_line",
+    metadata,
+    Column("id", Uuid, primary_key=True),
+    Column("invoice_id", Uuid, ForeignKey("intake.invoice.id"), nullable=False),
+    Column("run_id", Uuid, ForeignKey("intake.extraction_run.run_id"), nullable=False),
+    Column("line_no", Integer, nullable=False),
+    Column("product_code", Text),
+    Column("description", Text),
+    Column("quantity", Numeric(asdecimal=True)),
+    Column("unit", Text),
+    Column("unit_price", Numeric(asdecimal=True)),
+    Column("amount", Numeric(asdecimal=True)),
+    Column("tax", Numeric(asdecimal=True)),
+    Column("confidence", Double, nullable=False),
+    Column("po_line_id", Uuid),
+    Column("material_id", Uuid),
+    Column("source", Text, nullable=False),
+    Column("created_at", TIMESTAMP(timezone=True), nullable=False),
+)
+
+# AD-8: pages used per calendar month (its first day) and the last DI request time,
+# both changed only under pg_advisory_xact_lock.
+di_usage = Table(
+    "di_usage",
+    metadata,
+    Column("month", Date, primary_key=True),
+    Column("pages", Integer, nullable=False),
+    Column("last_call_at", TIMESTAMP(timezone=True)),
+)
+
+# AD-8: an analyze call's Operation-Location, saved before polling so a retry resumes.
+di_operation = Table(
+    "di_operation",
+    metadata,
+    Column("invoice_id", Uuid, ForeignKey("intake.invoice.id"), primary_key=True),
+    Column("operation_location", Text, nullable=False),
     Column("created_at", TIMESTAMP(timezone=True), nullable=False),
 )

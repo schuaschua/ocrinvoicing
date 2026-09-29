@@ -26,3 +26,10 @@ regexTarget = "match"
 regexes = [
   '''^[a-z0-9][a-z0-9-]*:[0-9][A-Za-z0-9._-]*$''',
 ]
+
+[[allowlists]]
+description = "Entra client and object ids in tfvars (public GUIDs, not secrets), e.g. staff_api_client_id"
+regexTarget = "match"
+regexes = [
+  '''^[a-z_]*_(client|object)_id\s*=\s*"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"$''',
+]

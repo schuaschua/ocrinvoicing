@@ -9,4 +9,4 @@ data_classification = "synthetic"
 #
 # Story 2.7: the client id of babaloo-sea-lng-staff-api-dev, which
 # infra/bootstrap/app-registrations.sh prints (not a secret):
-# staff_api_client_id = ""
+staff_api_client_id = "03943d18-836f-4685-abf7-39334e0c041b"

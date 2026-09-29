@@ -7,8 +7,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STAFF = REPO_ROOT / "web" / "staff"
 SUPPLIER = REPO_ROOT / "web" / "supplier"
@@ -19,6 +17,8 @@ SUPPLIER = REPO_ROOT / "web" / "supplier"
 # calls (e.g. the supplier page's src/screens/, src/link*.ts, src/upload*.ts,
 # src/api/link*.ts, src/api/upload*.ts and src/test/fakeXhr.ts; the staff app's
 # src/api/me*.ts, src/surfaces*.ts, src/router*.ts, src/shell/ and its other screens).
+# vitest.config.ts differs too: only web/supplier runs shared/quality's tests, until
+# the staff app uses shared/quality (Story 4.1).
 SHARED_FILES = [
     ".npmrc",
     ".prettierignore",
@@ -30,7 +30,6 @@ SHARED_FILES = [
     "tsconfig.test.json",
     "vite.config.ts",
     "vite.config.test.ts",
-    "vitest.config.ts",
     "eslint.config.js",
     "eslint.config.test.ts",
     "e2e/checks.ts",
@@ -51,16 +50,14 @@ SHARED_FILES = [
 ]
 
 
-@pytest.mark.parametrize("name", SHARED_FILES)
-def test_story_1_4_shared_web_files_are_identical_in_both_apps(name: str) -> None:
-    staff, supplier = STAFF / name, SUPPLIER / name
-    assert staff.is_file() and supplier.is_file(), f"{name} is missing from an app"
-    assert staff.read_bytes() == supplier.read_bytes(), (
-        f"web/staff/{name} and web/supplier/{name} differ; make the same change in both"
-    )
+def test_story_1_4_web_apps_share_their_base_files_and_dependencies() -> None:
+    for name in SHARED_FILES:
+        staff, supplier = STAFF / name, SUPPLIER / name
+        assert staff.is_file() and supplier.is_file(), f"{name} is missing from an app"
+        assert staff.read_bytes() == supplier.read_bytes(), (
+            f"web/staff/{name} and web/supplier/{name} differ; make the same change in both"
+        )
 
-
-def test_story_1_4_both_apps_pin_the_same_dependencies() -> None:
     def deps(app: Path) -> tuple[object, object]:
         data = json.loads((app / "package.json").read_text(encoding="utf-8"))
         return data.get("dependencies"), data.get("devDependencies")

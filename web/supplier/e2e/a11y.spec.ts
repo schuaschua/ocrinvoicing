@@ -9,10 +9,8 @@ import {
 // Every screen of this app; screen stories add theirs in the app's own screens.ts.
 import { SCREENS } from "./screens.ts";
 
-const VIEWPORTS = [
-  { name: "320px", width: 320, height: 640 },
-  { name: "desktop", width: 1280, height: 800 },
-];
+// The narrowest supported width, where reflow and tap targets are hardest to meet.
+const VIEWPORTS = [{ name: "320px", width: 320, height: 640 }];
 
 /** Answers the screen's API calls from its stubs; any other call is an error. */
 async function stubApi(

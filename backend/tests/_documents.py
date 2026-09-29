@@ -5,7 +5,6 @@ with Pillow, and blank PDFs from pypdf."""
 import io
 
 from PIL import ExifTags, Image, ImageFilter
-from pypdf import PdfWriter
 
 PAPER = 235
 INK = 25
@@ -66,18 +65,3 @@ def png(image: Image.Image) -> bytes:
     out = io.BytesIO()
     image.save(out, "PNG")
     return out.getvalue()
-
-
-def pdf(pages: int) -> bytes:
-    """A PDF of `pages` blank A4 pages."""
-    writer = PdfWriter()
-    for _ in range(pages):
-        writer.add_blank_page(595, 842)
-    out = io.BytesIO()
-    writer.write(out)
-    return out.getvalue()
-
-
-def hamming(a: int, b: int) -> int:
-    """Bits that differ between two 64-bit hashes (AD-9's distance)."""
-    return (a ^ b).bit_count()

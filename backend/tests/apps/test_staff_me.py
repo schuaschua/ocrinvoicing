@@ -75,14 +75,6 @@ def test_story_2_7_me_returns_name_and_roles_only(
         assert leak not in caplog.text
 
 
-def test_story_2_7_me_with_no_known_role_returns_empty_roles(
-    get_me: Callable[[dict[str, str]], func.HttpResponse],
-) -> None:
-    response = get_me({PRINCIPAL_HEADER: header("auditor", name="New Starter")})
-    assert response.status_code == 200
-    assert json.loads(response.get_body()) == {"name": "New Starter", "roles": []}
-
-
 @pytest.mark.parametrize("headers", [{}, {PRINCIPAL_HEADER: "%%%not-base64%%%"}])
 def test_story_2_7_me_without_a_valid_principal_is_401(
     get_me: Callable[[dict[str, str]], func.HttpResponse], headers: dict[str, str]
@@ -90,64 +82,3 @@ def test_story_2_7_me_without_a_valid_principal_is_401(
     response = get_me(headers)
     assert response.status_code == 401
     assert json.loads(response.get_body())["code"] == "UNAUTHENTICATED"
-
-
-def test_story_2_7_health_needs_no_principal(
-    app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
-) -> None:
-    module = load_app("staff_api")
-    functions = {fn.get_function_name(): fn for fn in module.app.get_functions()}
-    request = func.HttpRequest(method="GET", url="/api/health", headers={}, body=b"")
-    response = asyncio.run(functions["health"].get_user_function()(request))
-    assert response.status_code == 200
-
-
-@pytest.mark.parametrize(
-    ("site", "enabled", "trusted"),
-    [
-        (None, None, True),  # local: no platform
-        ("babaloo-sea-lng-func-02", "True", True),
-        ("babaloo-sea-lng-func-02", "true", True),
-        ("babaloo-sea-lng-func-02", None, False),
-        ("babaloo-sea-lng-func-02", "False", False),
-    ],
-)
-def test_story_2_7_in_azure_without_built_in_auth_every_staff_route_is_401(
-    site: str | None,
-    enabled: str | None,
-    trusted: bool,
-    app_settings: dict[str, str],
-    load_app: Callable[[str], ModuleType],
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    for name, value in (("WEBSITE_SITE_NAME", site), ("WEBSITE_AUTH_ENABLED", enabled)):
-        if value is None:
-            monkeypatch.delenv(name, raising=False)
-        else:
-            monkeypatch.setenv(name, value)
-    with caplog.at_level(logging.INFO, logger="invoicing.auth"):
-        module = load_app("staff_api")
-    assert module.settings.platform_auth_trusted is trusted
-    disabled_logs = [
-        r for r in caplog.records if r.getMessage().startswith("auth.disabled ")
-    ]
-    assert len(disabled_logs) == (0 if trusted else 1)
-    functions = {fn.get_function_name(): fn for fn in module.app.get_functions()}
-    request = func.HttpRequest(
-        method="GET",
-        url="/api/me",
-        headers={PRINCIPAL_HEADER: header("admin")},
-        body=b"",
-    )
-    response = asyncio.run(functions["me"].get_user_function()(request))
-    if trusted:
-        assert response.status_code == 200
-    else:
-        assert response.status_code == 401
-        assert json.loads(response.get_body())["code"] == "AUTH_DISABLED"
-    # Liveness stays anonymous either way.
-    health = func.HttpRequest(method="GET", url="/api/health", headers={}, body=b"")
-    assert (
-        asyncio.run(functions["health"].get_user_function()(health)).status_code == 200
-    )

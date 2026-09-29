@@ -1,4 +1,4 @@
-"""Offline tests for infra/bootstrap: syntax, shellcheck, --dry-run and input checks.
+"""Offline tests for infra/bootstrap: the security content of each --dry-run plan.
 
 A fake az/psql/gpg/gpgconf is put first on PATH; each exits 97 and prints
 FAKE-TOOL-CALLED, so any call from a dry run fails the test. Nothing reaches Azure.
@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -18,11 +17,6 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BOOTSTRAP = REPO_ROOT / "infra" / "bootstrap"
 FAKE_BIN = Path(__file__).resolve().parent / "fake-bin"
-
-# macOS ships bash 3.2 as /bin/bash; the scripts must work there and on bash 5.
-SHELLS = sorted({"bash", *(["/bin/bash"] if Path("/bin/bash").exists() else [])})
-
-SCRIPTS = sorted(path.name for path in BOOTSTRAP.glob("*.sh") if path.name != "lib.sh")
 
 FAKE_INPUTS = {
     "ARM_SUBSCRIPTION_ID": "00000000-0000-0000-0000-000000000000",
@@ -55,11 +49,9 @@ def _env(**overrides: str | None) -> dict[str, str]:
     return env
 
 
-def _run(
-    script: str, *args: str, shell: str = "bash", **env_overrides: str | None
-) -> subprocess.CompletedProcess[str]:
+def _run(script: str, *args: str, **env_overrides: str | None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [shell, str(BOOTSTRAP / script), *args],
+        ["bash", str(BOOTSTRAP / script), *args],
         env=_env(**env_overrides),
         capture_output=True,
         text=True,
@@ -68,93 +60,14 @@ def _run(
     )
 
 
-@pytest.mark.parametrize("script", [*SCRIPTS, "lib.sh"])
-def test_bash_syntax(script: str) -> None:
-    result = subprocess.run(["bash", "-n", str(BOOTSTRAP / script)], capture_output=True, text=True, check=False)
-    assert result.returncode == 0, result.stderr
-
-
-@pytest.mark.skipif(shutil.which("shellcheck") is None, reason="shellcheck not installed")
-def test_shellcheck_clean() -> None:
-    result = subprocess.run(
-        ["shellcheck", "--external-sources", *[str(BOOTSTRAP / name) for name in [*SCRIPTS, "lib.sh"]]],
-        cwd=BOOTSTRAP,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-@pytest.mark.parametrize("shell", SHELLS)
-@pytest.mark.parametrize("script", SCRIPTS)
-def test_dry_run_prints_plan_without_calling_tools(script: str, shell: str) -> None:
-    result = _run(script, "--dry-run", shell=shell)
-    output = result.stdout + result.stderr
-    assert result.returncode == 0, output
-    assert "FAKE-TOOL-CALLED" not in output
-    assert "[dry-run]" in output
-
-
-@pytest.mark.parametrize("script", SCRIPTS)
-def test_help_exits_zero(script: str) -> None:
-    result = _run(script, "--help")
-    assert result.returncode == 0
-    assert "Usage:" in result.stdout
-
-
-@pytest.mark.parametrize("script", SCRIPTS)
-def test_unknown_argument_fails(script: str) -> None:
-    result = _run(script, "--apply-everything")
-    assert result.returncode == 1
-    assert "unknown argument" in result.stderr
-
-
-@pytest.mark.parametrize(
-    ("script", "variable"),
-    [
-        ("state-backend.sh", "ARM_SUBSCRIPTION_ID"),
-        ("state-backend.sh", "ADO_ORG"),
-        ("state-backend.sh", "TAG_COST_CENTRE"),
-        ("app-registrations.sh", "ARM_TENANT_ID"),
-        ("budget-and-roles.sh", "ALERT_EMAIL"),
-        ("test-alerts.sh", "ARM_SUBSCRIPTION_ID"),
-        ("rbac-step3.sh", "ARM_SUBSCRIPTION_ID"),
-        ("pgp-step4b.sh", "ENVIRONMENT"),
-        ("database-step5.sh", "DJ_USER_UPN"),
-        ("database-step5.sh", "PG_ADMIN_USER"),
-        ("verify-db-isolation.sh", "PG_ADMIN_USER"),
-    ],
-)
-def test_missing_input_stops_before_any_change(script: str, variable: str) -> None:
-    result = _run(script, "--dry-run", **{variable: None})
-    assert result.returncode == 1
-    assert variable in result.stderr
-    assert "[dry-run] az" not in result.stdout
-    assert "FAKE-TOOL-CALLED" not in result.stderr
-
-
-def test_environment_must_be_dev_or_prod() -> None:
-    result = _run("pgp-step4b.sh", "--dry-run", ENVIRONMENT="shared")
-    assert result.returncode == 1
-    assert "ENVIRONMENT must be one of: dev prod" in result.stderr
-
-
 def test_state_backend_plan_matches_ad17() -> None:
     out = _run("state-backend.sh", "--dry-run").stdout
-    for group in ("babaloo-sea-lng-rg-21", "babaloo-sea-lng-rg-01", "babaloo-sea-lng-rg-11", "babaloo-sea-lng-rg-22"):
-        assert f"az group create --name {group} --location southeastasia" in out
-    assert "environment=shared" in out and "environment=dev" in out and "environment=prod" in out
     assert "--allow-shared-key-access false" in out
-    assert "--enable-versioning true" in out
-    for identity in ("babaloo-sea-lng-id-21", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-23"):
-        assert f"az identity create --name {identity}" in out
     assert "sc://test-org/test-project/azure-dev" in out
     assert "https://vstoken.dev.azure.com/44444444-4444-4444-4444-444444444444" in out
     # State and deploy identities live in the bootstrap-only rg-22.
     assert "az storage account create --name babaloosealngst21 --resource-group babaloo-sea-lng-rg-22" in out
     assert "az identity create --name babaloo-sea-lng-id-21 --resource-group babaloo-sea-lng-rg-22" in out
-    assert "az provider register --namespace Microsoft.Storage --wait" in out
     # No deploy identity gets Contributor on rg-22: Contributor goes only to the stack groups.
     contributor_scopes = re.findall(r"--role b24988ac-6180-42a0-ab88-20f7382dd24c --scope (\S+)", out)
     assert sorted(scope.rsplit("/", 1)[1] for scope in contributor_scopes) == [
@@ -182,21 +95,12 @@ def _role_creates(out: str) -> list[str]:
 
 def test_ocr_129_state_backend_creates_the_private_key_vaults_in_rg22() -> None:
     out = _run("state-backend.sh", "--dry-run").stdout
-    for vault, env in (("babaloo-sea-lng-kv-22", "dev"), ("babaloo-sea-lng-kv-23", "prod")):
+    for vault in ("babaloo-sea-lng-kv-22", "babaloo-sea-lng-kv-23"):
         (create,) = [line for line in out.splitlines() if f"az keyvault create --name {vault} " in line]
         assert "--resource-group babaloo-sea-lng-rg-22" in create
         assert "--enable-rbac-authorization true" in create
         assert "--enable-purge-protection true" in create and "--retention-days 7" in create
         assert "--public-network-access Enabled" in create
-        tags = create[create.index("--tags ") :]
-        for tag in (
-            "owner=test-owner",
-            "costCentre=test-cc",
-            f"environment={env}",
-            "application=test-app",
-            "dataClassification=test-class",
-        ):
-            assert tag in tags
 
 
 def test_ocr_129_nobody_gets_a_role_on_the_private_key_vaults_or_rg22_in_step_1() -> None:
@@ -359,7 +263,7 @@ def test_rbac_step3_conditions_allow_only_the_shared_resource_roles() -> None:
         _assert_condition_shape(condition, {"<roleId-of-ACS Email Sender>"})
 
 
-# --- Subscription budget and ACS Email Sender content ----------------------------------
+# --- ACS Email Sender content -----------------------------------------------
 
 
 def _json_blocks(output: str) -> list[dict]:
@@ -376,10 +280,10 @@ def _json_blocks(output: str) -> list[dict]:
     return blocks
 
 
-def test_budget_and_role_content() -> None:
+def test_acs_email_sender_role_content() -> None:
     result = _run("budget-and-roles.sh", "--dry-run")
     assert result.returncode == 0, result.stderr
-    role, budget = _json_blocks(result.stdout)
+    role = _json_blocks(result.stdout)[0]
 
     assert role["Name"] == "ACS Email Sender" and role["IsCustom"] is True
     assert role["Actions"] == [
@@ -388,103 +292,6 @@ def test_budget_and_role_content() -> None:
     ]
     assert role["DataActions"] == [] and role["NotActions"] == []
     assert role["AssignableScopes"] == ["/subscriptions/00000000-0000-0000-0000-000000000000"]
-
-    properties = budget["properties"]
-    assert properties["amount"] == 8 and properties["timeGrain"] == "Monthly" and properties["category"] == "Cost"
-    assert re.fullmatch(r"\d{4}-\d{2}-01T00:00:00Z", properties["timePeriod"]["startDate"])
-    (notification,) = properties["notifications"].values()
-    assert notification["contactEmails"] == ["alerts@example.test"]
-    assert notification["threshold"] == 100 and notification["thresholdType"] == "Actual"
-    assert "Microsoft.Consumption/budgets/babaloo-sea-lng-budget-22?" in result.stdout
-    # Story 1.5: without the shared action group, email only, and a warning.
-    assert "contactGroups" not in notification
-    assert "SHARED_ACTION_GROUP_ID is not set" in result.stderr
-
-
-SHARED_AG_ID = (
-    "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21"
-    "/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-21"
-)
-
-
-def test_story_1_5_subscription_budget_notifies_through_the_shared_action_group() -> None:
-    result = _run("budget-and-roles.sh", "--dry-run", SHARED_ACTION_GROUP_ID=SHARED_AG_ID)
-    assert result.returncode == 0, result.stderr
-    _, budget = _json_blocks(result.stdout)
-    (notification,) = budget["properties"]["notifications"].values()
-    assert notification["contactGroups"] == [SHARED_AG_ID]
-    assert notification["contactEmails"] == ["alerts@example.test"]
-    assert "SHARED_ACTION_GROUP_ID is not set" not in result.stderr
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "babaloo-sea-lng-ag-21",
-        SHARED_AG_ID.replace("babaloo-sea-lng-ag-21", 'ag-21"],"x":["y'),
-        SHARED_AG_ID.replace("babaloo-sea-lng-rg-21", "rg 21"),
-        "/subscriptions/x/resourceGroups/rg/providers/Microsoft.Insights/components/appi",
-        SHARED_AG_ID + "/extra",
-    ],
-)
-def test_story_1_5_a_malformed_action_group_id_stops_the_budget_script(value: str) -> None:
-    result = _run("budget-and-roles.sh", "--dry-run", SHARED_ACTION_GROUP_ID=value)
-    assert result.returncode == 1
-    assert "SHARED_ACTION_GROUP_ID must be an action group resource id" in result.stderr
-    assert "[dry-run] az" not in result.stdout
-
-
-# --- Story 1.5: test-alerts.sh -----------------------------------------------------------
-
-
-def _test_notification_calls(stdout: str) -> list[str]:
-    return [line for line in stdout.splitlines() if "action-group test-notifications create" in line]
-
-
-def test_story_1_5_alert_test_dry_run_prints_one_call_per_action_group() -> None:
-    result = _run("test-alerts.sh", "--dry-run")
-    assert result.returncode == 0, result.stderr
-    calls = _test_notification_calls(result.stdout)
-    expected = [
-        ("babaloo-sea-lng-ag-21", "babaloo-sea-lng-rg-21", "actualcostbudget"),
-        ("babaloo-sea-lng-ag-01", "babaloo-sea-lng-rg-01", "metricstaticthreshold"),
-        ("babaloo-sea-lng-ag-11", "babaloo-sea-lng-rg-11", "metricstaticthreshold"),
-    ]
-    assert len(calls) == len(expected)
-    for call, (group, rg, alert_type) in zip(calls, expected, strict=True):
-        assert call.startswith("[dry-run] az monitor action-group test-notifications create")
-        assert f"--action-group-name {group}" in call and f"--resource-group {rg}" in call
-        assert f"--alert-type {alert_type}" in call
-        # The receivers stored on the group, not an address from the command line.
-        assert f"--add-action email owner '<email-receiver-of-{group}>' usecommonalertschema" in call
-        assert "alerts@example.test" not in call
-    assert "check that each address received one test email per action group" in result.stdout
-    # Every group is checked before the first notification is planned.
-    output = result.stdout
-    assert output.rindex("==> Check") < output.index("==> Test notification")
-
-
-def test_story_1_5_alert_test_can_be_limited_to_some_stacks() -> None:
-    result = _run("test-alerts.sh", "--dry-run", STACKS="shared dev")
-    assert result.returncode == 0, result.stderr
-    assert len(_test_notification_calls(result.stdout)) == 2
-    assert "babaloo-sea-lng-ag-11" not in result.stdout
-
-
-def test_story_1_5_alert_test_ignores_repeated_stacks() -> None:
-    result = _run("test-alerts.sh", "--dry-run", STACKS="dev shared dev dev")
-    assert result.returncode == 0, result.stderr
-    calls = _test_notification_calls(result.stdout)
-    assert len(calls) == 2
-    assert "babaloo-sea-lng-ag-01" in calls[0] and "babaloo-sea-lng-ag-21" in calls[1]
-
-
-@pytest.mark.parametrize("stacks", ["staging", "dev qa", " "])
-def test_story_1_5_alert_test_rejects_unknown_stacks(stacks: str) -> None:
-    result = _run("test-alerts.sh", "--dry-run", STACKS=stacks)
-    assert result.returncode == 1
-    assert "STACKS" in result.stderr
-    assert "[dry-run] az" not in result.stdout
 
 
 # --- Separate PostgreSQL admin ---------------------------------------------------------

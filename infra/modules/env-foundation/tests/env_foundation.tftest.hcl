@@ -110,30 +110,6 @@ run "storage_retention_and_messaging" {
   }
 }
 
-# The AVM storage module applies these in nested submodules and outputs neither, and
-# tests can only read module outputs, so this checks the exact objects main.tf passes
-# as blob_properties and storage_management_policy_rule.
-run "storage_policies" {
-  command = plan
-
-  assert {
-    condition     = local.blob_properties.delete_retention_policy.days == 7 && local.blob_properties.delete_retention_policy.enabled
-    error_message = "blob soft delete must be on for 7 days (AD-15)."
-  }
-  assert {
-    condition     = local.blob_properties.container_delete_retention_policy.days == 7
-    error_message = "container soft delete must be 7 days."
-  }
-  assert {
-    condition     = local.lifecycle_rules.retention.actions.base_blob.delete_after_days_since_creation_greater_than == 30
-    error_message = "lifecycle rule must delete after 30 days since creation (AD-15)."
-  }
-  assert {
-    condition     = local.lifecycle_rules.retention.filters.prefix_match == ["images/", "corrections/"]
-    error_message = "lifecycle rule must cover images/ and corrections/ only."
-  }
-}
-
 run "identities_key_vault_monitoring_budget" {
   command = apply
 
@@ -241,17 +217,3 @@ run "monitoring_and_alerts" {
     error_message = "ingestion sampling must be off (100%), so it never compounds with the apps' sampling."
   }
 }
-
-run "tags_must_be_complete" {
-  command = plan
-
-  variables {
-    tags = {
-      owner       = "test-owner"
-      environment = "dev"
-    }
-  }
-
-  expect_failures = [var.tags]
-}
-

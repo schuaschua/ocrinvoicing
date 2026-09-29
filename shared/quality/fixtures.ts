@@ -4,8 +4,8 @@
 
 import type { Pixels, Side } from "./measure";
 
-export const WIDTH = 240;
-export const HEIGHT = 180;
+const WIDTH = 240;
+const HEIGHT = 180;
 const PAPER = 235;
 const INK = 25;
 // Text inside a 15% margin on every side; `bleed` runs it out to one edge.
@@ -114,15 +114,12 @@ export function turnedClockwise(p: Pixels & { data: Uint8ClampedArray }) {
   return { width: h, height: w, data };
 }
 
-/** PDF bytes from indirect object bodies, numbered from 1, plus any `extra` raw text. */
-export function pdfFrom(
-  objects: string[],
-  extra = "",
-): Uint8Array<ArrayBuffer> {
+/** PDF bytes from indirect object bodies, numbered from 1. */
+function pdfFrom(objects: string[]): Uint8Array<ArrayBuffer> {
   const body = objects
     .map((object, i) => `${i + 1} 0 obj\n${object}\nendobj\n`)
     .join("");
-  const text = `%PDF-1.4\n%\xe2\xe3\xcf\xd3\n${body}${extra}trailer\n<< /Root 1 0 R >>\n%%EOF\n`;
+  const text = `%PDF-1.4\n%\xe2\xe3\xcf\xd3\n${body}trailer\n<< /Root 1 0 R >>\n%%EOF\n`;
   return Uint8Array.from(text, (c) => c.charCodeAt(0));
 }
 

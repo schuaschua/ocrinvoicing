@@ -97,7 +97,7 @@ describe("1.9 failed checks across one upload", () => {
     expect(await screen.findByText("R-7Q4KXM2D")).toBeInTheDocument();
   });
 
-  it("a retake that passes is sent marked passed, under its own key", async () => {
+  it("sends a passing retake marked passed, and starts counting again for each new upload", async () => {
     render(<App token={TOKEN} />);
     await home();
     await takePhoto("first.jpg");
@@ -105,14 +105,9 @@ describe("1.9 failed checks across one upload", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(FakeXhr.last().headers["X-Device-Check"]).toBe("passed");
     expect((FakeXhr.last().body as File).name).toBe("good.jpg");
-  });
-
-  it("starts counting again after Upload another", async () => {
-    render(<App token={TOKEN} />);
-    await home();
-    await takePhoto("good.jpg");
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await act(async () => FakeXhr.last().respond(200, OK));
+
+    // After Upload another: a first failure again, so no Send it anyway.
     fireEvent.click(
       await screen.findByRole("button", { name: "Upload another" }),
     );
@@ -120,12 +115,8 @@ describe("1.9 failed checks across one upload", () => {
     await takePhoto("next.jpg");
     expect(screen.getByRole("alert")).toHaveTextContent("blurry");
     expect(anyway()).toBeNull();
-  });
 
-  it("starts counting again for a new upload from Upload home", async () => {
-    render(<App token={TOKEN} />);
-    await home();
-    await takePhoto("first.jpg");
+    // After Choose another file too.
     fireEvent.click(
       screen.getByRole("button", { name: "Choose another file" }),
     );

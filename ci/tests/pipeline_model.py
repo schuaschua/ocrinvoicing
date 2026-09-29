@@ -178,10 +178,3 @@ def steps_of(job: dict[str, Any]) -> list[dict[str, Any]]:
     if "strategy" in job:
         return job["strategy"]["runOnce"]["deploy"]["steps"]
     return job.get("steps", [])
-
-
-def depends_on(stage: dict[str, Any]) -> list[str]:
-    value = stage.get("dependsOn")
-    if value is None:
-        return ["<previous>"]
-    return [value] if isinstance(value, str) else list(value)

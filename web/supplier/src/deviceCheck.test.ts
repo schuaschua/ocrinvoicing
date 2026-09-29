@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { blurred, darkened, page, pdfBytes } from "@shared/quality/fixtures";
+import { darkened, page, pdfBytes } from "@shared/quality/fixtures";
 import { THRESHOLDS } from "@shared/quality/check";
 import type { Pixels } from "@shared/quality/measure";
 
@@ -62,8 +62,11 @@ afterEach(() => {
 });
 
 describe("1.9 device check of a chosen file", () => {
-  it("decodes with EXIF orientation applied, at 1024 px on the long side", async () => {
-    const { decode, drawn, bitmap, context } = stubDecoder(page());
+  it("decodes a photo as the user sees it, downscaled over white, and names its problem", async () => {
+    // jsdom has no image decoder.
+    expect(canCheck(jpeg())).toBe(false);
+    const { decode, drawn, bitmap, calls, context } = stubDecoder(page());
+    expect(canCheck(jpeg())).toBe(true);
     const file = jpeg();
     await decodePhoto(file);
     // No size in this header: decoded at full size, downscaled on the canvas.
@@ -71,90 +74,51 @@ describe("1.9 device check of a chosen file", () => {
       imageOrientation: "from-image",
     });
     expect(drawn).toEqual([[0, 0, 1024, 768]]);
+    expect(calls).toEqual(["fill white", "draw"]);
     expect(context.imageSmoothingQuality).toBe("high");
     expect(bitmap.close).toHaveBeenCalled();
-  });
 
-  it("asks the browser to decode already downscaled when the header gives the size", async () => {
-    const { decode, drawn } = stubDecoder(page(), { width: 1024, height: 768 });
-    const file = jpegWithSize();
-    await decodePhoto(file);
-    expect(decode).toHaveBeenCalledWith(file, {
+    // A header with the size: decoded already downscaled, or plainly when the
+    // browser rejects the options.
+    decode.mockRejectedValueOnce(new TypeError("imageOrientation"));
+    const sized = jpegWithSize();
+    await expect(decodePhoto(sized)).resolves.not.toBeNull();
+    expect(decode).toHaveBeenCalledWith(sized, {
       imageOrientation: "from-image",
       resizeWidth: 1024,
       resizeQuality: "high",
     });
-    expect(drawn).toEqual([[0, 0, 1024, 768]]);
-  });
+    expect(decode).toHaveBeenLastCalledWith(sized);
 
-  it("decodes plainly when the browser rejects the options", async () => {
-    const { decode } = stubDecoder(page());
-    decode.mockRejectedValueOnce(new TypeError("imageOrientation"));
-    const file = jpegWithSize();
-    await expect(decodePhoto(file)).resolves.not.toBeNull();
-    expect(decode).toHaveBeenCalledTimes(2);
-    expect(decode).toHaveBeenLastCalledWith(file);
-  });
-
-  it("draws over white, so a transparent PNG reads as paper", async () => {
-    const { calls } = stubDecoder(page());
-    await decodePhoto(jpeg());
-    expect(calls).toEqual(["fill white", "draw"]);
-  });
-
-  it("passes a good photo", async () => {
-    stubDecoder(page());
     await expect(checkFile(jpeg())).resolves.toEqual({ kind: "passed" });
-  });
-
-  it.each([
-    ["dark", darkened(page()), { kind: "dark" }],
-    ["blurry", blurred(page()), { kind: "blurry" }],
-    ["cut off", page({ bleed: "bottom" }), { kind: "cut-off", side: "bottom" }],
-  ])("names a %s photo", async (_, pixels, problem) => {
-    stubDecoder(pixels);
+    context.getImageData.mockReturnValue(darkened(page()));
     await expect(checkFile(jpeg())).resolves.toEqual({
       kind: "photo-problem",
-      problem,
+      problem: { kind: "dark" },
     });
   });
 
-  it("skips a photo it can't decode, without failing", async () => {
-    vi.stubGlobal(
-      "createImageBitmap",
-      vi.fn(async () => {
-        throw new DOMException("bad", "InvalidStateError");
-      }),
-    );
-    await expect(decodePhoto(jpeg())).resolves.toBeNull();
-    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
-  });
-
-  it("skips when the canvas gives no context or fails to draw", async () => {
-    const { getContext, bitmap } = stubDecoder(page());
+  it("skips what it can't check, and counts a PDF's pages without a photo check", async () => {
+    const { getContext, decode } = stubDecoder(page());
     getContext.mockReturnValue(null);
-    await expect(decodePhoto(jpeg())).resolves.toBeNull();
-    getContext.mockImplementation(() => {
-      throw new Error("tainted");
+    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
+    decode.mockRejectedValueOnce(new DOMException("bad", "InvalidStateError"));
+    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
+
+    expect(canCheck(pdf(1))).toBe(true);
+    decode.mockClear();
+    await expect(checkFile(pdf(2))).resolves.toEqual({ kind: "passed" });
+    await expect(checkFile(pdf(3))).resolves.toEqual({
+      kind: "too-many-pages",
     });
-    await expect(decodePhoto(jpeg())).resolves.toBeNull();
-    expect(bitmap.close).toHaveBeenCalledTimes(2);
-    getContext.mockReturnValue(null);
-    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
-  });
+    expect(decode).not.toHaveBeenCalled();
+    const unreadable = pdf(3);
+    vi.spyOn(unreadable, "arrayBuffer").mockRejectedValue(new Error("gone"));
+    await expect(checkFile(unreadable)).resolves.toEqual({ kind: "skipped" });
 
-  it("skips a photo whose check hits an unexpected error", async () => {
-    // Decoded, but the pixels are short, so the measurement throws.
-    stubDecoder({ width: 1024, height: 768, data: new Uint8ClampedArray(4) });
-    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
-  });
-
-  it("skips a photo whose check is still running at the hard cap", async () => {
+    // Still running at the hard cap.
     vi.useFakeTimers();
-    vi.stubGlobal(
-      "createImageBitmap",
-      vi.fn(() => new Promise(() => {})),
-    );
+    decode.mockImplementation(() => new Promise(() => {}));
     let settled = false;
     const result = checkFile(jpeg()).then((value) => {
       settled = true;
@@ -164,42 +128,5 @@ describe("1.9 device check of a chosen file", () => {
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     await expect(result).resolves.toEqual({ kind: "skipped" });
-    expect(THRESHOLDS.maxCheckMs).toBeGreaterThan(THRESHOLDS.targetCheckMs);
-  });
-
-  it.each([
-    [1, { kind: "passed" }],
-    [2, { kind: "passed" }],
-    [3, { kind: "too-many-pages" }],
-  ])("a %i-page PDF: %o, with no photo check", async (pages, result) => {
-    const decode = vi.fn();
-    vi.stubGlobal("createImageBitmap", decode);
-    await expect(checkFile(pdf(pages))).resolves.toEqual(result);
-    expect(decode).not.toHaveBeenCalled();
-  });
-
-  it("skips a PDF whose pages can't be counted (the server decides)", async () => {
-    const file = new File(
-      ["%PDF-1.7\n5 0 obj\n<< /Type /ObjStm >>\nendobj"],
-      "x.pdf",
-      {
-        type: "application/pdf",
-      },
-    );
-    await expect(checkFile(file)).resolves.toEqual({ kind: "skipped" });
-  });
-
-  it("skips a PDF it can't read", async () => {
-    const file = pdf(3);
-    vi.spyOn(file, "arrayBuffer").mockRejectedValue(new Error("gone"));
-    await expect(checkFile(file)).resolves.toEqual({ kind: "skipped" });
-  });
-
-  it("knows when this browser can check a file", () => {
-    expect(canCheck(pdf(1))).toBe(true);
-    // jsdom has no image decoder.
-    expect(canCheck(jpeg())).toBe(false);
-    stubDecoder(page());
-    expect(canCheck(jpeg())).toBe(true);
   });
 });

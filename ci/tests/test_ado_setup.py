@@ -1,7 +1,7 @@
 """Story 1.2: infra/bootstrap/ado-setup.sh, offline.
 
 --dry-run runs against an `az` that fails if called (infra/scripts/tests/fake-bin);
-the re-run test uses the stateful fake where everything already exists. Nothing
+the binding tests use the stateful fake where everything already exists. Nothing
 reaches Azure or Azure DevOps.
 """
 
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import uuid
@@ -22,7 +21,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "infra" / "bootstrap" / "ado-setup.sh"
 FAKE_BIN = REPO_ROOT / "infra" / "scripts" / "tests" / "fake-bin"
 STATEFUL_BIN = REPO_ROOT / "infra" / "scripts" / "tests" / "fake-bin-stateful"
-SHELLS = sorted({"bash", *(["/bin/bash"] if Path("/bin/bash").exists() else [])})
 
 FAKE_INPUTS = {
     "ARM_SUBSCRIPTION_ID": "00000000-0000-0000-0000-000000000000",
@@ -46,9 +44,9 @@ def _env(bin_dir: Path, **overrides: str | None) -> dict[str, str]:
     return env
 
 
-def _dry_run(shell: str = "bash", **overrides: str | None) -> subprocess.CompletedProcess[str]:
+def _dry_run(**overrides: str | None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [shell, str(SCRIPT), "--dry-run"], env=_env(FAKE_BIN, **overrides),
+        ["bash", str(SCRIPT), "--dry-run"], env=_env(FAKE_BIN, **overrides),
         capture_output=True, text=True, check=False, timeout=60,
     )
 
@@ -75,21 +73,6 @@ def _json_blocks(output: str) -> list[dict]:
                 blocks.append(json.loads("\n".join(current)))
                 current = None
     return blocks
-
-
-@pytest.mark.parametrize("shell", SHELLS)
-def test_story_1_2_dry_run_prints_every_ado_call_and_calls_nothing(shell: str) -> None:
-    result = _dry_run(shell)
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "FAKE-TOOL-CALLED" not in result.stdout + result.stderr
-    planned = [line for line in result.stdout.splitlines() if line.startswith("[dry-run] az ")]
-    assert sum("service-endpoint create" in line for line in planned) == 3
-    assert sum("--area distributedtask --resource environments" in line and "POST" in line for line in planned) == 3
-    # 3 locks + 2 approvals on environments, branch control on 3 environments and 3 connections
-    assert sum("--area PipelinesChecks" in line and "POST" in line for line in planned) == 11
-    assert sum("az pipelines create" in line for line in planned) == 3
-    assert sum("--area pipelinePermissions" in line for line in planned) == 6
-    assert sum("az repos policy build create" in line for line in planned) == 1
 
 
 def test_story_1_2_service_connections_are_wif_bound_to_the_deploy_identities() -> None:
@@ -149,26 +132,6 @@ def test_story_1_2_branch_control_allows_only_main_on_every_connection_and_envir
             }
 
 
-def test_story_1_2_pipelines_point_at_the_committed_yaml() -> None:
-    out = _dry_run().stdout
-    paths = re.findall(r"az pipelines create .* --yml-path (\S+)", out)
-    assert paths == ["pipelines/pr.yml", "pipelines/deploy.yml", "pipelines/weekly-scan.yml"]
-    for path in paths:
-        assert (REPO_ROOT / path).is_file()
-    policy = next(line for line in out.splitlines() if "az repos policy build create" in line)
-    assert "--branch main" in policy and "--blocking true" in policy and "--enabled true" in policy
-    assert "--build-definition-id '<pipelineId-of-ocrinvoicing-pr>'" in policy
-
-
-@pytest.mark.parametrize("variable", ["ADO_ORG", "ADO_PROJECT", "ADO_APPROVER", "ARM_TENANT_ID"])
-def test_story_1_2_missing_input_stops_before_any_change(variable: str) -> None:
-    result = _dry_run(**{variable: None})
-    assert result.returncode == 1
-    assert variable in result.stderr
-    assert "[dry-run] az" not in result.stdout
-    assert "FAKE-TOOL-CALLED" not in result.stderr
-
-
 def _real_run(work_dir: Path, **overrides: str) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
     log = work_dir / "az-calls.jsonl"
     result = subprocess.run(
@@ -177,32 +140,6 @@ def _real_run(work_dir: Path, **overrides: str) -> tuple[subprocess.CompletedPro
     )
     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     return result, calls
-
-
-def test_story_1_2_rerun_with_everything_existing_creates_nothing(work_dir: Path) -> None:
-    result, calls = _real_run(work_dir)
-    assert result.returncode == 0, result.stdout + result.stderr
-    creates = [
-        call for call in calls
-        if call[:3] == ["devops", "service-endpoint", "create"]
-        or call[:2] == ["pipelines", "create"]
-        or call[:4] == ["repos", "policy", "build", "create"]
-        or (call[:2] == ["devops", "invoke"] and "POST" in call)
-    ]
-    assert creates == []
-    patches = [call for call in calls if call[:2] == ["devops", "invoke"] and "PATCH" in call]
-    assert sum("PipelinesChecks" in call for call in patches) == 11  # check settings re-applied
-    assert any(call[:4] == ["repos", "policy", "build", "update"] for call in calls)
-    permits = [
-        json.loads(entry["content"]) for entry in _files(work_dir) if "pipelinePermissions" in entry["args"]
-    ]
-    assert len(permits) == 6
-    assert all(permit == {"pipelines": [{"id": 42, "authorized": True}]} for permit in permits)
-
-
-def _files(work_dir: Path) -> list[dict]:
-    path = work_dir / "az-calls.jsonl.files"
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
 def test_story_1_2_federation_subject_other_than_the_trusted_one_stops(work_dir: Path) -> None:

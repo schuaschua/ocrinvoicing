@@ -74,3 +74,4 @@ Projects record their own deviations from this baseline here, each with who appr
 
 | Rule | Exception | Approved by (role) and date | Close by |
 |---|---|---|---|
+| 20 | At most 200 test cases across the whole repo (pytest, Vitest, Playwright, `terraform test` runs, `ci/` and `infra/` script tests), each parameterised case counting. Acceptance criteria and plan matrix rows are covered by assertions in a few merged tests, not one test each. Security tests (access control, keys, secrets, identity) are kept first. Coverage floors (rule 25) are unchanged. | Dj (owner), 2026-09-29 | None (project rule) |

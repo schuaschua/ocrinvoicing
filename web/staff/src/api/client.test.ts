@@ -13,6 +13,8 @@ import {
 import { strings } from "@/strings";
 
 const fetchMock = vi.fn<typeof fetch>();
+// Synthetic: base64url of 32 bytes of 0x5a, canonical like a real link token.
+const TOKEN = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
 
 function jsonResponse(
   body: unknown,
@@ -25,145 +27,96 @@ function jsonResponse(
   });
 }
 
-function listen(type: typeof SESSION_EXPIRED | typeof OFFLINE) {
-  const listener = vi.fn();
-  const stop = onApiEvent(type, listener);
-  return { listener, stop };
-}
-
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
+  setUploadToken(null);
   vi.unstubAllGlobals();
 });
 
 describe("1.4 API client", () => {
-  it("sends X-Requested-With and same-origin credentials on every call", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ status: "ok" }, 200));
-    await expect(apiRequest("/api/health")).resolves.toEqual({ status: "ok" });
-
-    const [path, init] = fetchMock.mock.calls[0]!;
-    expect(path).toBe("/api/health");
-    expect(init?.method).toBe("GET");
-    expect(init?.credentials).toBe("same-origin");
-    expect(init?.headers).toMatchObject({
-      "X-Requested-With": "XMLHttpRequest",
-      Accept: "application/json",
-    });
-  });
-
-  it("sends a JSON body with its content type", async () => {
-    fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+  it("sends the CSRF header, same-origin credentials and the upload token only while set", async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ ok: 1 }, 200));
+    setUploadToken(TOKEN);
+    await expect(apiRequest("/api/health")).resolves.toEqual({ ok: 1 });
+    setUploadToken(null);
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await expect(
       apiRequest("/api/things", { method: "POST", json: { a: 1 } }),
     ).resolves.toBeUndefined();
 
-    const init = fetchMock.mock.calls[0]![1]!;
-    expect(init.method).toBe("POST");
-    expect(init.body).toBe('{"a":1}');
-    expect(init.headers).toMatchObject({
-      "Content-Type": "application/json",
-      "X-Requested-With": "XMLHttpRequest",
+    const [withToken, without] = fetchMock.mock.calls;
+    // The token travels in a header, never in the URL.
+    expect(withToken![0]).toBe("/api/health");
+    expect(withToken![1]).toMatchObject({
+      method: "GET",
+      credentials: "same-origin",
+      redirect: "manual",
+      headers: {
+        Accept: "application/json",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Upload-Token": TOKEN,
+      },
     });
-  });
+    expect(without![1]?.body).toBe('{"a":1}');
+    expect(without![1]?.headers).toMatchObject({
+      "Content-Type": "application/json",
+    });
+    expect(without![1]?.headers).not.toHaveProperty("X-Upload-Token");
+    expect(apiHeaders()).not.toHaveProperty("X-Upload-Token");
 
-  it("refuses a path outside the same-origin API", async () => {
+    // Same origin only.
     await expect(apiRequest("https://evil.example/api/x")).rejects.toThrow(
       "API paths start with /api/",
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("fires session-expired on 401 and rejects", async () => {
-    const { listener, stop } = listen(SESSION_EXPIRED);
-    fetchMock.mockResolvedValue(
+  it("maps failures to typed errors and raises the session and offline events", async () => {
+    const expired = vi.fn();
+    const offline = vi.fn();
+    const stopExpired = onApiEvent(SESSION_EXPIRED, expired);
+    const stopOffline = onApiEvent(OFFLINE, offline);
+
+    fetchMock.mockResolvedValueOnce(
       jsonResponse(
         { code: "UNAUTHENTICATED", message: "Sign in.", correlation_id: "c-1" },
         401,
       ),
     );
     await expect(apiRequest("/api/me")).rejects.toMatchObject({
+      name: "ApiError",
       status: 401,
       code: "UNAUTHENTICATED",
+      correlationId: "c-1",
     });
-    expect(listener).toHaveBeenCalledTimes(1);
-    stop();
-  });
+    expect(expired).toHaveBeenCalledTimes(1);
 
-  it("reads a redirect to sign in as an expired session, never following it", async () => {
-    const { listener, stop } = listen(SESSION_EXPIRED);
+    // A supplier link that isn't valid is not an expired sign-in.
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ code: LINK_NOT_VALID, message: "Not valid." }, 401),
+    );
+    await expect(apiRequest("/api/link")).rejects.toBeInstanceOf(ApiError);
+    expect(expired).toHaveBeenCalledTimes(1);
+
     const redirect = Response.error();
     Object.defineProperty(redirect, "type", { value: "opaqueredirect" });
-    fetchMock.mockResolvedValue(redirect);
+    fetchMock.mockResolvedValueOnce(redirect);
     await expect(apiRequest("/api/me")).rejects.toMatchObject({ status: 401 });
-    expect(fetchMock.mock.calls[0]![1]!.redirect).toBe("manual");
-    expect(listener).toHaveBeenCalledTimes(1);
-    stop();
-  });
+    expect(expired).toHaveBeenCalledTimes(2);
 
-  it("fires offline on 503 DB_OFFLINE and rejects", async () => {
-    const offline = listen(OFFLINE);
-    const expired = listen(SESSION_EXPIRED);
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        {
-          code: "DB_OFFLINE",
-          message: "The database is offline. Try again later.",
-          correlation_id: "c-2",
-        },
-        503,
-      ),
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ code: "DB_OFFLINE", message: "Offline." }, 503),
     );
     await expect(apiRequest("/api/queue")).rejects.toMatchObject({
       status: 503,
-      code: "DB_OFFLINE",
-      correlationId: "c-2",
     });
-    expect(offline.listener).toHaveBeenCalledTimes(1);
-    expect(expired.listener).not.toHaveBeenCalled();
-    offline.stop();
-    expired.stop();
-  });
+    expect(offline).toHaveBeenCalledTimes(1);
 
-  it("treats any other 503 as an ordinary error", async () => {
-    const { listener, stop } = listen(OFFLINE);
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        { code: "INTERNAL_ERROR", message: "Busy.", correlation_id: "c-3" },
-        503,
-      ),
-    );
-    await expect(apiRequest("/api/queue")).rejects.toBeInstanceOf(ApiError);
-    expect(listener).not.toHaveBeenCalled();
-    stop();
-  });
-
-  it("maps the error shape to a typed error with code and correlation id", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        {
-          code: "VALIDATION_FAILED",
-          message: "Amount is missing.",
-          correlation_id: "0199a1b2-0000-7000-8000-000000000001",
-        },
-        400,
-      ),
-    );
-    const error = await apiRequest("/api/x").catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({
-      status: 400,
-      code: "VALIDATION_FAILED",
-      message: "Amount is missing.",
-      correlationId: "0199a1b2-0000-7000-8000-000000000001",
-    });
-  });
-
-  it("turns a non-JSON error body into a generic error", async () => {
-    fetchMock.mockResolvedValue(
+    fetchMock.mockResolvedValueOnce(
       new Response("<html>Bad gateway</html>", {
         status: 502,
         headers: { "X-Correlation-Id": "c-4" },
@@ -175,116 +128,32 @@ describe("1.4 API client", () => {
       message: strings.errors.generic,
       correlationId: "c-4",
     });
-  });
 
-  it("turns a JSON body that is not an object into a generic error", async () => {
-    fetchMock.mockResolvedValue(jsonResponse("nope", 500));
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 200 }));
     await expect(apiRequest("/api/x")).rejects.toMatchObject({
-      code: null,
-      correlationId: null,
+      status: 200,
       message: strings.errors.generic,
     });
-  });
 
-  it("turns a network failure into a network error", async () => {
-    fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
     await expect(apiRequest("/api/x")).rejects.toMatchObject({
       status: 0,
       message: strings.errors.network,
     });
-  });
 
-  it("rethrows the signal's own abort reason", async () => {
+    // The caller's own abort is not a network failure.
     const controller = new AbortController();
     const reason = new Error("user left the page");
     controller.abort(reason);
-    fetchMock.mockImplementation(async (_path, init) => {
-      throw init?.signal?.reason;
-    });
+    fetchMock.mockRejectedValueOnce(reason);
     await expect(
       apiRequest("/api/x", { signal: controller.signal }),
     ).rejects.toBe(reason);
-  });
 
-  it("reports a timeout as the timeout, not a network failure", async () => {
-    const controller = new AbortController();
-    const timeout = new DOMException("signal timed out", "TimeoutError");
-    controller.abort(timeout);
-    fetchMock.mockRejectedValue(timeout);
-    await expect(
-      apiRequest("/api/x", { signal: controller.signal }),
-    ).rejects.toBe(timeout);
-  });
-
-  it.each([
-    ["an empty", ""],
-    ["a non-JSON", "<html>ok</html>"],
-  ])("turns %s success body into a generic error", async (_, body) => {
-    fetchMock.mockResolvedValue(
-      new Response(body, {
-        status: 200,
-        headers: { "X-Correlation-Id": "c-5" },
-      }),
-    );
-    await expect(apiRequest("/api/x")).rejects.toMatchObject({
-      name: "ApiError",
-      status: 200,
-      code: null,
-      message: strings.errors.generic,
-      correlationId: "c-5",
-    });
-  });
-
-  it("sends X-Upload-Token only while a token is set", async () => {
-    fetchMock.mockImplementation(async () => jsonResponse({}, 200));
-    const token = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
-    setUploadToken(token);
-    await apiRequest("/api/x");
-    setUploadToken(null);
-    await apiRequest("/api/x");
-
-    const [withToken, without] = fetchMock.mock.calls;
-    expect(withToken![0]).toBe("/api/x");
-    expect(withToken![1]?.headers).toMatchObject({ "X-Upload-Token": token });
-    expect(without![1]?.headers).not.toHaveProperty("X-Upload-Token");
-  });
-
-  it("gives other API callers the same headers, token included only while set", () => {
-    const token = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
-    setUploadToken(token);
-    expect(apiHeaders()).toEqual({
-      Accept: "application/json",
-      "X-Requested-With": "XMLHttpRequest",
-      "X-Upload-Token": token,
-    });
-    setUploadToken(null);
-    expect(apiHeaders()).not.toHaveProperty("X-Upload-Token");
-    // A copy: changing it changes nothing for later calls.
-    apiHeaders()["X-Upload-Token"] = "changed";
-    expect(apiHeaders()).not.toHaveProperty("X-Upload-Token");
-  });
-
-  it("does not fire session-expired for a 401 LINK_NOT_VALID", async () => {
-    const { listener, stop } = listen(SESSION_EXPIRED);
-    fetchMock.mockResolvedValue(
-      jsonResponse(
-        { code: LINK_NOT_VALID, message: "Not valid.", correlation_id: "c-6" },
-        401,
-      ),
-    );
-    await expect(apiRequest("/api/link")).rejects.toMatchObject({
-      status: 401,
-      code: "LINK_NOT_VALID",
-    });
-    expect(listener).not.toHaveBeenCalled();
-    stop();
-  });
-
-  it("stops notifying after unsubscribe", async () => {
-    const { listener, stop } = listen(SESSION_EXPIRED);
-    stop();
-    fetchMock.mockResolvedValue(jsonResponse({}, 401));
+    stopExpired();
+    stopOffline();
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 401));
     await expect(apiRequest("/api/me")).rejects.toBeInstanceOf(ApiError);
-    expect(listener).not.toHaveBeenCalled();
+    expect(expired).toHaveBeenCalledTimes(2);
   });
 });

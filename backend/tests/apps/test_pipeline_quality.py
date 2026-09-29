@@ -2,19 +2,15 @@
 PostgreSQL 18 (signed in as the pipeline login), with fake blob and queue clients."""
 
 import asyncio
-import logging
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 import pytest
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from PIL import Image
 from sqlalchemy import Engine, select
 
-from _documents import blurred, darkened, exif, hamming, jpeg, page, pdf, png
+from _documents import blurred, darkened, exif, jpeg, page
 from invoicing.adapters.documents import load_quality_thresholds, read_image
-from invoicing.adapters.logging import ALLOWED_KEYS, DROPPED_FIELDS_KEY, event_fields
 from invoicing.adapters.postgres.invoices import (
     PostgresInvoiceRepository,
     unsigned_phash,
@@ -28,7 +24,6 @@ from invoicing.adapters.postgres.schema import (
 from invoicing.apps.pipeline.quality import (
     Action,
     QualityOutcome,
-    StageFailed,
     quality_handler,
 )
 from invoicing.domain.upload import UploadContentType
@@ -189,18 +184,7 @@ def test_story_2_1_readable_photo_advances_and_queues_extraction_once(
     assert unsigned_phash(hashed["phash"]) == expected
 
 
-@pytest.mark.parametrize("pages", [1, 2])
-def test_story_2_1_readable_pdf_advances_without_phash_or_photo_time(
-    stage: Stage, pages: int
-) -> None:
-    stage.images.put(pdf(pages), UploadContentType.PDF)
-    _assert_advanced(stage, stage.run())
-    assert stage.invoice()["photo_taken_at"] is None
-    assert stage.invoice()["content_type"] == "application/pdf"
-    assert stage.rows(image_hash) == []
-
-
-@pytest.mark.parametrize("spoil", [darkened, blurred], ids=["dark", "blurry"])
+@pytest.mark.parametrize("spoil", [darkened], ids=["dark"])
 def test_story_2_1_unreadable_photo_goes_to_the_admin_queue(
     stage: Stage, spoil: Any
 ) -> None:
@@ -216,91 +200,9 @@ def test_story_2_1_unreadable_photo_goes_to_the_admin_queue(
     assert unsigned_phash(hashed["phash"]) == expected.phash
 
 
-def test_story_2_1_overridden_upload_that_passes_is_processed_normally(
-    stage: Stage,
-) -> None:
-    stage.images.put(png(page(800, 600)), UploadContentType.PNG, DeviceCheck.OVERRIDDEN)
-    _assert_advanced(stage, stage.run())
-    assert stage.invoice()["device_check"] == "overridden"
-
-
-def test_story_2_1_overridden_upload_that_fails_is_unreadable(stage: Stage) -> None:
-    stage.images.put(jpeg(blurred(page())), device_check=DeviceCheck.OVERRIDDEN)
-    _assert_routed(stage, stage.run(), "UNREADABLE")
-
-
-def test_story_1_9_skipped_upload_that_passes_is_processed_like_passed(
-    stage: Stage,
-) -> None:
-    stage.images.put(SHARP_JPEG, device_check=DeviceCheck.SKIPPED)
-    _assert_advanced(stage, stage.run())
-    assert stage.invoice()["device_check"] == "skipped"
-
-
 def test_story_1_9_skipped_upload_is_still_checked_by_the_server(stage: Stage) -> None:
     stage.images.put(jpeg(blurred(page())), device_check=DeviceCheck.SKIPPED)
     _assert_routed(stage, stage.run(), "UNREADABLE")
-
-
-def test_story_1_9_skipped_pdf_over_two_pages_is_unsupported(stage: Stage) -> None:
-    stage.images.put(pdf(3), UploadContentType.PDF, DeviceCheck.SKIPPED)
-    _assert_routed(stage, stage.run(), "UNSUPPORTED_DOCUMENT")
-
-
-def test_story_2_1_pdf_over_two_pages_is_unsupported(stage: Stage) -> None:
-    stage.images.put(pdf(3), UploadContentType.PDF)
-    _assert_routed(stage, stage.run(), "UNSUPPORTED_DOCUMENT")
-
-
-@pytest.mark.parametrize(
-    ("data", "content_type"),
-    [
-        (b"\xff\xd8\xff\xe0 not a jpeg at all", UploadContentType.JPEG),
-        (SHARP_JPEG[: len(SHARP_JPEG) // 4], UploadContentType.JPEG),
-        (b"\x89PNG\r\n\x1a\n" + b"\0" * 64, UploadContentType.PNG),
-        (b"%PDF-1.7\n this is not a pdf", UploadContentType.PDF),
-    ],
-    ids=["jpeg", "truncated-jpeg", "png", "pdf"],
-)
-def test_story_2_1_corrupt_file_is_unreadable(
-    stage: Stage, data: bytes, content_type: UploadContentType
-) -> None:
-    stage.images.put(data, content_type)
-    _assert_routed(stage, stage.run(), "UNREADABLE")
-    assert stage.rows(image_hash) == []
-    assert stage.invoice()["photo_taken_at"] is None
-
-
-def test_story_2_1_exif_orientation_is_applied_before_measuring_and_hashing(
-    stage: Stage,
-) -> None:
-    turned = page().transpose(Image.Transpose.ROTATE_90)
-    stage.images.put(jpeg(turned, exif(orientation=6)))
-    _assert_advanced(stage, stage.run())
-    (hashed,) = stage.rows(image_hash)
-    upright = read_image(SHARP_JPEG, 1024).phash
-    unoriented = read_image(jpeg(turned), 1024).phash
-    assert upright is not None and unoriented is not None
-    assert hamming(unsigned_phash(hashed["phash"]), upright) <= 8
-    assert hamming(unsigned_phash(hashed["phash"]), unoriented) > 8
-
-
-@pytest.mark.parametrize(
-    ("taken", "offset", "expected"),
-    [
-        ("2026:09:20 14:30:05", None, datetime(2026, 9, 20, 6, 30, 5, tzinfo=UTC)),
-        ("2026:09:20 14:30:05", "+02:00", datetime(2026, 9, 20, 12, 30, 5, tzinfo=UTC)),
-        ("2026:13:45 99:99:99", None, None),
-        ("2026:09:20 14:30:05", "garbage", datetime(2026, 9, 20, 6, 30, 5, tzinfo=UTC)),
-    ],
-    ids=["singapore", "offset", "malformed", "malformed-offset"],
-)
-def test_story_2_1_exif_time_is_stored_as_utc(
-    stage: Stage, taken: str, offset: str | None, expected: datetime | None
-) -> None:
-    stage.images.put(jpeg(page(), exif(taken=taken, offset=offset)))
-    stage.run()
-    assert stage.invoice()["photo_taken_at"] == expected
 
 
 def test_story_2_1_redelivery_after_success_requeues_extraction_only(
@@ -344,21 +246,6 @@ def test_story_2_1_a_row_left_in_received_is_finished_by_the_redelivery(
     _assert_advanced(stage, stage.run(_message(attempt=2)))
 
 
-def test_story_2_1_a_lost_race_rereads_the_status(
-    stage: Stage, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Another delivery moved the invoice between this one's check and its transition.
-    stage.images.put(SHARP_JPEG)
-    real = stage.invoices.transition
-
-    async def racing(plan: Any, **kwargs: Any) -> bool:
-        await real(plan, **kwargs)
-        return await real(plan, **kwargs)
-
-    monkeypatch.setattr(stage.invoices, "transition", racing)
-    assert stage.run() == QualityOutcome(Action.ACK, QueueName.EXTRACT)
-
-
 def test_story_2_1_concurrent_deliveries_make_one_row_and_one_transition(
     stage: Stage,
 ) -> None:
@@ -380,156 +267,3 @@ def test_story_2_1_concurrent_deliveries_make_one_row_and_one_transition(
     assert len(stage.rows(image_hash)) == 1
     # The loser re-enqueues too (AD-2): a duplicate message is harmless.
     assert [q for q, _, _ in stage.queue.sent] == [QueueName.EXTRACT, QueueName.EXTRACT]
-
-
-def test_story_2_1_missing_blob_raises_for_a_retry_and_logs_a_code(
-    stage: Stage, caplog: pytest.LogCaptureFixture
-) -> None:
-    with (
-        caplog.at_level(logging.INFO, logger="invoicing"),
-        pytest.raises(StageFailed) as raised,
-    ):
-        stage.run()
-    assert raised.value.code == "IMAGE_NOT_FOUND"
-    assert raised.value.__cause__ is None and raised.value.__suppress_context__
-    assert stage.rows(invoice) == []
-    assert stage.queue.sent == []
-    (failed,) = [
-        r for r in caplog.records if r.getMessage().startswith("quality.failed ")
-    ]
-    assert event_fields(failed) == {
-        "invoice_id": str(INVOICE_ID),
-        "code": "IMAGE_NOT_FOUND",
-        "attempt": 1,
-        "correlation_id": str(CORRELATION_ID),
-    }
-
-
-# --- The handler around the stage ------------------------------------------------------
-
-
-@pytest.mark.parametrize("body", ["not json", '{"invoice_id": "x"}', b"\xff\xfe"])
-def test_story_2_1_a_malformed_message_is_raised_and_logged_by_code(
-    stage: Stage, body: str | bytes, caplog: pytest.LogCaptureFixture
-) -> None:
-    with (
-        caplog.at_level(logging.INFO, logger="invoicing"),
-        pytest.raises(StageFailed, match="MALFORMED_MESSAGE") as raised,
-    ):
-        asyncio.run(stage.handle(body))
-    assert raised.value.__cause__ is None and raised.value.__suppress_context__
-    (record,) = [r for r in caplog.records if r.name.startswith("invoicing")]
-    assert event_fields(record) == {"code": "MALFORMED_MESSAGE"}
-    assert stage.images.reads == []
-
-
-def test_story_2_1_blob_metadata_for_another_invoice_is_refused(stage: Stage) -> None:
-    other = UUID("0192f0c1-7a2b-7c3d-8e4f-0000000000ff")
-    stage.images.put(SHARP_JPEG, invoice_id=other)
-    stage.images.blobs[INVOICE_ID] = stage.images.blobs[other]
-    with pytest.raises(StageFailed, match="METADATA_INVOICE_MISMATCH"):
-        stage.run()
-    assert stage.rows(invoice) == []
-
-
-@pytest.mark.parametrize(
-    ("source", "delivery_id"),
-    [
-        (IntakeSource.LINK, UUID("0192f0c1-0000-7000-8000-00000000de11")),
-        (IntakeSource.GOODS_IN, None),
-    ],
-    ids=["link-with-delivery", "goods-in-without-delivery"],
-)
-def test_story_2_1_source_and_delivery_that_disagree_fail_early_with_a_code(
-    stage: Stage,
-    source: IntakeSource,
-    delivery_id: UUID | None,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    stage.images.put(SHARP_JPEG, source=source, delivery_id=delivery_id)
-    with (
-        caplog.at_level(logging.INFO, logger="invoicing"),
-        pytest.raises(StageFailed) as raised,
-    ):
-        stage.run()
-    assert raised.value.code == "SOURCE_DELIVERY_MISMATCH"
-    # Refused before any write, so no check constraint is hit on each retry.
-    assert stage.rows(invoice) == []
-    (failed,) = [
-        r for r in caplog.records if r.getMessage().startswith("quality.failed ")
-    ]
-    assert event_fields(failed)["code"] == "SOURCE_DELIVERY_MISMATCH"
-
-
-def test_story_2_1_a_goods_in_scan_with_its_delivery_is_processed(stage: Stage) -> None:
-    delivery = UUID("0192f0c1-0000-7000-8000-00000000de11")
-    stage.images.put(SHARP_JPEG, source=IntakeSource.GOODS_IN, delivery_id=delivery)
-    _assert_advanced(stage, stage.run())
-    assert stage.invoice()["delivery_id"] == delivery
-
-
-def test_story_2_1_an_unexpected_failure_reaches_the_host_as_a_code_only(
-    stage: Stage, caplog: pytest.LogCaptureFixture
-) -> None:
-    stage.images.put(SHARP_JPEG)
-
-    async def leaky(invoice_id: UUID) -> Any:
-        raise RuntimeError("password=hunter2 host=db.internal")
-
-    stage.invoices.status = leaky  # type: ignore[method-assign]  # a failing fake
-    with (
-        caplog.at_level(logging.DEBUG, logger="invoicing"),
-        pytest.raises(StageFailed) as raised,
-    ):
-        stage.run()
-    assert raised.value.code == "RuntimeError"
-    assert str(raised.value) == "quality stage failed: RuntimeError"
-    assert raised.value.__cause__ is None and raised.value.__suppress_context__
-    for record in caplog.records:
-        assert "hunter2" not in record.getMessage()
-
-
-def test_story_2_1_the_stage_runs_in_the_uploads_trace_and_logs_codes_only(
-    stage: Stage, spans: InMemorySpanExporter, caplog: pytest.LogCaptureFixture
-) -> None:
-    stage.images.put(jpeg(page(), exif(taken="2026:09:20 14:30:05")))
-    with caplog.at_level(logging.DEBUG, logger="invoicing"):
-        stage.run()
-    (span,) = [s for s in spans.get_finished_spans() if s.name == "pipeline.quality"]
-    # One trace per correlation id (AD-17).
-    assert span.context is not None and span.context.trace_id == CORRELATION_ID.int
-    assert dict(span.attributes or {}) == {
-        "correlation_id": str(CORRELATION_ID),
-        "invoice_id": str(INVOICE_ID),
-        "stage": "quality",
-        "attempt": 1,
-    }
-    (done,) = [r for r in caplog.records if r.getMessage().startswith("quality.done ")]
-    fields = event_fields(done)
-    assert fields["code"] == "advance" and fields["queue"] == "q-extract"
-    assert isinstance(fields["duration_ms"], int)
-    for record in caplog.records:
-        if record.name.startswith("invoicing"):
-            assert DROPPED_FIELDS_KEY not in event_fields(record)
-            assert set(event_fields(record)) <= ALLOWED_KEYS
-            # Never the photo time or the hash.
-            assert "2026-09-20" not in record.getMessage()
-
-
-def test_story_2_1_an_enqueue_failure_is_raised_after_the_commit(stage: Stage) -> None:
-    stage.images.put(SHARP_JPEG)
-
-    async def failing(*args: Any, **kwargs: Any) -> None:
-        raise ConnectionError("queue down")
-
-    stage.queue.send = failing  # type: ignore[method-assign]  # a failing fake
-    with pytest.raises(StageFailed, match="ConnectionError"):
-        stage.run()
-    # Committed first: the redelivery re-enqueues from the saved status (AD-2).
-    assert stage.invoice()["status"] == "awaiting_extraction"
-    stage.queue = FakeQueue()
-    stage.handle = quality_handler(
-        stage.images, stage.invoices, stage.queue, THRESHOLDS, clock=lambda: NOW
-    )
-    assert stage.run(_message(2)) == QualityOutcome(Action.ACK, QueueName.EXTRACT)
-    assert [q for q, _, _ in stage.queue.sent] == [QueueName.EXTRACT]

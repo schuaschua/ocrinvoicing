@@ -6,54 +6,12 @@ source file names the schema."""
 import shutil
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
-from typing import Any
 
 import invoicing
 from conftest import BACKEND_DIR
 
 PACKAGE_DIR = Path(invoicing.__file__).parent
-SIMULATION_DIR = PACKAGE_DIR / "adapters" / "purchasing_sim"
-SCHEMA_NAME = "sim_purchasing"
-CONTRACT = {
-    "id": "purchasing-sim-is-private",
-    "type": "protected",
-    "protected_modules": ["invoicing.adapters.purchasing_sim"],
-    "allowed_importers": [
-        "invoicing.adapters.purchasing_factory",
-        "invoicing.tools.seed_purchasing",
-    ],
-}
-
-
-def _pyproject() -> dict[str, Any]:
-    return tomllib.loads((BACKEND_DIR / "pyproject.toml").read_text())
-
-
-def test_story_2_4_the_import_contract_is_pinned() -> None:
-    pyproject = _pyproject()
-    config = pyproject["tool"]["importlinter"]
-    assert config["root_package"] == "invoicing"
-    (contract,) = config["contracts"]
-    assert {key: contract[key] for key in CONTRACT} == CONTRACT
-    # Pinned exactly, like every check tool (Story 1.2).
-    dev = pyproject["dependency-groups"]["dev"]
-    assert [pin for pin in dev if pin.startswith("import-linter")] == [
-        "import-linter==2.15"
-    ]
-
-
-def test_story_2_4_no_other_source_file_names_the_schema() -> None:
-    offenders = [
-        str(path.relative_to(PACKAGE_DIR))
-        for path in sorted(PACKAGE_DIR.rglob("*"))
-        if path.is_file()
-        and path.suffix != ".pyc"
-        and SIMULATION_DIR not in path.parents
-        and SCHEMA_NAME in path.read_text(errors="ignore")
-    ]
-    assert offenders == []
 
 
 def _lint_imports(root: Path) -> subprocess.CompletedProcess[str]:

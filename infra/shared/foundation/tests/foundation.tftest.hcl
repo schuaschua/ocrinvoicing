@@ -230,19 +230,6 @@ run "shared_foundation" {
   }
 }
 
-run "domain_link_after_verification" {
-  command = plan
-
-  variables {
-    email_domain_link_enabled = true
-  }
-
-  assert {
-    condition     = length(azurerm_communication_service_email_domain_association.custom) == 1
-    error_message = "the domain is linked to ACS once verification is done."
-  }
-}
-
 run "entra_admin_must_be_a_guid" {
   command = plan
 

@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CheckResult } from "@/deviceCheck";
 import { CheckAndSend } from "@/screens/CheckAndSend";
-import { strings } from "@/strings";
 import { FakeXhr } from "@/test/fakeXhr";
 
 // The check itself is tested in deviceCheck.test.ts; here it answers when told to.
@@ -66,100 +65,33 @@ function renderCheck(
 
 const DARK: CheckResult = { kind: "photo-problem", problem: { kind: "dark" } };
 
+const buttons = () => screen.getAllByRole("button").map((b) => b.textContent);
+
 describe("1.9 on-device photo check", () => {
-  it("says Checking photo… while it runs, with no Send yet", async () => {
-    const { file } = renderCheck();
-    expect(check.checkFile).toHaveBeenCalledWith(file);
+  it("names a failed check, offers Take again, then Send it anyway from the 2nd failure", async () => {
+    const first = renderCheck({ source: "camera" });
+    expect(check.checkFile).toHaveBeenCalledWith(first.file);
     expect(screen.getByRole("status")).toHaveTextContent(/^Checking photo…$/);
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    await answer({ kind: "passed" });
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
-    expect(screen.getByRole("alert")).toBeEmptyDOMElement();
-  });
-
-  it("a passing photo is sent marked passed", async () => {
-    const { onSent, file } = renderCheck();
-    await answer({ kind: "passed" });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    const xhr = FakeXhr.last();
-    expect(xhr.body).toBe(file);
-    expect(xhr.headers["X-Device-Check"]).toBe("passed");
-    await act(async () => xhr.respond(200, OK));
-    expect(onSent).toHaveBeenCalledWith("R-7Q4KXM2D");
-  });
-
-  it.each([
-    [{ kind: "dark" }, "The photo is too dark."],
-    [{ kind: "blurry" }, "The photo is blurry."],
-    [{ kind: "cut-off", side: "bottom" }, "The bottom edge is cut off."],
-    [{ kind: "cut-off", side: "left" }, "The left edge is cut off."],
-  ] as const)(
-    "a first failure names the problem (%o) and offers Take again only",
-    async (problem, words) => {
-      renderCheck();
-      await answer({ kind: "photo-problem", problem });
-      expect(screen.getByRole("alert")).toHaveTextContent(words);
-      expect(screen.getByRole("status")).toBeEmptyDOMElement();
-      expect(
-        screen.getByRole("button", { name: "Take again" }),
-      ).toHaveAttribute("data-capture");
-      expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-      expect(
-        screen.queryByRole("button", { name: "Send it anyway" }),
-      ).toBeNull();
-    },
-  );
-
-  it("Take again reopens the camera for a photo taken with it", async () => {
-    const { onRetake } = renderCheck({ source: "camera" });
     await answer(DARK);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The photo is too dark.",
+    );
+    expect(buttons()).toEqual(["Take again", "Choose another file"]);
+
+    // Take again reopens the camera the photo came from.
     const input = screen.getByTestId<HTMLInputElement>("take-again-input");
     expect(input).toHaveAttribute("capture", "environment");
-    expect(input).toHaveAttribute("accept", "image/jpeg,image/png");
     const opened = vi.spyOn(input, "click");
     fireEvent.click(screen.getByRole("button", { name: "Take again" }));
     expect(opened).toHaveBeenCalledTimes(1);
-
     const retake = photo("retake.jpg");
     fireEvent.change(input, { target: { files: [retake] } });
-    expect(onRetake).toHaveBeenCalledWith(retake);
-    expect(input.value).toBe("");
-  });
+    expect(first.onRetake).toHaveBeenCalledWith(retake);
+    first.unmount();
 
-  it("Take again reopens the picker for a chosen file", async () => {
-    renderCheck({ source: "file" });
-    await answer(DARK);
-    const input = screen.getByTestId("take-again-input");
-    expect(input).not.toHaveAttribute("capture");
-    expect(input.getAttribute("accept")).toContain("application/pdf");
-  });
-
-  it("a retake the page can't send is refused with the reason", async () => {
-    const { onRetake } = renderCheck();
-    await answer(DARK);
-    fireEvent.change(screen.getByTestId("take-again-input"), {
-      target: { files: [new File(["GIF8"], "x.gif", { type: "image/gif" })] },
-    });
-    expect(onRetake).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      strings.fileRefused.wrongType,
-    );
-    // The refusal replaces the failure: Choose another file is the way on.
-    expect(screen.queryByTestId("take-again-input")).toBeNull();
-  });
-
-  it("a cancelled Take again leaves the failure as it was", async () => {
-    const { onRetake } = renderCheck();
-    await answer(DARK);
-    fireEvent.change(screen.getByTestId("take-again-input"), {
-      target: { files: [] },
-    });
-    expect(onRetake).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert")).toHaveTextContent("too dark");
-  });
-
-  it("the second failure adds Send it anyway, which sends the photo marked overridden", async () => {
-    const { onSent, file } = renderCheck({ previousFailures: 1 });
+    // The retake fails too: Send it anyway, the secondary action.
+    const second = renderCheck({ previousFailures: 1 });
     await answer({
       kind: "photo-problem",
       problem: { kind: "cut-off", side: "top" },
@@ -167,67 +99,57 @@ describe("1.9 on-device photo check", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The top edge is cut off.",
     );
-    const buttons = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(buttons).toEqual([
+    expect(buttons()).toEqual([
       "Take again",
       "Send it anyway",
       "Choose another file",
     ]);
     const anyway = screen.getByRole("button", { name: "Send it anyway" });
-    // Secondary: the outline style, never the primary.
     expect(anyway.className).toContain("border");
     fireEvent.click(anyway);
-    const xhr = FakeXhr.last();
-    expect(xhr.body).toBe(file);
-    expect(xhr.headers["X-Device-Check"]).toBe("overridden");
-    expect(xhr.headers["Idempotency-Key"]).toBe(UPLOAD_ID);
-    await act(async () => xhr.respond(200, OK));
-    expect(onSent).toHaveBeenCalledWith("R-7Q4KXM2D");
-  });
+    expect(FakeXhr.last().body).toBe(second.file);
+    expect(FakeXhr.last().headers).toMatchObject({
+      "X-Device-Check": "overridden",
+      "Idempotency-Key": UPLOAD_ID,
+    });
 
-  it("a send after Send it anyway that fails is retried still marked overridden", async () => {
-    renderCheck({ previousFailures: 1 });
-    await answer(DARK);
-    fireEvent.click(screen.getByRole("button", { name: "Send it anyway" }));
+    // A failed send is retried still overridden, with Take again beside Send.
     await act(async () => FakeXhr.last().fail());
-    expect(screen.getByRole("alert")).toHaveTextContent("Couldn't send.");
-    // Take again stays on offer, as the secondary action beside Send.
-    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
-      "Send",
-      "Take again",
-      "Choose another file",
-    ]);
-    expect(
-      screen.getByRole("button", { name: "Take again" }).className,
-    ).toContain("border");
-    expect(screen.getByTestId("take-again-input")).toBeInTheDocument();
+    expect(buttons()).toEqual(["Send", "Take again", "Choose another file"]);
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(FakeXhr.last().headers["X-Device-Check"]).toBe("overridden");
+    await act(async () => FakeXhr.last().respond(200, OK));
+    expect(second.onSent).toHaveBeenCalledWith("R-7Q4KXM2D");
   });
 
-  it("a failed send of a photo that passed offers no Take again", async () => {
-    renderCheck();
-    await answer({ kind: "passed" });
+  it("sends what it couldn't check marked skipped, and refuses a PDF over 2 pages", async () => {
+    // A browser that can't check goes straight to Send.
+    check.canCheck.mockReturnValue(false);
+    const plain = renderCheck();
+    expect(check.checkFile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
+    plain.unmount();
+
+    // A check that couldn't finish: no failure, and skipped on every send.
+    check.canCheck.mockReturnValue(true);
+    const unfinished = renderCheck();
+    await answer({ kind: "skipped" });
+    expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Take again" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await act(async () => FakeXhr.last().fail());
-    expect(screen.queryByRole("button", { name: "Take again" })).toBeNull();
-  });
-
-  it("a photo that passes after earlier failures is sent marked passed", async () => {
-    renderCheck({ previousFailures: 2 });
-    await answer({ kind: "passed" });
-    expect(screen.queryByRole("button", { name: "Send it anyway" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("passed");
-  });
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
+    unfinished.unmount();
 
-  it("a PDF over 2 pages is refused on the device, with no photo wording", async () => {
-    const { onChooseAgain } = renderCheck({
+    FakeXhr.reset();
+    const pdf = renderCheck({
       file: new File(["%PDF-"], "inv.pdf", { type: "application/pdf" }),
     });
     expect(screen.getByRole("status")).toHaveTextContent(/^Checking PDF…$/);
+    expect(screen.getByText(/PDF:/)).toHaveTextContent("PDF: inv.pdf");
     await answer({ kind: "too-many-pages" });
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "This PDF has more than 2 pages.",
     );
@@ -235,62 +157,7 @@ describe("1.9 on-device photo check", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Choose another file" }),
     );
-    expect(onChooseAgain).toHaveBeenCalledTimes(1);
+    expect(pdf.onChooseAgain).toHaveBeenCalledTimes(1);
     expect(FakeXhr.requests).toEqual([]);
-  });
-
-  it("a PDF of 1 or 2 pages is sent marked passed", async () => {
-    renderCheck({
-      file: new File(["%PDF-"], "inv.pdf", { type: "application/pdf" }),
-    });
-    await answer({ kind: "passed" });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("passed");
-  });
-
-  it("a browser that can't check goes straight to Send, marked skipped", () => {
-    check.canCheck.mockReturnValue(false);
-    renderCheck();
-    expect(check.checkFile).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
-    expect(screen.getByRole("status")).toBeEmptyDOMElement();
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
-  });
-
-  it("a photo the check couldn't finish is sent marked skipped, with no failure", async () => {
-    renderCheck();
-    await answer({ kind: "skipped" });
-    expect(screen.getByRole("alert")).toBeEmptyDOMElement();
-    expect(screen.queryByRole("button", { name: "Take again" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
-  });
-
-  it("a skipped check stays skipped on Send again after a failed send", async () => {
-    renderCheck();
-    await answer({ kind: "skipped" });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await act(async () => FakeXhr.last().fail());
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(FakeXhr.requests).toHaveLength(2);
-    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
-  });
-
-  it("a PDF whose pages can't be counted is sent marked skipped", async () => {
-    renderCheck({
-      file: new File(["%PDF-"], "inv.pdf", { type: "application/pdf" }),
-    });
-    await answer({ kind: "skipped" });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
-  });
-
-  it("a check that ends after the screen is gone changes nothing", async () => {
-    const errors = vi.spyOn(console, "error");
-    const { unmount } = renderCheck();
-    unmount();
-    await answer(DARK);
-    expect(errors).not.toHaveBeenCalled();
   });
 });

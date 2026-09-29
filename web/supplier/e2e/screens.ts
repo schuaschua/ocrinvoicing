@@ -1,19 +1,8 @@
 // The supplier page's screens for the accessibility check (e2e/a11y.spec.ts, shared
 // with web/staff). Screen stories add theirs here.
-import { readFileSync } from "node:fs";
-
 import type { Page } from "@playwright/test";
 
 import type { ApiAnswer, Screen } from "./checks.ts";
-
-// The device check's hard cap (shared/quality-thresholds.json), after which a check
-// still running is given up and Send appears.
-const MAX_CHECK_MS: number = JSON.parse(
-  readFileSync(
-    new URL("../../../shared/quality-thresholds.json", import.meta.url),
-    "utf8",
-  ),
-).analysis.max_check_ms;
 
 // Synthetic: base64url of 32 bytes of 0x5a, canonical like a real link token.
 const TOKEN = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
@@ -75,20 +64,6 @@ async function chooseDarkPhoto(page: Page): Promise<void> {
   await page.getByRole("alert").getByText("The photo is too dark.").waitFor();
 }
 
-/** A PDF with 3 page objects (refused on the device). */
-function threePagePdf(): Buffer {
-  const pages = [3, 4, 5]
-    .map((n) => `${n} 0 obj\n<< /Type /Page /Parent 2 0 R >>\nendobj\n`)
-    .join("");
-  return Buffer.from(
-    "%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n" +
-      "2 0 obj\n<< /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 >>\nendobj\n" +
-      pages +
-      "trailer\n<< /Root 1 0 R >>\n%%EOF\n",
-    "latin1",
-  );
-}
-
 function upload(answer: ApiAnswer): Record<string, ApiAnswer> {
   return { ...LINK_OK, "/api/upload": answer };
 }
@@ -108,12 +83,6 @@ export const SCREENS: Screen[] = [
   },
   {
     story: "1.7",
-    name: "link not working (no token)",
-    path: "/u",
-    ready: "This link isn't working.",
-  },
-  {
-    story: "1.7",
     name: "link not working (revoked or unknown)",
     path: `/u#${TOKEN}`,
     api: {
@@ -130,130 +99,12 @@ export const SCREENS: Screen[] = [
     ready: "This link isn't working.",
   },
   {
-    story: "1.7",
-    name: "waking up",
-    path: `/u#${TOKEN}`,
-    api: { "/api/link": "hang" },
-    ready: "Waking up, one moment…",
-  },
-  {
-    story: "1.7",
-    name: "link check failed",
-    path: `/u#${TOKEN}`,
-    api: {
-      "/api/link": {
-        status: 503,
-        body: {
-          code: "SERVICE_UNAVAILABLE",
-          message: "The service is busy. Try again in a moment.",
-          correlation_id: "0199a1b2-0000-7000-8000-000000000002",
-        },
-      },
-    },
-    ready: "Something went wrong. Try again later.",
-  },
-  {
-    story: "1.8",
-    name: "camera not available",
-    path: `/u#${TOKEN}`,
-    api: LINK_OK,
-    // A browser that lists no camera (permission denied, or an in-app browser).
-    setup: async (page) => {
-      await page.addInitScript(() => {
-        Object.defineProperty(navigator, "mediaDevices", {
-          value: { enumerateDevices: async () => [] },
-        });
-      });
-    },
-    steps: atHome,
-    ready: "Camera not available here.",
-  },
-  {
-    story: "1.8",
-    name: "file refused on the page",
-    path: `/u#${TOKEN}`,
-    api: LINK_OK,
-    steps: (page) => choose(page, "invoice.gif", "image/gif"),
-    ready: "This file can't be sent.",
-  },
-  {
     story: "1.8",
     name: "check and send",
     path: `/u#${TOKEN}`,
     api: LINK_OK,
     steps: (page) => choose(page),
     ready: "invoice-4521.jpg",
-  },
-  {
-    story: "1.8",
-    name: "sending",
-    path: `/u#${TOKEN}`,
-    api: upload("hang"),
-    steps: chooseAndSend,
-    ready: "Sending…",
-  },
-  {
-    story: "1.8",
-    name: "couldn't send",
-    path: `/u#${TOKEN}`,
-    api: upload({
-      status: 503,
-      body: {
-        code: "SERVICE_UNAVAILABLE",
-        message: "The service is busy. Try again in a moment.",
-        correlation_id: "0199a1b2-0000-7000-8000-000000000003",
-      },
-    }),
-    steps: chooseAndSend,
-    ready: "Couldn't send. Check your connection and tap Send again.",
-  },
-  {
-    story: "1.8",
-    name: "file refused by the server",
-    path: `/u#${TOKEN}`,
-    api: upload({
-      status: 415,
-      body: {
-        code: "UNSUPPORTED_MEDIA_TYPE",
-        message: "This file can't be sent. Send a JPEG or PNG photo, or a PDF.",
-        correlation_id: "0199a1b2-0000-7000-8000-000000000004",
-      },
-    }),
-    steps: chooseAndSend,
-    ready: "Choose a JPEG or PNG photo, or a PDF.",
-  },
-  {
-    story: "1.9",
-    name: "checking photo",
-    path: `/u#${TOKEN}`,
-    api: LINK_OK,
-    // A decoder that never answers keeps the check running, and its hard-cap timer
-    // never fires, so the screen can't turn into Send during the scan. Test-only: the
-    // app has no hook for this.
-    setup: async (page) => {
-      await page.addInitScript((cap) => {
-        window.createImageBitmap = () => new Promise<ImageBitmap>(() => {});
-        const setTimer = window.setTimeout.bind(window);
-        window.setTimeout = ((
-          handler: TimerHandler,
-          ms?: number,
-          ...rest: unknown[]
-        ) =>
-          ms === cap
-            ? 0
-            : setTimer(handler, ms, ...rest)) as typeof window.setTimeout;
-      }, MAX_CHECK_MS);
-    },
-    steps: (page) => choose(page),
-    ready: "Checking photo…",
-  },
-  {
-    story: "1.9",
-    name: "photo check failed",
-    path: `/u#${TOKEN}`,
-    api: LINK_OK,
-    steps: chooseDarkPhoto,
-    ready: "Take again",
   },
   {
     story: "1.9",
@@ -269,21 +120,6 @@ export const SCREENS: Screen[] = [
       });
     },
     ready: "Send it anyway",
-  },
-  {
-    story: "1.9",
-    name: "PDF over 2 pages refused on the device",
-    path: `/u#${TOKEN}`,
-    api: LINK_OK,
-    steps: async (page) => {
-      await atHome(page);
-      await page.getByTestId("choose-file-input").setInputFiles({
-        name: "invoice.pdf",
-        mimeType: "application/pdf",
-        buffer: threePagePdf(),
-      });
-    },
-    ready: "This PDF has more than 2 pages.",
   },
   {
     story: "1.8",

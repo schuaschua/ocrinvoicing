@@ -388,6 +388,9 @@ So that nothing reaches Prod without passing checks and my approval.
 **Then** Alembic `upgrade head` runs as a pipeline step, as the environment's deploy identity, connecting directly while the PostgreSQL firewall is open (no temporary firewall rule, AD-17), after `<env>/foundation` and before `<env>/app` and the code deploy (AD-17 steps 6, 7 and 9), never at app start
 **And** every schema grant is part of a migration (AD-11)
 
+**Tasks:**
+- Client side: create the Azure DevOps project in the `example-org` organisation; its name is an input to `state-backend.sh` and `ado-setup.sh` (started 2026-09-29 07:00).
+
 ### Story 1.3: Python Functions API skeleton
 
 As a developer,

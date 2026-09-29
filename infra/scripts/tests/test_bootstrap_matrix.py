@@ -83,12 +83,15 @@ def _tool_calls(calls: list[list[str]], tool: str) -> list[list[str]]:
 
 def test_story_1_1_state_backend_rerun(work_dir: Path) -> None:
     """state-backend.sh re-run where everything exists. Covers: the security settings are
-    re-applied (shared keys off; OCR-129 private-key vaults keep RBAC and purge protection);
-    no federated credential is looked up or made (Dj, 2026-09-29)."""
+    re-applied (OCR-129 private-key vaults keep RBAC and purge protection);
+    no federated credential is looked up or made (Dj, 2026-09-29); the state account
+    stdjtfstatesea is only checked, and one allowing shared keys stops the run."""
     # Bootstrap re-run re-applies the security settings.
     result, calls = _run("state-backend.sh", _case(work_dir, "rerun"))
     assert result.returncode == 0, result.stderr
-    assert any(_starts_with(call, ["storage", "account", "update"]) and "--allow-shared-key-access" in call for call in calls)
+    # The state account is Dj's (stdjtfstatesea, Dj 2026-09-30): checked, never changed.
+    assert not any(_starts_with(call, ["storage", "account", "update"]) for call in calls)
+    assert not any(_starts_with(call, ["storage", "container-rm", "create"]) for call in calls)
     # OCR-129: the private-key vaults keep their settings.
     vault_updates = [call for call in calls if _starts_with(call, ["keyvault", "update"])]
     assert [call[call.index("--name") + 1] for call in vault_updates] == ["babaloo-sea-lng-kv-22", "babaloo-sea-lng-kv-23"]
@@ -97,6 +100,14 @@ def test_story_1_1_state_backend_rerun(work_dir: Path) -> None:
         assert call[call.index("--enable-rbac-authorization") + 1] == "true"
         assert call[call.index("--enable-purge-protection") + 1] == "true"
     assert not any(_starts_with(call, ["identity", "federated-credential"]) for call in calls)
+    # Existing deploy identities are re-tagged with a command the az CLI has ("identity update" does not exist).
+    assert not any(_starts_with(call, ["identity", "update"]) for call in calls)
+    retagged = [call for call in calls if _starts_with(call, ["resource", "tag"]) and "Microsoft.ManagedIdentity/userAssignedIdentities" in call]
+    assert [call[call.index("--name") + 1] for call in retagged] == [f"babaloo-sea-lng-id-2{n}" for n in (1, 2, 3)]
+    # A state account that allows shared keys stops the run before any container is made.
+    result, calls = _run("state-backend.sh", _case(work_dir, "shared-key"), FAKE_AZ_SHARED_KEY="true")
+    assert result.returncode != 0 and "shared-key access" in result.stderr
+    assert not any(_starts_with(call, ["storage", "container-rm"]) for call in calls)
 
 
 # --- ci-vm.sh (Story 1.2, AD-17 step 1c) ------------------------------------------------------

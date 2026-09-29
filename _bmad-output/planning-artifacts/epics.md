@@ -316,7 +316,7 @@ So that every later story deploys into named, tagged, budgeted Azure resources i
 
 **Given** the `infra/bootstrap/` scripts have been run once by an operator with Owner rights (AD-17 step 1)
 **When** they finish
-**Then** the Terraform state storage exists with Entra auth, shared-key access disabled and versioning on
+**Then** the Terraform state containers `ocrinvoicing-shared`, `ocrinvoicing-dev` and `ocrinvoicing-prod` exist in Dj's existing state account `stdjtfstatesea` (`rg-tfstate-sea`), which has Entra auth, shared-key access disabled and versioning on; the scripts check the account and never change it (Dj, 2026-09-30)
 **And** the three resource groups exist, named per P-16 (`babaloo-sea-lng-rg-<nn>`: Dev `0x`, Prod `1x`, shared `2x`), with the 5 P-17 tags, and the resource providers are registered
 **And** the deploy identities for `dev`, `prod` and `shared` exist (no federated credentials: the shared and Dev identities are attached to the CI VM, Dj, 2026-09-29), each holding only the rights in AD-17 "Deploy identity rights"
 **And** each environment has two Entra app registrations: `staff-api` (app roles `admin`, `finance`, `procurement`, `management` and `goods_in`, "assignment required", ID-token issuance on) and `accounts-sim`

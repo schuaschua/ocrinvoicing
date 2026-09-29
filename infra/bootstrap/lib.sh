@@ -41,13 +41,18 @@ storage_name() { printf '%s%s%02d' "$STORAGE_PREFIX" "$1" "$2"; }
 
 rg_name() { resource_name rg "$(env_base "$1")"; }
 
-# Terraform state and the deploy identities live in a bootstrap-only resource group
+# The deploy identities and private-key vaults live in a bootstrap-only resource group
 # (rg-22, shared range). No Terraform stack manages it and no deploy identity holds
-# Contributor on it, so one stack's identity cannot alter another's identity or state.
+# Contributor on it, so one stack's identity cannot alter another's identity.
 STATE_RG="$(resource_name rg 22)"
-STATE_ACCOUNT="$(storage_name st 21)"
-readonly STATE_RG STATE_ACCOUNT
-readonly STATE_CONTAINERS=(shared dev prod)
+readonly STATE_RG
+# Terraform state lives in Dj's existing state account (Dj, 2026-09-30), outside this
+# project's naming: the bootstrap only adds this project's containers there, one per
+# stack owner, and never changes the account itself.
+readonly TFSTATE_RG=rg-tfstate-sea
+readonly TFSTATE_ACCOUNT=stdjtfstatesea
+readonly TFSTATE_CONTAINER_PREFIX=ocrinvoicing-
+state_container_name() { echo "$TFSTATE_CONTAINER_PREFIX$1"; }
 
 # Deploy identities: id-21 shared, id-22 dev, id-23 prod (plan Design Notes).
 deploy_identity_name() {
@@ -316,7 +321,7 @@ select_subscription() {
 subscription_scope() { echo "/subscriptions/$ARM_SUBSCRIPTION_ID"; }
 rg_scope() { echo "$(subscription_scope)/resourceGroups/$1"; }
 state_container_scope() {
-  echo "$(rg_scope "$STATE_RG")/providers/Microsoft.Storage/storageAccounts/$STATE_ACCOUNT/blobServices/default/containers/$1"
+  echo "$(rg_scope "$TFSTATE_RG")/providers/Microsoft.Storage/storageAccounts/$TFSTATE_ACCOUNT/blobServices/default/containers/$(state_container_name "$1")"
 }
 
 verify_role_ids() {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # AD-17 step 1 (part 1): resource providers, the four resource groups, Terraform
-# state storage, the two private-key vaults (OCR-129) and the three deploy identities
+# state containers, the two private-key vaults (OCR-129) and the three deploy identities
 # with their role assignments. The identities have no federated credentials: the CI VM
 # (ci-vm.sh) carries the shared and Dev ones as user-assigned managed identities
 # (Dj, 2026-09-29). Idempotent: re-running skips what exists and re-applies settings
@@ -61,36 +61,33 @@ for pair in "shared:$(rg_name shared)" "dev:$(rg_name dev)" "prod:$(rg_name prod
   fi
 done
 
-# Terraform state storage: Entra auth only, shared-key off, versioning on.
-step "State storage account $STATE_ACCOUNT"
+# Terraform state: Dj's existing account stdjtfstatesea (Dj, 2026-09-30), which this
+# script does not own and never changes. It only checks that the account is Entra-auth
+# only with versioning on, then adds this project's containers.
 set_tags shared
 shared_tags=("${TAGS[@]}")
-if exists az storage account show --name "$STATE_ACCOUNT" --resource-group "$STATE_RG"; then
-  run az storage account update --name "$STATE_ACCOUNT" --resource-group "$STATE_RG" \
-    --allow-shared-key-access false --allow-blob-public-access false \
-    --min-tls-version TLS1_2 --https-only true --tags "${shared_tags[@]}"
-else
-  run az storage account create --name "$STATE_ACCOUNT" --resource-group "$STATE_RG" \
-    --location "$LOCATION" --sku Standard_LRS --kind StorageV2 \
-    --allow-shared-key-access false --allow-blob-public-access false \
-    --min-tls-version TLS1_2 --https-only true --tags "${shared_tags[@]}"
+step "State storage account $TFSTATE_ACCOUNT (existing, checked only)"
+if ((!DRY_RUN)); then
+  exists az storage account show --name "$TFSTATE_ACCOUNT" --resource-group "$TFSTATE_RG" ||
+    die "state account $TFSTATE_ACCOUNT not found in $TFSTATE_RG"
+  [[ "$(az storage account show --name "$TFSTATE_ACCOUNT" --resource-group "$TFSTATE_RG" \
+    --query allowSharedKeyAccess -o tsv)" == false ]] ||
+    die "$TFSTATE_ACCOUNT allows shared-key access; state must be Entra auth only"
+  [[ "$(az storage account blob-service-properties show --account-name "$TFSTATE_ACCOUNT" \
+    --resource-group "$TFSTATE_RG" --query isVersioningEnabled -o tsv)" == true ]] ||
+    die "$TFSTATE_ACCOUNT has blob versioning off; state needs it on"
 fi
 
-step "State blob versioning and soft delete"
-run az storage account blob-service-properties update --account-name "$STATE_ACCOUNT" \
-  --resource-group "$STATE_RG" --enable-versioning true \
-  --enable-delete-retention true --delete-retention-days 7 \
-  --enable-container-delete-retention true --container-delete-retention-days 7
-
 # Containers through the management plane, so no data-plane role is needed.
-for container in "${STATE_CONTAINERS[@]}"; do
+for owner in shared dev prod; do
+  container="$(state_container_name "$owner")"
   step "State container $container"
-  if exists az storage container-rm show --storage-account "$STATE_ACCOUNT" \
-    --resource-group "$STATE_RG" --name "$container"; then
+  if exists az storage container-rm show --storage-account "$TFSTATE_ACCOUNT" \
+    --resource-group "$TFSTATE_RG" --name "$container"; then
     log "exists: container $container"
   else
-    run az storage container-rm create --storage-account "$STATE_ACCOUNT" \
-      --resource-group "$STATE_RG" --name "$container" --public-access off
+    run az storage container-rm create --storage-account "$TFSTATE_ACCOUNT" \
+      --resource-group "$TFSTATE_RG" --name "$container" --public-access off
   fi
 done
 
@@ -123,7 +120,9 @@ for owner in shared dev prod; do
   identity="$(deploy_identity_name "$owner")"
   step "Deploy identity $identity ($owner)"
   if exists az identity show --name "$identity" --resource-group "$STATE_RG"; then
-    run az identity update --name "$identity" --resource-group "$STATE_RG" --tags "${shared_tags[@]}"
+    # The az CLI has no "identity update"; tags go through the generic resource command.
+    run az resource tag --resource-group "$STATE_RG" --name "$identity" \
+      --resource-type Microsoft.ManagedIdentity/userAssignedIdentities --tags "${shared_tags[@]}" --output none
   else
     run az identity create --name "$identity" --resource-group "$STATE_RG" \
       --location "$LOCATION" --tags "${shared_tags[@]}"
@@ -160,6 +159,6 @@ for owner in shared dev prod; do
 done
 
 step "Done"
-log "State: $STATE_ACCOUNT (containers: ${STATE_CONTAINERS[*]}) in $STATE_RG."
+log "State: $TFSTATE_ACCOUNT in $TFSTATE_RG (containers: $(state_container_name shared) $(state_container_name dev) $(state_container_name prod))."
 log "Private-key vaults: $(private_key_vault_name dev) (dev), $(private_key_vault_name prod) (prod) in $STATE_RG."
 log "Next: app-registrations.sh, then budget-and-roles.sh, then ci-vm.sh (see README.md)."

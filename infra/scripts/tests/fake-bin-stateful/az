@@ -115,6 +115,10 @@ elif has("vm", "identity", "show"):
     for identity_id in os.environ.get("FAKE_AZ_VM_IDENTITIES", "").split("||"):
         if identity_id:
             print(identity_id)
+elif has("storage", "account", "show") and opt("--query") == "allowSharedKeyAccess":
+    print(os.environ.get("FAKE_AZ_SHARED_KEY", "false"))
+elif has("storage", "account", "blob-service-properties", "show"):
+    print("true")
 elif has("network", "public-ip", "show") and "--query" in args:
     print("203.0.113.23")
 elif has("monitor", "action-group", "show") and "--query" in args:

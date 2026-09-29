@@ -77,7 +77,7 @@ Greenfield: only `docs/`, `_bmad-output/`, `.gitignore` (ignores `.work/`, `docs
 
 ## Design Notes
 
-Numbering within a type counts up from the environment base: Dev UAMIs `id-01..04` in the order `supplier-api`, `staff-api`, `pipeline`, `accounts-sim`, mapped in the naming module; no extra role tag, since only the 5 P-17 tags are used. State and deploy identities live in a **bootstrap-only RG `babaloo-sea-lng-rg-22`** (shared range, created and managed only by `infra/bootstrap/`; no Terraform stack and no deploy identity holds Contributor on it): state account `babaloosealngst21` with containers `shared`, `dev`, `prod`; deploy identities `id-21` (shared), `id-22` (dev), `id-23` (prod). The shared stack's RG `rg-21` holds only `shared/foundation` resources. The naming module returns no app-identity names for `shared`.
+Numbering within a type counts up from the environment base: Dev UAMIs `id-01..04` in the order `supplier-api`, `staff-api`, `pipeline`, `accounts-sim`, mapped in the naming module; no extra role tag, since only the 5 P-17 tags are used. Deploy identities live in a **bootstrap-only RG `babaloo-sea-lng-rg-22`** (shared range, created and managed only by `infra/bootstrap/`; no Terraform stack and no deploy identity holds Contributor on it): deploy identities `id-21` (shared), `id-22` (dev), `id-23` (prod). State lives in Dj's existing account `stdjtfstatesea` (`rg-tfstate-sea`), containers `ocrinvoicing-shared`, `-dev`, `-prod` (Dj, 2026-09-30; was `babaloosealngst21` in `rg-22`). The shared stack's RG `rg-21` holds only `shared/foundation` resources. The naming module returns no app-identity names for `shared`.
 
 ## Verification
 

@@ -26,7 +26,7 @@ docs/        architecture, standards, governance and costing
 ## Infrastructure at a glance
 
 - One subscription, region `southeastasia`, resource groups `babaloo-sea-lng-rg-21` (shared), `-rg-01` (dev) and `-rg-11` (prod).
-- Terraform state in `babaloosealngst21` (Entra auth only) in the bootstrap-only group `babaloo-sea-lng-rg-22`, together with the deploy identities; one container per stack owner, keys `foundation.tfstate` and (dev, prod) `app.tfstate`.
+- Terraform state in Dj's existing account `stdjtfstatesea` (group `rg-tfstate-sea`, Entra auth only; Dj, 2026-09-30); one container per stack owner (`ocrinvoicing-shared`, `-dev`, `-prod`), keys `foundation.tfstate` and (dev, prod) `app.tfstate`. The deploy identities live in the bootstrap-only group `babaloo-sea-lng-rg-22`.
 - Apply order and operator steps: `infra/bootstrap/README.md`.
 
 ## Checks (offline, no Azure access needed)

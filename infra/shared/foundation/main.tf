@@ -13,8 +13,8 @@ module "naming" {
 }
 
 # Created by infra/bootstrap/state-backend.sh (AD-17 step 1) and adopted here
-# (azure.md rule 31). It holds only this stack's resources; the state account and
-# the deploy identities live in the bootstrap-only group babaloo-sea-lng-rg-22.
+# (azure.md rule 31). It holds only this stack's resources; the deploy identities live
+# in the bootstrap-only group babaloo-sea-lng-rg-22 and the state in stdjtfstatesea.
 import {
   to = azurerm_resource_group.this
   id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${local.names.resource_group}"

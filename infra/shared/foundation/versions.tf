@@ -24,11 +24,11 @@ terraform {
     }
   }
 
-  # State storage from infra/bootstrap/state-backend.sh; Entra auth only.
+  # State in stdjtfstatesea (Dj, 2026-09-30); container from infra/bootstrap/state-backend.sh; Entra auth only.
   backend "azurerm" {
-    resource_group_name  = "babaloo-sea-lng-rg-22"
-    storage_account_name = "babaloosealngst21"
-    container_name       = "shared"
+    resource_group_name  = "rg-tfstate-sea"
+    storage_account_name = "stdjtfstatesea"
+    container_name       = "ocrinvoicing-shared"
     key                  = "foundation.tfstate"
     use_azuread_auth     = true
   }

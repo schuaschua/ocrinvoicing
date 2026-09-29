@@ -126,7 +126,7 @@ def _json_blocks(output: str) -> list[dict]:
 
 def test_story_1_1_state_backend_dry_run_plan() -> None:
     """state-backend.sh --dry-run (AD-17, OCR-129). Covers, in order:
-    plan matches AD-17 (no shared keys, no federated credentials, rg-22 state and deploy identities,
+    plan matches AD-17 (no federated credentials, state containers in stdjtfstatesea, rg-22 deploy identities,
     Contributor only on stack groups, conditioned RBAC Administrator); OCR-129 private-key
     vaults kv-22/kv-23 created in rg-22; nobody gets a role on those vaults or rg-22 in step 1;
     no RBAC Administrator reaches rg-22; RBAC Administrator conditions allow only runtime roles
@@ -135,11 +135,17 @@ def test_story_1_1_state_backend_dry_run_plan() -> None:
     out = _run("state-backend.sh", "--dry-run").stdout
 
     # plan matches AD-17
-    assert "--allow-shared-key-access false" in out
     # Dj, 2026-09-29: the CI VM carries the deploy identities; no federated credential exists.
     assert "federated-credential" not in out
-    # State and deploy identities live in the bootstrap-only rg-22.
-    assert "az storage account create --name babaloosealngst21 --resource-group babaloo-sea-lng-rg-22" in out
+    # State goes in Dj's existing stdjtfstatesea (Dj, 2026-09-30): containers only, the
+    # account is never created or changed. Deploy identities live in the bootstrap-only rg-22.
+    assert "az storage account create" not in out
+    assert "az storage account update" not in out
+    for owner in ("shared", "dev", "prod"):
+        assert (
+            f"az storage container-rm create --storage-account stdjtfstatesea "
+            f"--resource-group rg-tfstate-sea --name ocrinvoicing-{owner}"
+        ) in out
     assert "az identity create --name babaloo-sea-lng-id-21 --resource-group babaloo-sea-lng-rg-22" in out
     # No deploy identity gets Contributor on rg-22: Contributor goes only to the stack groups.
     contributor_scopes = re.findall(r"--role b24988ac-6180-42a0-ab88-20f7382dd24c --scope (\S+)", out)
@@ -148,8 +154,6 @@ def test_story_1_1_state_backend_dry_run_plan() -> None:
         "babaloo-sea-lng-rg-11",
         "babaloo-sea-lng-rg-21",
     ]
-    rg22_roles = [line for line in out.splitlines() if "role assignment create" in line and "resourceGroups/babaloo-sea-lng-rg-22" in line]
-    assert rg22_roles and all("/blobServices/default/containers/" in line for line in rg22_roles)
     # Conditioned RBAC Administrator for the environment identities only.
     assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 2
     assert "ServicePrincipal" in out and "--condition-version 2.0" in out
@@ -166,10 +170,15 @@ def test_story_1_1_state_backend_dry_run_plan() -> None:
     creates = _role_creates(out)
     assert creates
     assert not any("babaloo-sea-lng-kv-22" in line or "babaloo-sea-lng-kv-23" in line for line in creates)
-    # In rg-22 only the container-scoped state roles exist.
-    rg22 = [line for line in creates if f"--scope {RG22}" in line]
-    assert rg22 and all("/blobServices/default/containers/" in line for line in rg22)
-    assert not any(f"--scope {RG22} " in line or line.endswith(f"--scope {RG22}") for line in creates)
+    # Nothing in rg-22 gets a role; the state roles are scoped to this project's containers
+    # in stdjtfstatesea, never to the account or its group.
+    assert not any(f"--scope {RG22}" in line for line in creates)
+    state = [line for line in creates if "/resourceGroups/rg-tfstate-sea" in line]
+    assert len(state) == 5  # Contributor on each own container, Reader on shared for dev and prod
+    assert all(
+        re.search(r"/storageAccounts/stdjtfstatesea/blobServices/default/containers/ocrinvoicing-(shared|dev|prod)(\s|$)", line)
+        for line in state
+    )
 
     # OCR-129: no RBAC Administrator reaches rg-22; the env deploy identities' conditioned
     # RBAC Administrator is on their own group only.
@@ -383,7 +392,7 @@ printf '%s\\n' \
   "$(key_vault_name dev)" "$(key_vault_name prod)" \
   "$(private_key_vault_name dev)" "$(private_key_vault_name prod)" \
   "$(env_storage_name dev)" "$(env_storage_name prod)" \
-  "$(rg_name dev)" "$(rg_name prod)" "$(rg_name shared)" "$STATE_RG" "$STATE_ACCOUNT" \
+  "$(rg_name dev)" "$(rg_name prod)" "$(rg_name shared)" "$STATE_RG" "$(state_container_name dev)" \
   "$(app_identity_name dev supplier-api)" "$(app_identity_name dev accounts-sim)" \
   "$(app_identity_name prod pipeline)" \
   "$(deploy_identity_name shared)" "$(deploy_identity_name dev)" "$(deploy_identity_name prod)" \
@@ -406,7 +415,7 @@ printf '%s\\n' \
         "babaloo-sea-lng-rg-11",
         "babaloo-sea-lng-rg-21",
         "babaloo-sea-lng-rg-22",
-        "babaloosealngst21",
+        "ocrinvoicing-dev",
         "babaloo-sea-lng-id-01",
         "babaloo-sea-lng-id-04",
         "babaloo-sea-lng-id-13",

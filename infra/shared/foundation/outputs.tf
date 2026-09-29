@@ -33,26 +33,6 @@ output "document_intelligence_endpoint" {
   value       = module.document_intelligence.endpoint
 }
 
-output "communication_service_id" {
-  description = "Resource id of the ACS resource."
-  value       = azurerm_communication_service.this.id
-}
-
-output "communication_service_endpoint" {
-  description = "ACS endpoint used by the email adapter with managed identity."
-  value       = "https://${azurerm_communication_service.this.hostname}"
-}
-
-output "email_domain" {
-  description = "The custom email domain, its resource id and the DNS records to add by hand."
-  value = {
-    name                 = var.email_custom_domain
-    resource_id          = module.email.domain_resource_ids["custom"]
-    verification_records = module.email.domain_verification_records["custom"]
-    linked               = var.email_domain_link_enabled
-  }
-}
-
 output "action_group_id" {
   description = "Resource id of the shared action group (ag-21) that emails Dj; pass it to infra/bootstrap/budget-and-roles.sh as SHARED_ACTION_GROUP_ID."
   value       = azurerm_monitor_action_group.this.id

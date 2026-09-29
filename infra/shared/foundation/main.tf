@@ -1,4 +1,5 @@
-# AD-17 step 2: resources shared by Dev and Prod (AD-8, AD-12, AD-16).
+# AD-17 step 2: resources shared by Dev and Prod (AD-8, AD-12). ACS Email (AD-16)
+# is added here by Story 5.2 (Dj, 2026-09-30).
 
 module "naming" {
   source = "../../modules/naming"
@@ -92,59 +93,6 @@ module "document_intelligence" {
   public_network_access_enabled = true
   enable_telemetry              = true
   tags                          = local.tags
-}
-
-# --- ACS Email (AD-16) ---------------------------------------------------------------------
-
-module "email" {
-  source  = "Azure/avm-res-communication-emailservice/azurerm"
-  version = "0.3.0"
-
-  name          = local.names.email_service
-  location      = "global"
-  parent_id     = azurerm_resource_group.this.id
-  data_location = local.communication_data_location
-
-  email_communication_service_domains = {
-    custom = {
-      name                             = var.email_custom_domain
-      domain_management                = "CustomerManaged"
-      user_engagement_tracking_enabled = false
-    }
-  }
-
-  enable_telemetry = true
-  tags             = local.tags
-}
-
-resource "azurerm_communication_service" "this" {
-  name                = local.names.communication_service
-  resource_group_name = azurerm_resource_group.this.name
-  data_location       = local.communication_data_location
-  tags                = local.tags
-}
-
-# azapi: azurerm_communication_service has no argument for disableLocalAuth, so the
-# access keys are switched off with a patch on the resource azurerm owns.
-resource "azapi_update_resource" "communication_service_local_auth" {
-  type        = "Microsoft.Communication/communicationServices@2025-09-01"
-  resource_id = azurerm_communication_service.this.id
-  body = {
-    properties = {
-      disableLocalAuth = true
-    }
-  }
-
-  depends_on = [azurerm_communication_service_email_domain_association.custom]
-}
-
-# Azure refuses to link a domain before its DNS records are verified, so the link
-# waits for email_domain_link_enabled (bootstrap README, shared/foundation).
-resource "azurerm_communication_service_email_domain_association" "custom" {
-  count = var.email_domain_link_enabled ? 1 : 0
-
-  communication_service_id = azurerm_communication_service.this.id
-  email_service_domain_id  = module.email.domain_resource_ids["custom"]
 }
 
 # --- Alerts (AD-17, Story 1.5) ----------------------------------------------------------------

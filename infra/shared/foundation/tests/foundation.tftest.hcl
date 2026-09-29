@@ -19,12 +19,6 @@ mock_provider "azurerm" {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-21"
     }
   }
-  mock_resource "azurerm_communication_service" {
-    defaults = {
-      id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21"
-      hostname = "babaloo-sea-lng-acs-21.asiapacific.communication.azure.com"
-    }
-  }
 }
 
 mock_provider "azapi" {
@@ -54,37 +48,15 @@ override_resource {
   }
 }
 
-# The email domain submodule checks that its parent is an emailServices id.
-override_resource {
-  target = module.email.azapi_resource.email_communication_service
-  values = {
-    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/emailServices/babaloo-sea-lng-ecs-21"
-  }
-}
-
-# The domain submodule reads its outputs from the azapi response.
-override_resource {
-  target = module.email.module.domain["custom"].azapi_resource.this
-  values = {
-    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/emailServices/babaloo-sea-lng-ecs-21/domains/mail.example.test"
-    output = {
-      from_sender_domain      = "mail.example.test"
-      mail_from_sender_domain = "mail.example.test"
-      verification_records    = { Domain = { type = "TXT", name = "@", value = "ms-domain-verification=test" } }
-      verification_states     = { Domain = { status = "NotStarted" } }
-    }
-  }
-}
-
 variables {
   owner                               = "test-owner"
   cost_centre                         = "test-cc"
   application                         = "test-app"
   data_classification                 = "test-class"
   alert_email                         = "alerts@example.test"
-  email_custom_domain                 = "mail.example.test"
   postgres_entra_admin_object_id      = "33333333-3333-3333-3333-333333333333"
   postgres_entra_admin_principal_name = "operator@example.test"
+  postgres_entra_admin_principal_type = "Group"
 }
 
 run "shared_foundation" {
@@ -116,7 +88,7 @@ run "shared_foundation" {
     error_message = "Entra authentication must use this tenant."
   }
   assert {
-    condition     = local.postgres_ad_administrator.operator.object_id == "33333333-3333-3333-3333-333333333333" && local.postgres_ad_administrator.operator.principal_type == "User"
+    condition     = local.postgres_ad_administrator.operator.object_id == "33333333-3333-3333-3333-333333333333" && local.postgres_ad_administrator.operator.principal_type == "Group"
     error_message = "the Entra admin must be the configured operator principal."
   }
   assert {
@@ -171,28 +143,6 @@ run "shared_foundation" {
   assert {
     condition     = module.document_intelligence.resource.location == "southeastasia"
     error_message = "Document Intelligence must be in southeastasia."
-  }
-
-  # ACS Email (AD-16)
-  assert {
-    condition     = azurerm_communication_service.this.name == "babaloo-sea-lng-acs-21" && azurerm_communication_service.this.data_location == "Asia Pacific"
-    error_message = "ACS must be babaloo-sea-lng-acs-21 storing data in Asia Pacific."
-  }
-  assert {
-    condition     = azapi_update_resource.communication_service_local_auth.body.properties.disableLocalAuth == true
-    error_message = "ACS access keys must be off."
-  }
-  assert {
-    condition     = module.email.name == "babaloo-sea-lng-ecs-21" && output.email_domain.name == "mail.example.test"
-    error_message = "the email service must hold Dj's custom domain."
-  }
-  assert {
-    condition     = length(azurerm_communication_service_email_domain_association.custom) == 0
-    error_message = "the domain is not linked before its DNS records are verified."
-  }
-  assert {
-    condition     = azurerm_communication_service.this.tags == tomap(local.tags)
-    error_message = "ACS must carry the five tags."
   }
 
   # Budget (azure.md rule 17)

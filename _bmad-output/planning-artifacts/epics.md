@@ -88,7 +88,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
   - **Infra:** Terraform per `terraform.md`.
 - **Infrastructure (AD-17):**
   - One subscription with three resource groups (`shared`, `dev` and `prod`), named per P-16.
-  - Every resource belongs to one step of the AD-17 step table: 1. `infra/bootstrap/` (operator: state, resource groups, deploy identities, two Entra app registrations per environment, the `ACS Email Sender` role) → 2. `shared/foundation` (PostgreSQL B1ms PG 18 with `invoicing_dev` and `invoicing_prod`, DI F0 with a custom subdomain, ACS Email and its domain, the PostgreSQL firewall open for the PoC) → 3. operator RBAC step → 4. `<env>/foundation` → 4b. operator PGP key step → 5. operator database step → 6. migrations → 7. `<env>/app` → 8. operator redirect-URI step → 9. code deploy.
+  - Every resource belongs to one step of the AD-17 step table: 1. `infra/bootstrap/` (operator: state, resource groups, deploy identities, two Entra app registrations per environment, the `ACS Email Sender` role) → 2. `shared/foundation` (PostgreSQL B1ms PG 18 with `invoicing_dev` and `invoicing_prod`, DI F0 with a custom subdomain, the PostgreSQL firewall open for the PoC; Dj, 2026-09-30: ACS Email and its domain move to Story 5.2) → 3. operator RBAC step → 4. `<env>/foundation` → 4b. operator PGP key step → 5. operator database step → 6. migrations → 7. `<env>/app` → 8. operator redirect-URI step → 9. code deploy.
   - Jenkins on the CI VM authenticates with the per-stack deploy identities attached to the VM (Dj, 2026-09-29). Dev applies its saved plan automatically on merge, an accepted departure from `terraform.md` rules 26 and 33. Prod and `shared` apply only after manual approval.
 - **CI checks:**
   - lint and format;
@@ -328,11 +328,11 @@ So that every later story deploys into named, tagged, budgeted Azure resources i
 **And** its firewall is open to all public IPv4 addresses, the accepted exception to `azure.md` rule 13 recorded in AD-17
 **And** it holds the databases `invoicing_dev` and `invoicing_prod`, and its name follows `babaloo-sea-lng-<type>-2x` (AD-12, AD-17)
 **And** one Document Intelligence F0 resource exists in `southeastasia` with a custom subdomain (AD-8)
-**And** ACS Email exists with Dj's verified custom domain (the DNS records are added by hand), and the `shared` resource-group budget exists
+**And** the `shared` resource-group budget exists (Dj, 2026-09-30: ACS Email moves to Story 5.2)
 
 **Given** the operator RBAC step in the bootstrap README (AD-17 step 3)
 **When** it is done
-**Then** each environment's deploy identity holds RBAC Administrator on the DI and ACS resources, conditioned to assigning only the runtime roles those resources need
+**Then** each environment's deploy identity holds RBAC Administrator on the DI resource, conditioned to assigning only the runtime role it needs (Cognitive Services User) (Dj, 2026-09-30: the ACS part moves to Story 5.2)
 
 **Given** each `<env>/foundation` stack is applied
 **When** it completes
@@ -1451,7 +1451,7 @@ So that I act on price rises and watchlist changes without checking dashboards d
 
 **Acceptance Criteria:**
 
-**Given** ACS Email with a verified custom domain owned by Dj (in `shared/foundation`, Story 1.1)
+**Given** this story creates ACS Email and its custom domain owned by Dj in `shared/foundation` (the DNS records are added by hand and verified before the domain is linked), and gives the deploy identities' RBAC step (AD-17 step 3) its ACS part: RBAC Administrator on ACS, conditioned to assigning only `ACS Email Sender` (Dj, 2026-09-30: moved from Story 1.1)
 **When** `<env>/app` applies
 **Then** the `pipeline` identity holds the custom `ACS Email Sender` role on ACS and can send mail (AD-16, AD-17)
 **And** recipients come from the per-environment, per-role setting `ALERT_RECIPIENTS_<ROLE>`
@@ -1467,7 +1467,8 @@ So that I act on price rises and watchlist changes without checking dashboards d
 **Then** it is not sent twice, and an alert that was throttled or interrupted before sending is sent at a later run
 
 **Tasks:**
-- Terraform: the `ACS Email Sender` assignment for `pipeline` in `<env>/app` (ACS and the domain are in Story 1.1).
+- Terraform: ACS Email in `shared/foundation`: the Communication Services resource (access keys off), the email service with Dj's custom domain and its link once the DNS records are verified, their outputs and the `email_custom_domain` and `email_domain_link_enabled` inputs; the ACS part of `infra/bootstrap/rbac-step3.sh` and the email-domain DNS step in the bootstrap README (Dj, 2026-09-30).
+- Terraform: the `ACS Email Sender` assignment for `pipeline` in `<env>/app`.
 - Python: `EmailPort` and ACS adapter with throttle; alert dispatch.
 - Tests: `test_story_5_2_*` for the throttle, de-duplication and content rules.
 

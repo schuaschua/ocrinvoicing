@@ -110,8 +110,6 @@ run "dev_foundation" {
       resource_group         = "babaloo-sea-lng-rg-01"
       postgres_server        = "babaloo-sea-lng-psql-01"
       document_intelligence  = "babaloo-sea-lng-di-01"
-      communication_service  = "babaloo-sea-lng-acs-01"
-      email_service          = "babaloo-sea-lng-ecs-01"
       key_vault              = "babaloo-sea-lng-kv-01"
       log_analytics          = "babaloo-sea-lng-log-01"
       application_insights   = "babaloo-sea-lng-appi-01"

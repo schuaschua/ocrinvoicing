@@ -52,9 +52,6 @@ locals {
   # configuration resource (see main.tf).
   postgres_extensions = "PGCRYPTO"
 
-  # AD-16: ACS Email stores data in Asia Pacific (Open Question in the spine).
-  communication_data_location = "Asia Pacific"
-
   # azure.md rule 17.
   budget_thresholds = [
     { threshold = 90, threshold_type = "Actual" },

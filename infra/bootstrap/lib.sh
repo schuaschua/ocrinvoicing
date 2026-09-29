@@ -94,7 +94,6 @@ env_database_name() { echo "invoicing_$1"; }
 postgres_server_name() { resource_name psql 21; }
 postgres_fqdn() { echo "$(postgres_server_name).postgres.database.azure.com"; }
 document_intelligence_name() { resource_name di 21; }
-communication_service_name() { resource_name acs 21; }
 
 # Entra security groups (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character
 # role-name limit and holds '#', so groups are the database logins he uses). `grp` is

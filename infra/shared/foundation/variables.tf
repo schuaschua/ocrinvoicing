@@ -29,22 +29,6 @@ variable "alert_email" {
   type        = string
 }
 
-variable "email_custom_domain" {
-  description = "Dj's own domain for ACS Email (AD-16), e.g. mail.example.com. Its DNS records are added by hand."
-  type        = string
-
-  validation {
-    condition     = can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,}$", var.email_custom_domain))
-    error_message = "email_custom_domain must be a lower-case DNS name."
-  }
-}
-
-variable "email_domain_link_enabled" {
-  description = "Link the custom domain to ACS. Leave false until the domain's DNS records are verified; Azure refuses to link an unverified domain."
-  type        = bool
-  default     = false
-}
-
 variable "postgres_entra_admin_object_id" {
   description = "Object id of the PostgreSQL Entra admin: the pg-admins group (babaloo-sea-lng-grp-21), whose members run AD-17 step 5."
   type        = string

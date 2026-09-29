@@ -194,31 +194,26 @@ def _rbac_admin_scopes(out: str) -> list[str]:
 
 
 def test_story_1_1_rbac_step3_dry_run_plan() -> None:
-    """rbac-step3.sh --dry-run. Covers: conditions only on runtime roles (4 conditioned RBAC
-    Administrator grants, Cognitive Services User on DI, ACS scope); OCR-129 no RBAC
-    Administrator reaches rg-22; conditions allow only the shared resource roles.
+    """rbac-step3.sh --dry-run. Covers: conditions only on runtime roles (2 conditioned RBAC
+    Administrator grants, Cognitive Services User on DI, no ACS scope until Story 5.2);
+    OCR-129 no RBAC Administrator reaches rg-22; conditions allow only the DI role.
     """
     out = _run("rbac-step3.sh", "--dry-run").stdout
 
     # conditions only on runtime roles
-    assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 4
+    assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 2
     assert "a97b65f3-24c7-4388-baec-2e87135dc908" in out  # Cognitive Services User
     assert "Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21" in out
-    assert "Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21" in out
+    assert "Microsoft.Communication" not in out  # Dj, 2026-09-30: ACS comes with Story 5.2
 
     # OCR-129: no RBAC Administrator reaches rg-22
     assert not any("babaloo-sea-lng-rg-22" in scope for scope in _rbac_admin_scopes(out))
 
-    # conditions allow only the shared resource roles
+    # conditions allow only the DI runtime role
     conditions = _conditions(out)
-    assert len(conditions) == 4  # DI and ACS for dev and prod
-    di_conditions = [c for c in conditions if "a97b65f3-24c7-4388-baec-2e87135dc908" in c]
-    acs_conditions = [c for c in conditions if "<roleId-of-ACS Email Sender>" in c]
-    assert len(di_conditions) == 2 and len(acs_conditions) == 2
-    for condition in di_conditions:
+    assert len(conditions) == 2  # DI for dev and prod
+    for condition in conditions:
         _assert_condition_shape(condition, {"a97b65f3-24c7-4388-baec-2e87135dc908"})
-    for condition in acs_conditions:
-        _assert_condition_shape(condition, {"<roleId-of-ACS Email Sender>"})
 
 
 PGP_ENVIRONMENTS = [
@@ -392,7 +387,7 @@ printf '%s\\n' \
   "$(app_identity_name dev supplier-api)" "$(app_identity_name dev accounts-sim)" \
   "$(app_identity_name prod pipeline)" \
   "$(deploy_identity_name shared)" "$(deploy_identity_name dev)" "$(deploy_identity_name prod)" \
-  "$(postgres_server_name)" "$(document_intelligence_name)" "$(communication_service_name)" \
+  "$(postgres_server_name)" "$(document_intelligence_name)" \
   "$(action_group_name shared)" "$(action_group_name dev)" "$(action_group_name prod)" \
   "$(loaders_group_name dev)" "$(loaders_group_name prod)" "$(pg_admins_group_name)"
 """
@@ -420,7 +415,6 @@ printf '%s\\n' \
         "babaloo-sea-lng-id-23",
         "babaloo-sea-lng-psql-21",
         "babaloo-sea-lng-di-21",
-        "babaloo-sea-lng-acs-21",
         "babaloo-sea-lng-ag-21",
         "babaloo-sea-lng-ag-01",
         "babaloo-sea-lng-ag-11",

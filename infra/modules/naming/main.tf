@@ -11,7 +11,7 @@ locals {
 
   # name(type, offset) = "<prefix>-<type>-<base + offset, two digits>"
   first = { for type in local.types : type => format("%s-%s-%02d", local.prefix, type, var.number_base) }
-  types = ["rg", "psql", "di", "acs", "ecs", "kv", "log", "appi", "ag", "budget"]
+  types = ["rg", "psql", "di", "kv", "log", "appi", "ag", "budget"]
 
   # Runtime identities, numbered in this order from the base (plan Design Notes).
   app_identity_order = ["supplier_api", "staff_api", "pipeline", "accounts_sim"]
@@ -20,8 +20,6 @@ locals {
     resource_group         = local.first["rg"]
     postgres_server        = local.first["psql"]
     document_intelligence  = local.first["di"]
-    communication_service  = local.first["acs"]
-    email_service          = local.first["ecs"]
     key_vault              = local.first["kv"]
     log_analytics          = local.first["log"]
     application_insights   = local.first["appi"]

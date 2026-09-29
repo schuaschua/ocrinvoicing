@@ -62,7 +62,7 @@ Migration `0004_master_audit` needs `pgcrypto` and grants to the environment's l
 | 1 | operator with Owner | `./state-backend.sh`, then `./app-registrations.sh`, then `./budget-and-roles.sh` |
 | 1b | operator | push the code to Azure Repos (below) |
 | 1c | operator with Owner | `./ci-vm.sh` (after `state-backend.sh`, which creates the deploy identities it attaches), then the Jenkins first run and the branch policy (below). Every later merge to `main` starts the deploy chain |
-| 2 | `shared` deploy identity (Jenkins) | `infra/shared/foundation`: fill `terraform.tfvars`; Jenkins plans it, Dj approves the `Approve shared/foundation` input, it applies the saved plan. Then add the email domain's DNS records (below) |
+| 2 | `shared` deploy identity (Jenkins) | `infra/shared/foundation`: fill `terraform.tfvars`; Jenkins plans it, Dj approves the `Approve shared/foundation` input, it applies the saved plan |
 | 3 | operator | `./rbac-step3.sh` |
 | 4 | env deploy identity (Jenkins) | `infra/dev/foundation` (applies automatically). Prod has no Jenkins stage: its deploy identity is not on the CI VM, and how Prod deploys is a later decision (Dj, 2026-09-29) |
 | 4b | operator with Owner, plus Key Vault Secrets Officer on both vaults for this step only | after `<env>/foundation` exists (it creates the `staff-api` identity): `ENVIRONMENT=dev ./pgp-step4b.sh`, then, after `prod/foundation`, `ENVIRONMENT=prod ./pgp-step4b.sh` |
@@ -84,7 +84,7 @@ Try each script with `--dry-run` first.
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `shared` state container.
 - `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs: put the `staff-api` one in `infra/<env>/app/terraform.tfvars` as `staff_api_client_id` (Story 2.7; not a secret) before `<env>/app` is planned. The redirect URI is step 8.
 - `app-registrations.sh` also creates the Entra security groups used as PostgreSQL logins (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character role-name limit), and adds the signed-in operator (`az ad signed-in-user show`) as a member of each: the loaders groups `babaloo-sea-lng-grp-01` (dev) and `-grp-11` (prod), the supplier load script's login, and the pg-admins group `babaloo-sea-lng-grp-21`, the PostgreSQL Entra admin. An existing group is kept, and an existing member is not re-added. It prints the pg-admins group's object id and name: before `shared/foundation` is first applied, put them in `infra/shared/foundation/terraform.tfvars` as `postgres_entra_admin_object_id` and `postgres_entra_admin_principal_name`, with `postgres_entra_admin_principal_type = "Group"`. Creating groups and adding members needs Entra rights, not just Owner on the subscription: an Entra role such as Groups Administrator (or Global Administrator), or, for an existing group, being its owner. The creator of a group is its owner. A new member's Azure sign-in picks up the group after `az login` is run again.
-- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine). There is no subscription budget (Dj, 2026-09-30: dropped, the subscription holds other projects; the resource-group budgets track this project). A `babaloo-sea-lng-budget-22` made by an earlier run can be deleted: `az consumption budget delete --budget-name babaloo-sea-lng-budget-22`.
+- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine; unused until Story 5.2). There is no subscription budget (Dj, 2026-09-30: dropped, the subscription holds other projects; the resource-group budgets track this project). A `babaloo-sea-lng-budget-22` made by an earlier run can be deleted: `az consumption budget delete --budget-name babaloo-sea-lng-budget-22`.
 
 ### Step 1b: push the code to Azure Repos
 
@@ -138,17 +138,13 @@ What the jobs do:
 - **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists. From Story 1.6 the migrations also grant `master` and `audit` to the environment's loaders group (Dj's load-script login), whose name `ci/migrate.sh` takes from `lib.sh`, like the other logins.
 - **Weekly scan**: `ci/checks.sh audit` on `main` every Monday, failing on any finding.
 
-### Step 2 extra: verify the email domain, then link it
+### Step 2: no email domain yet
 
-`shared/foundation` creates the ACS Email service with Dj's custom domain but does not link it, because Azure refuses to link an unverified domain.
+ACS Email is not in `shared/foundation` yet (Dj, 2026-09-30): Story 5.2 "Staff alert emails", its only user, creates it with its custom domain, adds the email-domain inputs to `terraform.tfvars` and the DNS verification step here, and adds the ACS part of step 3. Step 2 needs no email domain.
 
-1. After the first apply, read `terraform output email_domain` and add the listed DNS records (Domain, SPF, DKIM, DKIM2) at the DNS host.
-2. Start verification for each record type, e.g. `az communication email domain initiate-verification --domain-name <domain> --email-service-name babaloo-sea-lng-ecs-21 --resource-group babaloo-sea-lng-rg-21 --verification-type Domain` (repeat for `SPF`, `DKIM`, `DKIM2`).
-3. When all are `Verified`, set `email_domain_link_enabled = true` in `infra/shared/foundation/terraform.tfvars` and apply again.
+### Step 3: conditioned RBAC Administrator on the shared DI
 
-### Step 3: conditioned RBAC Administrator on the shared DI and ACS
-
-`rbac-step3.sh` gives each environment deploy identity RBAC Administrator on the Document Intelligence account (may assign only Cognitive Services User) and on the ACS resource (may assign only `ACS Email Sender`), only to service principals. `<env>/app` uses these to grant each environment's `pipeline` identity its runtime roles.
+`rbac-step3.sh` gives each environment deploy identity RBAC Administrator on the Document Intelligence account (may assign only Cognitive Services User), only to service principals. `<env>/app` uses it to grant each environment's `pipeline` identity its DI runtime role. The ACS part (may assign only `ACS Email Sender`) comes with Story 5.2.
 
 ### Step 4b: PGP key pair (once per environment)
 

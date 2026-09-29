@@ -38,7 +38,8 @@ def asDeployIdentity(String owner, Closure body) {
     error("no deploy identity for '${owner}' on the CI VM (only shared and dev are attached)")
   }
   def name = "DEPLOY_CLIENT_ID_${owner.toUpperCase()}"
-  def clientId = env[name]
+  // Named properties only: the script sandbox rejects env[name] (getAt with a computed key).
+  def clientId = owner == 'shared' ? env.DEPLOY_CLIENT_ID_SHARED : env.DEPLOY_CLIENT_ID_DEV
   if (!clientId?.trim()) {
     error("${name} is not configured: attach ${owner}'s deploy identity to the CI VM and re-run its bootstrap (infra/bootstrap/README.md)")
   }

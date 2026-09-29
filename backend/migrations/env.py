@@ -43,9 +43,15 @@ def _roles() -> dict[str, str]:
     return roles
 
 
+# Alembic's own table. On Azure the database owner (the deploy identity) may not create
+# tables in `public`, so it lives in a schema that owner creates (2026-09-30).
+VERSION_SCHEMA = "alembic"
+
+
 def _run(connection: Connection) -> None:
-    context.configure(connection=connection)
+    context.configure(connection=connection, version_table_schema=VERSION_SCHEMA)
     with context.begin_transaction():
+        context.execute(f"CREATE SCHEMA IF NOT EXISTS {VERSION_SCHEMA}")
         context.run_migrations()
 
 

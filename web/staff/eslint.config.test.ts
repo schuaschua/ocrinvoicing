@@ -13,7 +13,9 @@ async function ruleIds(code: string, filePath: string): Promise<string[]> {
 const hash = "#";
 const COMPONENT = "src/components/Example.tsx";
 
-describe("1.4 lint rules", () => {
+// The first case starts ESLint and its TypeScript parser from cold, which can take
+// more than the default 5 s while the whole suite runs in CI.
+describe("1.4 lint rules", { timeout: 30_000 }, () => {
   it.each([
     ["a hex colour class", `export const c = "text-[${hash}fff]";`],
     ["an rgb() arbitrary colour", `export const c = "bg-[rgb(0,0,0)]";`],

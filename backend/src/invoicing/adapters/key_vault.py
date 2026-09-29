@@ -1,12 +1,15 @@
 """Reads secrets from an environment's Key Vault (AD-11): the supplier load script
 (Story 1.6) reads `pgp-public-key` and `hmac-key`, signed in as the operator, and the
 pipeline's `extract` stage (Story 2.3) reads the same two once, as its identity.
+staff-api alone reads `pgp-private-key`, from the private-key vault (OCR-129), once
+per process, to decrypt bank values for admins (Story 2.9).
 
 Secret values are never logged, printed or put in an error. A failure is reported by
 its code only: the SDK's exception text may carry the request URL.
 """
 
 import asyncio
+import threading
 from collections.abc import Callable, Sequence
 
 from azure.core.credentials import TokenCredential
@@ -22,6 +25,7 @@ from invoicing.adapters.postgres.suppliers import BankKeys
 
 PUBLIC_KEY_SECRET = "pgp-public-key"  # noqa: S105  # the secret's name, not a value
 HMAC_KEY_SECRET = "hmac-key"  # noqa: S105  # the secret's name, not a value
+PRIVATE_KEY_SECRET = "pgp-private-key"  # noqa: S105  # the secret's name, not a value
 
 
 class SecretReadError(Exception):
@@ -89,3 +93,30 @@ class BankKeysLoader:
         return BankKeys(
             public_key=values[PUBLIC_KEY_SECRET], hmac_key=values[HMAC_KEY_SECRET]
         )
+
+
+class PrivateKeyLoader:
+    """staff-api's `pgp-private-key` (ASCII-armoured), read from the private-key vault
+    on first use and then kept in this process only (Story 2.9, AD-11): never logged,
+    never cached anywhere else. Synchronous and thread-safe, since it is called on the
+    database adapter's worker thread; `SecretReadError` when it can't be read."""
+
+    def __init__(
+        self, vault_uri: str, credential: Callable[[], TokenCredential]
+    ) -> None:
+        self._vault_uri = vault_uri
+        self._credential = credential
+        self._key: str | None = None
+        self._lock = threading.Lock()
+
+    def __call__(self) -> str:
+        with self._lock:
+            if self._key is None:
+                values = read_secrets(
+                    self._vault_uri, (PRIVATE_KEY_SECRET,), self._credential()
+                )
+                self._key = values[PRIVATE_KEY_SECRET]
+            return self._key
+
+    def __repr__(self) -> str:
+        return "PrivateKeyLoader(...)"

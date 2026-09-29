@@ -37,6 +37,7 @@ from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
 from invoicing.adapters.postgres.schema import (
     di_operation,
     di_usage,
+    extraction_page,
     extraction_run,
     invoice_field,
     invoice_line,
@@ -186,6 +187,20 @@ class PostgresExtractionRepository:
                     created_at=func.now(),
                 )
             )
+            if analysis.pages_info:
+                connection.execute(
+                    insert(extraction_page),
+                    [
+                        {
+                            "run_id": run.run_id,
+                            "page": size.page,
+                            "width": size.width,
+                            "height": size.height,
+                            "unit": size.unit,
+                        }
+                        for size in analysis.pages_info
+                    ],
+                )
             for row in analysis.invoice.fields:
                 connection.execute(
                     insert(invoice_field).values(

@@ -41,6 +41,11 @@ class FieldValue:
     value_number: Decimal | None = None
     value_date: date | None = None
     bank_fingerprint: str | None = field(default=None, repr=False)
+    # Story 2.9: the admin screen's crop and box (the first bounding region), and the
+    # amount's currency.
+    currency: str | None = None
+    page: int | None = None
+    polygon: tuple[float, ...] | None = None
 
     @property
     def has_value(self) -> bool:
@@ -64,6 +69,7 @@ class LineValue:
     created_at: datetime
     confidence: float
     product_code: str | None = None
+    description: str | None = None
     quantity: Decimal | None = None
     unit_price: Decimal | None = None
     amount: Decimal | None = None

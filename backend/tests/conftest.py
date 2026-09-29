@@ -345,7 +345,7 @@ def truncate_intake(server: PostgresServer, database: str) -> None:
                 text(
                     "TRUNCATE intake.admin_item, intake.image_hash,"
                     " intake.status_history, intake.invoice_field, intake.invoice_line,"
-                    " intake.extraction_run, intake.di_operation, intake.di_usage,"
+                    " intake.extraction_page, intake.extraction_run, intake.di_operation, intake.di_usage,"
                     " intake.invoice"
                 )
             )

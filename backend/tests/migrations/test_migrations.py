@@ -51,6 +51,9 @@ REFUSED = [
     "UPDATE intake.invoice_field SET confidence = 1",
     "UPDATE intake.invoice_line SET confidence = 1",
     "DELETE FROM intake.invoice_field",
+    # Story 2.9: page sizes are append-only like their run.
+    "UPDATE intake.extraction_page SET width = 1",
+    "DELETE FROM intake.extraction_page",
     # Never DDL on the schema the deployer owns.
     "CREATE TABLE intake.sneaky (id int)",
 ]
@@ -72,6 +75,21 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
                     connection.execute(text(statement))
         finally:
             engine.dispose()
+    # Story 2.9: only the pipeline saves page sizes; staff-api only reads them.
+    staff = _engine(postgres_server, postgres_server.staff_api, intake_database)
+    try:
+        with (
+            staff.connect() as connection,
+            pytest.raises(ProgrammingError, match="permission denied"),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO intake.extraction_page (run_id, page, width, height,"
+                    " unit) VALUES (gen_random_uuid(), 1, 1, 1, 'pixel')"
+                )
+            )
+    finally:
+        staff.dispose()
     # Other logins have no grant on the schema at all.
     outsider = _engine(postgres_server, postgres_server.outsider, intake_database)
     try:

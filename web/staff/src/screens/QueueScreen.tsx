@@ -8,8 +8,8 @@ import {
 
 import { ApiError } from "@/api";
 import { getQueue, type QueuePage } from "@/api/queue";
+import { ReasonChip } from "@/components/ReasonChip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -25,11 +25,6 @@ import { pageTitle, reasonLabels, strings, type ReasonCode } from "@/strings";
 
 import { usePageHeading } from "./usePageHeading";
 
-/** DESIGN.md: these chips block payment, so they are destructive and carry an icon. */
-const BLOCKING: ReadonlySet<string> = new Set<ReasonCode>([
-  "BANK_CHANGED",
-  "SUPPLIER_ID_MISMATCH",
-]);
 const REASONS = Object.keys(reasonLabels) as ReasonCode[];
 const MINUTE_MS = 60_000;
 
@@ -37,12 +32,6 @@ type State =
   | { kind: "loading" }
   | { kind: "ready"; data: QueuePage }
   | { kind: "error"; message: string };
-
-function reasonLabel(code: string): string {
-  return code in reasonLabels
-    ? reasonLabels[code as ReasonCode]
-    : strings.queue.otherReason;
-}
 
 /** "SGD 1,248.50": the server's 2-decimal string, grouped for reading, never computed. */
 function amountText(amount: string | null, currency: string | null): string {
@@ -82,40 +71,6 @@ function plainClick(event: MouseEvent): boolean {
     event.ctrlKey ||
     event.shiftKey ||
     event.altKey
-  );
-}
-
-function WarningIcon() {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      aria-hidden="true"
-      focusable="false"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M8 1.75 15 14.25H1L8 1.75Z" />
-      <path d="M8 6.5v3.25M8 12h.01" />
-    </svg>
-  );
-}
-
-function ReasonChip({ code }: { code: string }) {
-  const blocking = BLOCKING.has(code);
-  return (
-    <Badge
-      variant={blocking ? "destructive" : "secondary"}
-      className="rounded-full"
-    >
-      {blocking ? <WarningIcon /> : null}
-      {blocking ? (
-        <span className="sr-only">{`${strings.queue.blocking}: `}</span>
-      ) : null}
-      {reasonLabel(code)}
-    </Badge>
   );
 }
 

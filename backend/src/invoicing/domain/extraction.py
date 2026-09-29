@@ -139,6 +139,51 @@ class LineRow:
 
 
 @dataclass(frozen=True)
+class PageSize:
+    """One analysed page's size (Story 2.9): DI's `pageNumber`, `width`, `height` and
+    `unit` (`pixel` for an image, `inch` for a PDF). A field's polygon is in the same
+    unit, so the admin screen draws its box as a fraction of the page."""
+
+    page: int
+    width: float
+    height: float
+    unit: str
+
+
+PAGE_UNITS = frozenset({"pixel", "inch"})
+
+
+def page_sizes(pages: object) -> tuple[PageSize, ...]:
+    """The sizes in DI's `analyzeResult.pages`, skipping any page without a positive
+    number, width and height or a known unit (such a page just gets no boxes)."""
+    if not isinstance(pages, Sequence) or isinstance(pages, str):
+        return ()
+    sizes: dict[int, PageSize] = {}
+    for raw in pages:
+        page = _mapping(raw)
+        if page is None:
+            continue
+        number = page.get("pageNumber")
+        width = _decimal(page.get("width"))
+        height = _decimal(page.get("height"))
+        unit = page.get("unit")
+        if (
+            isinstance(number, int)
+            and not isinstance(number, bool)
+            and number > 0
+            and width is not None
+            and width > 0
+            and height is not None
+            and height > 0
+            and unit in PAGE_UNITS
+        ):
+            sizes.setdefault(
+                number, PageSize(number, float(width), float(height), str(unit))
+            )
+    return tuple(sizes[n] for n in sorted(sizes))
+
+
+@dataclass(frozen=True)
 class ExtractedInvoice:
     """What one extraction run saves: its header fields and its lines (AD-18)."""
 

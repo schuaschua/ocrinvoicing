@@ -5,12 +5,17 @@ import logging
 from pathlib import Path
 
 import azure.functions as func
+from azure.identity import ManagedIdentityCredential
 
+from invoicing.adapters.blob_images import BlobImageStore
+from invoicing.adapters.key_vault import PrivateKeyLoader
 from invoicing.adapters.logging import log_event
+from invoicing.adapters.postgres.admin_item import PostgresAdminItemReader
 from invoicing.adapters.postgres.admin_queue import PostgresAdminQueueReader
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.static import spa_endpoint
 from invoicing.apps.common import health_endpoint, load_settings, start_telemetry
+from invoicing.apps.staff_api.item import item_endpoints
 from invoicing.apps.staff_api.me import me_endpoint
 from invoicing.apps.staff_api.queue import queue_endpoint
 from invoicing.apps.staff_api.settings import StaffApiSettings
@@ -77,6 +82,41 @@ queue_api = queue_endpoint(
 async def admin_queue(req: func.HttpRequest) -> func.HttpResponse:
     """The admin queue, oldest first, 50 a page (admins only): 200, 400, 401 or 403."""
     return await queue_api(req)
+
+
+# Story 2.9: the admin item. The image comes from `images` as staff-api's identity,
+# streamed same-origin (no SAS). pgp-private-key is read from the private-key vault on
+# the first bank value an admin opens, then kept in this process only (AD-11).
+_identity = str(settings.azure_client_id)
+item_api, item_image_api, bank_reveal_api = item_endpoints(
+    PostgresAdminItemReader(
+        engine,
+        PrivateKeyLoader(
+            settings.pgp_private_key_vault_uri,
+            lambda: ManagedIdentityCredential(client_id=_identity),
+        ),
+    ),
+    BlobImageStore.with_managed_identity(settings.storage_account_name, _identity),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/admin/items/{invoice_id}", methods=["GET"])
+async def admin_item(req: func.HttpRequest) -> func.HttpResponse:
+    """One queued invoice for an admin: 200, 401, 404 or 503."""
+    return await item_api(req)
+
+
+@app.route(route="api/admin/items/{invoice_id}/image", methods=["GET"])
+async def admin_item_image(req: func.HttpRequest) -> func.HttpResponse:
+    """The queued invoice's image or PDF, no-store: 200, 401 or 404 (IMAGE_DELETED)."""
+    return await item_image_api(req)
+
+
+@app.route(route="api/admin/items/{invoice_id}/bank/reveal", methods=["POST"])
+async def admin_bank_reveal(req: func.HttpRequest) -> func.HttpResponse:
+    """One changed bank value in full, audited: 200, 400, 401, 403, 404 or 503."""
+    return await bank_reveal_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

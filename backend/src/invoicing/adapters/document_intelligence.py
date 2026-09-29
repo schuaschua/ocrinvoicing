@@ -12,7 +12,8 @@ hides both). No new dependency: `aiohttp` and `azure-identity` are already there
 - Pages: an analyze call reserves its pages (`pages_to_reserve`) under the same lock
   and in the same transaction as its request slot, so two instances can't both pass
   the monthly cap; the run reconciles them to the real count when it is saved.
-- The result is mapped to AD-18 rows (`domain.extraction`) and the raw JSON dropped.
+- The result is mapped to AD-18 rows (`domain.extraction`), each page's size kept
+  (Story 2.9: the admin boxes), and the raw JSON dropped.
 
 Errors carry codes only: DI's error text is never logged or raised, and no field
 value ever is (security.md rule 31).
@@ -39,7 +40,7 @@ from invoicing.adapters.logging import log_event
 from invoicing.adapters.postgres.engine import open_connection
 from invoicing.adapters.postgres.extraction import lock_di_usage, utc_month
 from invoicing.adapters.postgres.schema import di_usage
-from invoicing.domain.extraction import map_invoice, pages_to_reserve
+from invoicing.domain.extraction import map_invoice, page_sizes, pages_to_reserve
 from invoicing.ports.extraction import (
     DI_API_VERSION,
     Analysis,
@@ -216,6 +217,7 @@ class DocumentIntelligenceAnalyzer:
                 fields if isinstance(fields, dict) else {}, self._currency
             ),
             reservation=reservation,
+            pages_info=page_sizes(pages),
         )
 
     async def pages_used_pct(self) -> float:

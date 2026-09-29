@@ -3,12 +3,21 @@ import type * as React from "react";
 import { cn } from "@/lib/utils";
 
 // shadcn/ui Table (new-york). The container scrolls sideways on its own, so a wide
-// table never scrolls the page (WCAG 1.4.10 lets data tables scroll).
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+// table never scrolls the page (WCAG 1.4.10 lets data tables scroll). A table with
+// nothing focusable inside passes `scrollLabel`: its container is then a labelled,
+// focusable region, so a keyboard user can scroll it (WCAG 2.1.1).
+function Table({
+  className,
+  scrollLabel,
+  ...props
+}: React.ComponentProps<"table"> & { scrollLabel?: string }) {
   return (
     <div
       data-slot="table-container"
       className="relative w-full overflow-x-auto"
+      {...(scrollLabel
+        ? { role: "region", "aria-label": scrollLabel, tabIndex: 0 }
+        : {})}
     >
       <table
         data-slot="table"

@@ -74,6 +74,15 @@ def test_story_1_6_key_vault_reads_report_codes_only_and_stop_the_load(
     FakeSecretClient.answers = {}
     assert asyncio.run(loader()) is keys
     assert FakeSecretClient.closed == closed + 1
+    # Story 2.9: staff-api's private key, read once, then kept; never in its repr.
+    FakeSecretClient.answers = {"pgp-private-key": "PRIVATE-KEY-TEXT"}
+    private = key_vault.PrivateKeyLoader(VAULT, lambda: None)  # type: ignore[arg-type,return-value]
+    closed = FakeSecretClient.closed
+    assert private() == "PRIVATE-KEY-TEXT"
+    FakeSecretClient.answers = {}
+    assert private() == "PRIVATE-KEY-TEXT"
+    assert FakeSecretClient.closed == closed + 1
+    assert "PRIVATE-KEY-TEXT" not in repr(private)
     for answer, code in (
         ("", "EMPTY"),
         (None, "EMPTY"),

@@ -37,6 +37,7 @@ from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
 from invoicing.adapters.postgres.schema import (
     admin_item,
     di_operation,
+    extraction_page,
     extraction_run,
     invoice,
     invoice_field,
@@ -109,7 +110,7 @@ def _item(fields: dict[str, Any]) -> dict[str, Any]:
 RESULT = {
     "apiVersion": "2024-11-30",
     "modelId": "prebuilt-invoice",
-    "pages": [{"pageNumber": 1}],
+    "pages": [{"pageNumber": 1, "width": 1000, "height": 1400, "unit": "pixel"}],
     "documents": [
         {
             "docType": "invoice",
@@ -362,6 +363,17 @@ def test_story_2_3_extract_stage(
         1,
     )
     assert len(_rows(pipeline_engine, di_operation, first)) == 1
+    # Story 2.9: the page's size is kept for the admin boxes.
+    with pipeline_engine.connect() as connection:
+        sizes = connection.execute(
+            select(
+                extraction_page.c.page,
+                extraction_page.c.width,
+                extraction_page.c.height,
+                extraction_page.c.unit,
+            ).where(extraction_page.c.run_id == run_row.run_id)
+        ).all()
+    assert [tuple(size) for size in sizes] == [(1, 1000.0, 1400.0, "pixel")]
     fields = {row.field_id: row for row in _rows(pipeline_engine, invoice_field, first)}
     # AD-18 field ids: snake_case, InvoiceId -> invoice_number, payment[n].<bank field>.
     assert set(fields) == {
@@ -507,14 +519,24 @@ def test_story_2_3_extract_stage(
     assert _pages(pipeline_engine) == pages
     assert _rows(pipeline_engine, di_operation, sixth) == []
 
-    # --- A 1-page PDF: 2 pages reserved, settled at 1 with the run (AD-8) ---------------
+    # --- A PDF: 2 pages reserved, settled at the 3 DI returned with the run (AD-8) ------
     # Its result also has a non-array PaymentDetails (never stored as one plaintext
     # field, AD-11) and a SubTotal whose amount doesn't parse (confidence 0, AD-18).
+    # Story 2.9: of its page sizes, a repeated pageNumber and an unknown unit are
+    # dropped; the run still saves.
     seventh = awaiting_extraction(7, UploadContentType.PDF)
     fields_7 = dict(RESULT["documents"][0]["fields"])
     fields_7["PaymentDetails"] = _text("SG12 ABCD 0000 1234 5678", 0.9)
     fields_7["SubTotal"] = {"type": "currency", "valueCurrency": {}, "confidence": 0.9}
-    result_7 = {**RESULT, "documents": [{"docType": "invoice", "fields": fields_7}]}
+    result_7 = {
+        **RESULT,
+        "pages": [
+            {"pageNumber": 1, "width": 8.5, "height": 11, "unit": "inch"},
+            {"pageNumber": 1, "width": 9, "height": 12, "unit": "inch"},
+            {"pageNumber": 2, "width": 0, "height": 11, "unit": "furlong"},
+        ],
+        "documents": [{"docType": "invoice", "fields": fields_7}],
+    }
     di.polls.append(
         HttpResponse(
             200,
@@ -528,7 +550,18 @@ def test_story_2_3_extract_stage(
     assert run(seventh).action is ExtractAction.ADVANCE
     di.on_post = None
     assert during == [pages + 2]
-    assert _pages(pipeline_engine) == pages + 1
+    assert _pages(pipeline_engine) == pages + 3
+    (run_7,) = _rows(pipeline_engine, extraction_run, seventh)
+    with pipeline_engine.connect() as connection:
+        sizes = connection.execute(
+            select(
+                extraction_page.c.page,
+                extraction_page.c.width,
+                extraction_page.c.height,
+                extraction_page.c.unit,
+            ).where(extraction_page.c.run_id == run_7.run_id)
+        ).all()
+    assert [tuple(size) for size in sizes] == [(1, 8.5, 11.0, "inch")]
     fields = {r.field_id: r for r in _rows(pipeline_engine, invoice_field, seventh)}
     assert "payment_details" not in fields
     assert (fields["sub_total"].value_number, fields["sub_total"].confidence) == (

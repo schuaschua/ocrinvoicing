@@ -56,7 +56,7 @@ development_status:
   2-6-validation-catches-duplicates-date-mismatches-and-bank-chang: review
   2-7-staff-sign-in-and-see-only-their-surfaces: review
   2-8-admin-queue-list: review
-  2-9-admin-item-shows-the-crop-fields-and-bank-change-details: backlog
+  2-9-admin-item-shows-the-crop-fields-and-bank-change-details: review
   2-10-admin-corrects-re-extracts-or-rejects: backlog
   2-11-opt-in-keyboard-shortcuts-for-the-admin-queue: backlog
   epic-2-retrospective: optional

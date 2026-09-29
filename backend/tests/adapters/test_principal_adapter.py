@@ -45,11 +45,17 @@ def principal_header(name: str = "Priya Tan", *roles: str) -> str:
 
 
 def test_story_2_7_parse_principal() -> None:
-    """Covers: name and roles are parsed in landing order; a malformed header is refused
+    """Covers: name, roles (in landing order) and object id are parsed; a malformed header is refused
     without echoing the header."""
     # Name and roles, in landing order.
     principal = parse_principal(principal_header("Priya Tan", "finance", "admin"))
-    assert principal == StaffPrincipal("Priya Tan", (Role.ADMIN, Role.FINANCE))
+    # Story 2.9: the object id too, for the audit log only.
+    assert principal == StaffPrincipal("Priya Tan", (Role.ADMIN, Role.FINANCE), OID)
+    # A token's short `oid` claim is read too.
+    short = parse_principal(
+        encode([{"typ": "name", "val": "Siti"}, {"typ": "oid", "val": OID}])
+    )
+    assert short == StaffPrincipal("Siti", (), OID)
 
     # A malformed header is refused.
     for header in [base64.b64encode(b'{"auth_typ": "github", "claims": []}').decode()]:

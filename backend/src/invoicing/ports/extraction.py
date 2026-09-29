@@ -10,7 +10,7 @@ from datetime import date
 from typing import Protocol
 from uuid import UUID
 
-from invoicing.domain.extraction import ExtractedInvoice
+from invoicing.domain.extraction import ExtractedInvoice, PageSize
 from invoicing.domain.transitions import Transition
 from invoicing.domain.upload import UploadContentType
 
@@ -74,6 +74,8 @@ class Analysis:
     pages: int
     invoice: ExtractedInvoice
     reservation: PageReservation
+    # Story 2.9: each page's size, so the admin screen can draw the field boxes.
+    pages_info: tuple[PageSize, ...] = ()
 
 
 class ExtractionError(Exception):

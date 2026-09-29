@@ -97,6 +97,23 @@ extraction_run = Table(
     Column("created_at", TIMESTAMP(timezone=True), nullable=False),
 )
 
+# Story 2.9: each analysed page's size (DI's width, height and unit), so the admin
+# screen can draw field boxes. Append-only like its run (migration 0008).
+extraction_page = Table(
+    "extraction_page",
+    metadata,
+    Column(
+        "run_id",
+        Uuid,
+        ForeignKey("intake.extraction_run.run_id"),
+        primary_key=True,
+    ),
+    Column("page", Integer, primary_key=True),
+    Column("width", Double, nullable=False),
+    Column("height", Double, nullable=False),
+    Column("unit", Text, nullable=False),
+)
+
 # AD-18: one row per header field. A bank field (AD-11) holds ciphertext plus
 # fingerprint and never a value.
 invoice_field = Table(

@@ -78,11 +78,13 @@ def known_roles(claims: Iterable[str]) -> tuple[Role, ...]:
 
 @dataclass(frozen=True)
 class StaffPrincipal:
-    """The signed-in staff user as built-in auth vouches for them: a display name and
-    their app roles (in landing order). No object id or email: nothing else is used."""
+    """The signed-in staff user as built-in auth vouches for them: a display name,
+    their app roles (in landing order) and their Entra object id, which only the audit
+    log records (Story 2.9: who revealed a bank value). No email or other claim."""
 
     name: str
     roles: tuple[Role, ...]
+    oid: str | None = None
 
     def has_any(self, allowed: Iterable[Role]) -> bool:
         return not set(self.roles).isdisjoint(allowed)

@@ -38,7 +38,7 @@ from invoicing.ports.admin_queue import (
 )
 
 
-def _latest_routing(invoice_id: ColumnElement[Any]) -> Any:
+def latest_routing(invoice_id: ColumnElement[Any]) -> Any:
     """SQL: the latest `routing_id` of the invoice `invoice_id` (AD-4)."""
     latest = aliased(admin_item)
     return (
@@ -62,7 +62,7 @@ def _conditions(query: QueueQuery) -> list[ColumnElement[bool]]:
             exists().where(
                 admin_item.c.invoice_id == invoice.c.id,
                 # Correlated to this admin_item row, which is the invoice's.
-                admin_item.c.routing_id == _latest_routing(admin_item.c.invoice_id),
+                admin_item.c.routing_id == latest_routing(admin_item.c.invoice_id),
                 admin_item.c.reason == query.reason.value,
             )
         )
@@ -117,7 +117,7 @@ class PostgresAdminQueueReader:
                 select(admin_item.c.invoice_id, admin_item.c.reason)
                 .where(
                     admin_item.c.invoice_id.in_(ids),
-                    admin_item.c.routing_id == _latest_routing(admin_item.c.invoice_id),
+                    admin_item.c.routing_id == latest_routing(admin_item.c.invoice_id),
                 )
                 .order_by(admin_item.c.id)
             ):

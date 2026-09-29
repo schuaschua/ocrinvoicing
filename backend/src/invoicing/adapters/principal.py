@@ -19,7 +19,12 @@ import azure.functions as func
 
 from invoicing.adapters.http import Endpoint, http_endpoint
 from invoicing.adapters.logging import log_event
-from invoicing.domain.errors import AuthDisabledError, ErrorCode
+from invoicing.domain.errors import (
+    AuthDisabledError,
+    ErrorCode,
+    ForbiddenError,
+    NotFoundError,
+)
 from invoicing.domain.roles import (
     SURFACE_ROLES,
     StaffPrincipal,
@@ -35,6 +40,14 @@ PRINCIPAL_HEADER = "X-MS-CLIENT-PRINCIPAL"
 # in `role_typ` (for Entra, also `roles`). Both are read, nothing else.
 ROLES_CLAIM = "roles"
 NAME_CLAIM = "name"
+# The Entra object id: built-in auth sends the long claim type, a token the short one.
+OID_CLAIMS = ("http://schemas.microsoft.com/identity/claims/objectidentifier", "oid")
+
+# security.md rule 24: every non-GET staff call must carry the custom header the staff
+# app always sends; a cross-site form can't set it.
+CSRF_HEADER = "X-Requested-With"
+CSRF_VALUE = "XMLHttpRequest"
+SAFE_METHODS = frozenset({"GET", "HEAD"})
 
 # The only provider staff-api's built-in auth has (Entra, AD-14).
 AUTH_TYPE = "aad"
@@ -99,7 +112,11 @@ def parse_principal(header: str | None) -> StaffPrincipal | None:
         (val for want in name_types for typ, val in pairs if typ == want and val),
         "",
     )
-    return StaffPrincipal(name=name, roles=roles)
+    oid = next(
+        (val for want in OID_CLAIMS for typ, val in pairs if typ == want and val),
+        None,
+    )
+    return StaffPrincipal(name=name, roles=roles, oid=oid)
 
 
 def principal_from(req: func.HttpRequest) -> StaffPrincipal | None:
@@ -121,17 +138,24 @@ type StaffHandler = Callable[
 ]
 
 
+NOT_FOUND_MESSAGE = "Not found."
+
+
 def staff_endpoint(
     handler: StaffHandler,
     *,
     surface: Surface | None,
     platform_auth_trusted: bool = True,
+    hide_from_others: bool = False,
 ) -> Endpoint:
     """Wrap a staff-api handler: 401 `UNAUTHENTICATED` without a valid principal, 403
     `FORBIDDEN` when the user holds none of `surface`'s roles (the domain guard,
-    SURFACE_ROLES), else `handler(req, correlation_id, principal)`.
+    SURFACE_ROLES), 403 for a non-GET call without `X-Requested-With: XMLHttpRequest`
+    (security.md rule 24), else `handler(req, correlation_id, principal)`.
 
     `surface=None` admits any signed-in user, whatever their roles (only `/api/me`).
+    `hide_from_others=True` answers a user without the roles 404 `NOT_FOUND` instead,
+    so a record's existence isn't revealed (security.md rule 5; the admin item).
     `platform_auth_trusted=False` (in Azure with built-in auth off, when the header
     could be forged) fails every call closed with 401 `AUTH_DISABLED`."""
     if surface is not None and not SURFACE_ROLES.get(surface):
@@ -145,7 +169,16 @@ def staff_endpoint(
         if surface is None:
             signed_in = require_signed_in(principal)
         else:
-            signed_in = require_surface(principal, surface)
+            try:
+                signed_in = require_surface(principal, surface)
+            except ForbiddenError:
+                if hide_from_others:
+                    raise NotFoundError(NOT_FOUND_MESSAGE) from None
+                raise
+        if (req.method or "GET").upper() not in SAFE_METHODS and (
+            req.headers.get(CSRF_HEADER) != CSRF_VALUE
+        ):
+            raise ForbiddenError()
         return await handler(req, correlation_id, signed_in)
 
     guarded.__name__ = handler.__name__

@@ -85,3 +85,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-2-8-admin-queue-list.md`
   summary: Make `platform_auth_trusted` a required argument of `staff_endpoint` (adapters/principal.py) and `me_endpoint` (apps/staff_api/me.py), and test the registered `me` handler with auth untrusted, as 2.8 did for the queue.
   evidence: both default to True, so a wiring slip trusts a forged X-MS-CLIENT-PRINCIPAL when built-in auth is off; pre-existing (Story 2.7), found in the 2.8 review.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-9-admin-item-crop-fields-bank-change.md`
+  summary: PDF invoices have no in-app viewer or flag boxes (opened by link); decide on a PDF renderer (e.g. pdf.js with a CSP change) and test Chrome's viewer under the app's CSP.
+  evidence: no PDF renderer in web/staff; CSP `default-src 'self'` blocks blob/worker use; page sizes for PDFs are now stored (inches), so boxes are possible once rendered.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-9-admin-item-crop-fields-bank-change.md`
+  summary: Invoices extracted before migration 0008 have no page sizes and show no flag boxes; a Re-extract (2.10) restores them.
+  evidence: extraction_page is filled only by runs after this story.

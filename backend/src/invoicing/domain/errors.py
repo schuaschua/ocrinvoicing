@@ -32,6 +32,8 @@ class ErrorCode(StrEnum):
     SERVICE_UNAVAILABLE = "SERVICE_UNAVAILABLE"
     # An upload's Idempotency-Key is already held by another supplier (AD-6): HTTP 409.
     IDEMPOTENCY_KEY_CONFLICT = "IDEMPOTENCY_KEY_CONFLICT"
+    # An admin item's image was deleted by the 30-day retention rule (AD-15): HTTP 404.
+    IMAGE_DELETED = "IMAGE_DELETED"
 
 
 class DomainError(Exception):
@@ -142,3 +144,10 @@ class ForbiddenError(DomainError):
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.FORBIDDEN, "You don't have access to that page.")
+
+
+class ImageDeletedError(DomainError):
+    """The invoice's image is gone: the 30-day retention rule deleted it (AD-15)."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.IMAGE_DELETED, "Image deleted after 30 days.")

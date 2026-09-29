@@ -6,6 +6,7 @@ import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui/button";
 import { navigate, useNotAllowed, usePath } from "@/router";
 import { LoadError } from "@/screens/LoadError";
+import { ItemScreen } from "@/screens/ItemScreen";
 import { Loading } from "@/screens/Loading";
 import { NoAccess } from "@/screens/NoAccess";
 import { Offline } from "@/screens/Offline";
@@ -46,6 +47,16 @@ function routeFor(me: Me, path: string): Route {
     return { kind: "redirect", to: landing, notAllowed: true };
   }
   return { kind: "page", surface };
+}
+
+/** The invoice id of `/queue/:invoiceId`. */
+function itemIdFrom(path: string): string {
+  const segment = path.split("/")[2] ?? "";
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 /** 1024px and wider: the sidebar, not the Sheet (EXPERIENCE.md Responsive). */
@@ -170,12 +181,13 @@ export function App() {
     content = <NoAccess />;
   } else if (route?.kind === "page") {
     // A new page per path, so each route change moves focus to its h1.
-    content =
-      route.surface.id === "admin_queue" ? (
-        <QueueScreen key={path} />
-      ) : (
-        <SurfacePage key={path} surface={route.surface} />
-      );
+    if (route.surface.id === "admin_queue") {
+      content = <QueueScreen key={path} />;
+    } else if (route.surface.id === "admin_item") {
+      content = <ItemScreen key={path} invoiceId={itemIdFrom(path)} />;
+    } else {
+      content = <SurfacePage key={path} surface={route.surface} />;
+    }
   } else {
     content = <Loading />;
   }

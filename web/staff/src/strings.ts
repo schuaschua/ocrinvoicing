@@ -158,6 +158,105 @@ export const strings = {
       return plural(Math.floor(hours / 24), "day", "days");
     },
   },
+  /** Story 2.9: the admin item (EXPERIENCE.md Image viewer, Field list, Bank-change
+   * panel and Masked value). */
+  item: {
+    back: "Back to the queue",
+    from: (supplier: string) => `From ${supplier}`,
+    received: (when: string) => `Received ${when}`,
+    reasons: "Reasons",
+    notFound: "This invoice isn't waiting in the queue any more.",
+    viewer: {
+      label: "Invoice image",
+      imageAlt: "The invoice",
+      deleted: "Image deleted after 30 days",
+      failed: "The image couldn't be loaded.",
+      openPdf: "Open the PDF",
+      pdfNote: "PDFs open in a new tab; the flagged fields are listed here.",
+      noBoxes: "This reading has no field positions, so no boxes are drawn.",
+      controls: "Image controls",
+      previous: "Previous flag",
+      next: "Next flag",
+      whole: "Show whole invoice",
+      zoomIn: "Zoom in",
+      zoomOut: "Zoom out",
+      panLeft: "Pan left",
+      panRight: "Pan right",
+      panUp: "Pan up",
+      panDown: "Pan down",
+      position: (n: number, total: number) => `Flag ${n} of ${total}`,
+      noFlags: "No flagged areas",
+      noSelection: (total: number) =>
+        `No flag selected (${total} ${total === 1 ? "flag" : "flags"})`,
+    },
+    fields: {
+      heading: "Fields",
+      flagged: "Flagged",
+      notRead: "Not read",
+      /** Screen-reader prefix of the badge: announced as "Confidence 91%". */
+      confidence: "Confidence",
+      box: (n: number) => `Box ${n}`,
+      selected: (label: string) => `Selected: ${label}`,
+      bankOnFile: "Bank details on file",
+      none: "No fields were read.",
+    },
+    lines: {
+      heading: "Lines",
+      label: "Invoice lines",
+      columns: {
+        line: "Line",
+        productCode: "Product code",
+        description: "Description",
+        quantity: "Quantity",
+        unitPrice: "Unit price",
+        amount: "Amount",
+      },
+    },
+    bank: {
+      heading: "Bank details changed",
+      call: (phone: string) => `Call ${phone} (number on file)`,
+      noPhone: "No phone number on file",
+      onFile: "On file",
+      onInvoice: "On this invoice",
+      noAccount: "No account on file",
+      notRead: "Not read",
+      ending: (digits: string) => `account ending ${digits}`,
+      /** A value too short to mask shows no digits at all (AD-11). */
+      noDigits: "account on file, digits hidden",
+      show: "Show",
+      showLabel: (digits: string) =>
+        digits ? `Show account ending ${digits}` : "Show account",
+      hide: "Hide",
+      keepShowing: "Keep showing",
+      warning: "The account number hides in 10 seconds.",
+      hidden: "The account number is hidden again.",
+      failed: "Couldn't show the account number. Try again.",
+    },
+  },
+  /** AD-18 field ids as the admin reads them; any other id is shown as it is. */
+  fieldLabels: {
+    vendor_name: "Supplier name",
+    vendor_tax_id: "Supplier tax ID",
+    vendor_address: "Supplier address",
+    customer_name: "Customer name",
+    invoice_number: "Invoice number",
+    invoice_date: "Invoice date",
+    due_date: "Due date",
+    purchase_order: "PO number",
+    sub_total: "Subtotal",
+    total_tax: "Tax",
+    invoice_total: "Invoice total",
+    amount_due: "Amount due",
+  } as Readonly<Record<string, string>>,
+  /** `payment[<n>].<id>` bank fields, with their payment number from 1. */
+  bankFieldLabel: (kind: string, payment: number) => {
+    const names: Readonly<Record<string, string>> = {
+      bank_account_number: "Account number",
+      iban: "IBAN",
+      swift: "SWIFT code",
+    };
+    return `${names[kind] ?? kind} (payment ${payment})`;
+  },
   /** Screens not built yet show their heading and this line. */
   placeholder: "This page isn't ready yet.",
   /** EXPERIENCE.md staff surface table, one name per surface. */

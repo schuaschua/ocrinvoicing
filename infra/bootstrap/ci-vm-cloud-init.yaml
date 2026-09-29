@@ -1,0 +1,12 @@
+#cloud-config
+# AD-17 step 1c: first boot of the CI VM (ci-vm.sh passes this as custom data). Docker
+# from Ubuntu's archive; Ubuntu's unattended security upgrades stay on (the VM must be
+# patched, sprint change proposal 2026-09-29). Jenkins itself is started over SSH by
+# ci-vm-remote.sh, so a re-run can rebuild it.
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - unattended-upgrades
+runcmd:
+  - systemctl enable --now docker

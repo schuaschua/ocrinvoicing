@@ -64,15 +64,20 @@ def _terraform_calls(work_dir: Path) -> list[list[str]]:
 
 def test_story_1_2_terraform_plan_tag_gate(work_dir: Path) -> None:
     """terraform-plan.sh. Covers: a plan with changes and tags hands the saved plan to apply
-    (and deletes the plan JSON); an untagged resource stops the stack before apply."""
+    (and deletes the plan JSON); an untagged resource stops the stack before apply; the
+    Jenkinsfile's CI_OUTPUT_FILE holds exactly hasWork=true, or hasWork=false for --optional
+    on a missing stack."""
     # A plan with changes and tags hands the saved plan to apply.
     out = work_dir / "plan-out"
+    output_file = work_dir / "outputs" / "plan.env"
     result = _run(
         "terraform-plan.sh", "dev/foundation", str(out), work_dir=work_dir,
         FAKE_TF_PLAN_EXIT="2", FAKE_TF_PLAN_JSON=str(FIXTURES / "plan_pass.json"),
+        CI_OUTPUT_FILE=str(output_file),
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "output: hasWork=true" in result.stdout
+    assert output_file.read_text() == "hasWork=true\n"
     assert (out / "tfplan").is_file()
     plan_call = next(call for call in _terraform_calls(work_dir) if "plan" in call)
     assert "-out=tfplan" in plan_call and "-detailed-exitcode" in plan_call
@@ -90,6 +95,17 @@ def test_story_1_2_terraform_plan_tag_gate(work_dir: Path) -> None:
     assert "hasWork=true" not in result.stdout
     assert not (out / "tfplan").exists()
 
+    # --optional on a missing stack: skipped, hasWork=false, no terraform call.
+    output_file = work_dir / "outputs" / "optional.env"
+    calls_before = len(_terraform_calls(work_dir))
+    result = _run(
+        "terraform-plan.sh", "dev/app", str(work_dir / "plan-out-app"), "--optional", work_dir=work_dir,
+        CI_OUTPUT_FILE=str(output_file),
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output_file.read_text() == "hasWork=false\n"
+    assert len(_terraform_calls(work_dir)) == calls_before
+
 
 def _lib_probe(work_dir: Path, body: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     probe = work_dir / "probe.sh"
@@ -100,30 +116,120 @@ def _lib_probe(work_dir: Path, body: str, env: dict[str, str]) -> subprocess.Com
     )
 
 
-ADO_TASK_ENV = {
-    "TF_BUILD": "True",
-    "ARM_SUBSCRIPTION_ID": "s",
-    "AZURESUBSCRIPTION_SERVICE_CONNECTION_ID": "connection-id",
-    "AZURESUBSCRIPTION_CLIENT_ID": "client-id",
-    "AZURESUBSCRIPTION_TENANT_ID": "tenant-id",
-    "SYSTEM_ACCESSTOKEN": "system-access-token",
-    "SYSTEM_OIDCREQUESTURI": "https://oidc.example.test/request",
-    "idToken": "static-id-token",
+STALE_SIGN_IN = {
+    # Leftovers that must never win over the managed identity (no OIDC, CLI or secret).
+    "ARM_USE_OIDC": "true",
+    "ARM_USE_CLI": "true",
+    "ARM_OIDC_TOKEN": "static-id-token",
+    "ARM_OIDC_REQUEST_TOKEN": "request-token",
+    "ARM_OIDC_REQUEST_URL": "https://oidc.example.test/request",
+    "ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID": "connection-id",
+    "ARM_CLIENT_SECRET": "client-secret",
 }
+SIGN_IN_VARIABLES = (
+    "ARM_USE_MSI ARM_CLIENT_ID ARM_SUBSCRIPTION_ID ARM_TENANT_ID "
+    "ARM_USE_OIDC ARM_USE_CLI ARM_OIDC_TOKEN ARM_OIDC_REQUEST_TOKEN ARM_OIDC_REQUEST_URL "
+    "ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID ARM_CLIENT_SECRET"
+)
 
 
-def test_story_1_2_terraform_uses_the_refreshing_ado_oidc_of_the_service_connection(work_dir: Path) -> None:
+def test_story_1_2_terraform_signs_in_only_as_the_stack_owners_managed_identity(work_dir: Path) -> None:
+    """ci/lib.sh export_arm_context on the CI VM (I/O matrix "Terraform sign-in"). Covers: with
+    CI_MSI_CLIENT_ID, Terraform uses the managed identity of that client id and no OIDC, CLI
+    or secret variable is left; in CI without a client id the stage fails, naming it."""
+    probe = f'export_arm_context; for v in {SIGN_IN_VARIABLES}; do printf "%s=%s\\n" "$v" "${{!v:-unset}}"; done'
     result = _lib_probe(
-        work_dir,
-        'export_arm_context; printf "%s\\n" "$ARM_USE_OIDC" "$ARM_USE_CLI" "$ARM_CLIENT_ID" "$ARM_TENANT_ID" '
-        '"$ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID" "$ARM_OIDC_REQUEST_TOKEN" "$ARM_OIDC_REQUEST_URL" '
-        '"${ARM_OIDC_TOKEN:-unset}"',
-        ADO_TASK_ENV,
+        work_dir, probe,
+        {"TF_BUILD": "true", "CI_MSI_CLIENT_ID": "client-of-id-22", "ARM_SUBSCRIPTION_ID": "s", "ARM_TENANT_ID": "t",
+         **STALE_SIGN_IN},
     )
-    assert result.stdout.split("\n")[:8] == [
-        "true", "false", "client-id", "tenant-id", "connection-id", "system-access-token",
-        "https://oidc.example.test/request", "unset",  # no static token that could expire mid-apply
-    ], result.stderr
+    assert result.returncode == 0, result.stderr
+    assert dict(line.split("=", 1) for line in result.stdout.splitlines()) == {
+        "ARM_USE_MSI": "true",
+        "ARM_CLIENT_ID": "client-of-id-22",
+        "ARM_SUBSCRIPTION_ID": "s",
+        "ARM_TENANT_ID": "t",
+        **{name: "unset" for name in STALE_SIGN_IN},
+    }
+
+    # In CI without a client id: the stage fails, naming it, before Terraform runs.
+    result = _lib_probe(work_dir, probe, {"TF_BUILD": "true", "ARM_SUBSCRIPTION_ID": "s", "ARM_TENANT_ID": "t"})
+    assert result.returncode == 1
+    assert "CI_MSI_CLIENT_ID is not set" in result.stderr
+    assert "ARM_USE_MSI" not in result.stdout
+
+
+# --- ado-status.sh -----------------------------------------------------------------------
+
+ADO_BIN = Path(__file__).resolve().parent / "fake-bin-ado"
+ADO_TOKEN = "fake-ado-token-never-in-argv"
+BUILT = "c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00"
+
+
+def _ado_status(work_dir: Path, state: str, **env_extra: str) -> tuple[subprocess.CompletedProcess[str], list[dict]]:
+    log = work_dir / f"curl-{uuid.uuid4().hex}.jsonl"
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ADO_", "FAKE_"))}
+    env.update({
+        "PATH": f"{ADO_BIN}{os.pathsep}{env.get('PATH', '')}",
+        "ADO_ORG": "test-org", "ADO_PROJECT": "test-project", "ADO_PAT": ADO_TOKEN,
+        "BRANCH_NAME": "feature/x", "GIT_COMMIT": BUILT, "BUILD_URL": "http://127.0.0.1:8080/job/x/1/",
+        "FAKE_CURL_LOG": str(log),
+    })
+    env.update(env_extra)
+    result = subprocess.run(
+        ["bash", str(CI / "ado-status.sh"), state], env=env, capture_output=True, text=True, check=False, timeout=60
+    )
+    calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return result, calls
+
+
+def test_story_1_2_ado_status_posts_on_the_built_iteration(work_dir: Path) -> None:
+    """ci/ado-status.sh against a fake curl (I/O matrix "PR build"). Covers: the pull request
+    is looked up from the branch into main; the status goes on the iteration of GIT_COMMIT with
+    state, jenkins/checks and the iteration id; the token reaches curl only on stdin; no pull
+    request, or no iteration for the commit, posts nothing and succeeds; a bad state is refused."""
+    iterations = json.dumps([
+        {"id": 1, "sourceRefCommit": {"commitId": "0" * 40}},
+        {"id": 2, "sourceRefCommit": {"commitId": BUILT}},
+        {"id": 3, "sourceRefCommit": {"commitId": "f" * 40}},
+    ])
+    result, calls = _ado_status(work_dir, "succeeded", FAKE_ADO_PRS='[{"pullRequestId": 42}]', FAKE_ADO_ITERATIONS=iterations)
+    assert result.returncode == 0, result.stdout + result.stderr
+    query, iteration_call, post = calls
+    api = "https://dev.azure.com/test-org/test-project/_apis/git/repositories/test-project"
+    assert query["argv"][-1].startswith(f"{api}/pullrequests?")
+    assert "searchCriteria.sourceRefName=refs%2Fheads%2Ffeature%2Fx" in query["argv"][-1]
+    assert "searchCriteria.targetRefName=refs%2Fheads%2Fmain" in query["argv"][-1]
+    assert "searchCriteria.status=active" in query["argv"][-1]
+    assert iteration_call["argv"][-1].startswith(f"{api}/pullRequests/42/iterations?")
+    assert post["argv"][-1].startswith(f"{api}/pullRequests/42/statuses?")
+    assert post["argv"][post["argv"].index("-X") + 1] == "POST"
+    body = json.loads(post["argv"][post["argv"].index("--data") + 1])
+    assert body["state"] == "succeeded" and body["iterationId"] == 2  # the built commit's iteration
+    assert body["context"] == {"genre": "jenkins", "name": "checks"}
+    # The token only on stdin, never in argv or output.
+    for call in calls:
+        assert call["stdin"] == f'user = ":{ADO_TOKEN}"\n'
+        assert ADO_TOKEN not in json.dumps(call["argv"])
+    assert ADO_TOKEN not in result.stdout + result.stderr
+
+    # No pull request: nothing posted, success.
+    result, calls = _ado_status(work_dir, "failed")
+    assert result.returncode == 0, result.stderr
+    assert len(calls) == 1 and "no active pull request" in result.stdout
+
+    # No iteration for the built commit (a newer push): nothing posted, success.
+    result, calls = _ado_status(
+        work_dir, "failed", FAKE_ADO_PRS='[{"pullRequestId": 42}]',
+        FAKE_ADO_ITERATIONS=json.dumps([{"id": 1, "sourceRefCommit": {"commitId": "f" * 40}}]),
+    )
+    assert result.returncode == 0, result.stderr
+    assert len(calls) == 2 and not any("/statuses?" in call["argv"][-1] for call in calls)
+
+    # A bad state is refused before any call.
+    result, calls = _ado_status(work_dir, "approved")
+    assert result.returncode == 1 and "state must be" in result.stderr
+    assert calls == []
 
 
 # --- terraform-apply.sh ----------------------------------------------------------------
@@ -162,13 +268,23 @@ def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token
     identity's login with an Entra token over TLS, grants to the env's app logins (Story 2.1),
     asks az for one token and opens no firewall. Story 1.6: it also grants to the env's
     loaders group (Dj's load-script login), named by the naming helpers; a leftover
-    DJ_USER_UPN is ignored (Dj, 2026-09-29: guest UPN over 63 characters)."""
+    DJ_USER_UPN is ignored (Dj, 2026-09-29: guest UPN over 63 characters). --check with no
+    migrations writes exactly hasWork=false to the Jenkinsfile's CI_OUTPUT_FILE, and with
+    migrations exactly hasWork=true."""
+    output_file = work_dir / "outputs" / "migrate-none.env"
+    check = _run("migrate.sh", "--check", "dev", work_dir=work_dir,
+                 CI_MIGRATIONS_DIR=str(work_dir / "no-migrations"), CI_OUTPUT_FILE=str(output_file))
+    assert check.returncode == 0, check.stderr
+    assert output_file.read_text() == "hasWork=false\n"
     for env, login, pipeline_role, staff_api_role, loaders_group in MIGRATE_ENVIRONMENTS:
         migrations = work_dir / f"migrations-{env}"
         migrations.mkdir()
         (migrations / "env.py").write_text("# fixture\n")
-        check = _run("migrate.sh", "--check", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations))
+        output_file = work_dir / "outputs" / f"migrate-{env}.env"
+        check = _run("migrate.sh", "--check", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations),
+                     CI_OUTPUT_FILE=str(output_file))
         assert "output: hasWork=true" in check.stdout, (env, check.stderr)
+        assert output_file.read_text() == "hasWork=true\n"
 
         az_log, uv_log = work_dir / f"az-{env}.log", work_dir / f"uv-{env}.jsonl"
         result = _run(
@@ -280,12 +396,12 @@ def test_story_1_3_code_deploy(work_dir: Path) -> None:
 
 
 def _install(work_dir: Path, *tools: str, **env_extra: str) -> subprocess.CompletedProcess[str]:
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("FAKE_", "TF_", "AGENT_"))}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("FAKE_", "TF_", "CI_"))}
     env.update(
         {
             "PATH": f"{INSTALL_BIN}{os.pathsep}{env.get('PATH', '')}",
             "CI_TOOLS_DIR": str(work_dir / "bin"),
-            "AGENT_TEMPDIRECTORY": str(work_dir / "agent-temp" / "not-created-yet"),
+            "CI_TEMP_DIR": str(work_dir / "ci-temp" / "not-created-yet"),
             "FAKE_CURL_LOG": str(work_dir / "curl.log"),
         }
     )

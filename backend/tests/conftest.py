@@ -133,8 +133,8 @@ def spans() -> Iterator[InMemorySpanExporter]:
 #
 # One container per test session, started only when a test asks for it (coding-style.md
 # rule 23: integration tests use a real database in a container). Without Docker the
-# tests are skipped locally; under Azure Pipelines (TF_BUILD) that is a failure instead,
-# so the PR build can never pass without them.
+# tests are skipped locally; in CI (TF_BUILD, set by the Jenkinsfiles) that is a failure
+# instead, so a branch build can never pass without them.
 
 POSTGRES_IMAGE = "postgres:18"
 BACKEND_DIR = Path(__file__).resolve().parents[1]

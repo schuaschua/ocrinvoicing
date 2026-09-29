@@ -2,8 +2,10 @@
 #
 # AD-17 step 1 (part 1): resource providers, the four resource groups, Terraform
 # state storage, the two private-key vaults (OCR-129) and the three deploy identities
-# with their federated credentials and role assignments. Idempotent: re-running skips
-# what exists and re-applies settings and tags.
+# with their role assignments. The identities have no federated credentials: the CI VM
+# (ci-vm.sh) carries the shared and Dev ones as user-assigned managed identities
+# (Dj, 2026-09-29). Idempotent: re-running skips what exists and re-applies settings
+# and tags.
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -16,29 +18,12 @@ Required environment variables:
   ARM_SUBSCRIPTION_ID        target subscription
   TAG_OWNER, TAG_COST_CENTRE, TAG_APPLICATION, TAG_DATA_CLASSIFICATION
                              P-17 tag values (environment is set per resource group)
-  ADO_ORG                    Azure DevOps organisation name
-  ADO_ORG_ID                 Azure DevOps organisation id (GUID; the federation issuer)
-  ADO_PROJECT                Azure DevOps project name
-Optional:
-  ADO_SC_SHARED, ADO_SC_DEV, ADO_SC_PROD
-                             service connection names (default azure-shared, azure-dev, azure-prod)
 EOF
 }
 
 parse_common_args "$@"
-require_env ARM_SUBSCRIPTION_ID ADO_ORG ADO_ORG_ID ADO_PROJECT
+require_env ARM_SUBSCRIPTION_ID
 require_tag_inputs
-ADO_SC_SHARED="${ADO_SC_SHARED:-azure-shared}"
-ADO_SC_DEV="${ADO_SC_DEV:-azure-dev}"
-ADO_SC_PROD="${ADO_SC_PROD:-azure-prod}"
-
-service_connection_name() {
-  case "$1" in
-    shared) echo "$ADO_SC_SHARED" ;;
-    dev) echo "$ADO_SC_DEV" ;;
-    prod) echo "$ADO_SC_PROD" ;;
-  esac
-}
 
 select_subscription
 verify_role_ids
@@ -133,7 +118,7 @@ for env in dev prod; do
   fi
 done
 
-# Deploy identities (id-21 shared, id-22 dev, id-23 prod) with ADO federation.
+# Deploy identities (id-21 shared, id-22 dev, id-23 prod).
 for owner in shared dev prod; do
   identity="$(deploy_identity_name "$owner")"
   step "Deploy identity $identity ($owner)"
@@ -142,29 +127,6 @@ for owner in shared dev prod; do
   else
     run az identity create --name "$identity" --resource-group "$STATE_RG" \
       --location "$LOCATION" --tags "${shared_tags[@]}"
-  fi
-
-  step "Federated credential for $identity"
-  credential="ado-$owner"
-  issuer="https://vstoken.dev.azure.com/$ADO_ORG_ID"
-  subject="sc://$ADO_ORG/$ADO_PROJECT/$(service_connection_name "$owner")"
-  if exists az identity federated-credential show --name "$credential" \
-    --identity-name "$identity" --resource-group "$STATE_RG"; then
-    current="$(az identity federated-credential show --name "$credential" \
-      --identity-name "$identity" --resource-group "$STATE_RG" \
-      --query "join('|', [issuer, subject])" -o tsv)"
-    if [[ "$current" == "$issuer|$subject" ]]; then
-      log "exists: federated credential $credential"
-    else
-      log "federated credential $credential has issuer|subject '$current'; updating"
-      run az identity federated-credential update --name "$credential" \
-        --identity-name "$identity" --resource-group "$STATE_RG" \
-        --issuer "$issuer" --subject "$subject" --audiences "api://AzureADTokenExchange"
-    fi
-  else
-    run az identity federated-credential create --name "$credential" \
-      --identity-name "$identity" --resource-group "$STATE_RG" \
-      --issuer "$issuer" --subject "$subject" --audiences "api://AzureADTokenExchange"
   fi
 done
 
@@ -200,4 +162,4 @@ done
 step "Done"
 log "State: $STATE_ACCOUNT (containers: ${STATE_CONTAINERS[*]}) in $STATE_RG."
 log "Private-key vaults: $(private_key_vault_name dev) (dev), $(private_key_vault_name prod) (prod) in $STATE_RG."
-log "Next: app-registrations.sh, then budget-and-roles.sh (see README.md)."
+log "Next: app-registrations.sh, then budget-and-roles.sh, then ci-vm.sh (see README.md)."

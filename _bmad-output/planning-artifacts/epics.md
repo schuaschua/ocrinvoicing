@@ -47,7 +47,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
 ### NonFunctional Requirements
 
 - **NFR1 (P-1):** PaaS or serverless only. No VMs or other IaaS.
-- **NFR2 (P-2):** Monthly Azure spend has a US $10 ceiling. The accepted actual is about $11–12. A budget alert fires at $8, with resource-group budgets as the standards require. Every component states its cost.
+- **NFR2 (P-2):** Monthly Azure spend has a US $10 ceiling. The accepted actual is about $11–12. Resource-group budgets alert as the standards require; the $8 subscription budget alert was dropped because the subscription holds other projects (Dj, 2026-09-30). Every component states its cost.
 - **NFR3 (P-3):** Intake stages hand off through queues only. A failed step retries, then goes to the admin queue.
 - **NFR4 (P-4):** The accounts API and the PO/GRN database are each reached only through their own adapter. Swapping a simulation for the real system changes only the adapter.
 - **NFR5 (P-5):** The supplier comes only from the link or the delivery, never from the invoice.
@@ -88,7 +88,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
   - **Infra:** Terraform per `terraform.md`.
 - **Infrastructure (AD-17):**
   - One subscription with three resource groups (`shared`, `dev` and `prod`), named per P-16.
-  - Every resource belongs to one step of the AD-17 step table: 1. `infra/bootstrap/` (operator: state, resource groups, deploy identities, two Entra app registrations per environment, the `ACS Email Sender` role, the $8 subscription budget) → 2. `shared/foundation` (PostgreSQL B1ms PG 18 with `invoicing_dev` and `invoicing_prod`, DI F0 with a custom subdomain, ACS Email and its domain, the PostgreSQL firewall open for the PoC) → 3. operator RBAC step → 4. `<env>/foundation` → 4b. operator PGP key step → 5. operator database step → 6. migrations → 7. `<env>/app` → 8. operator redirect-URI step → 9. code deploy.
+  - Every resource belongs to one step of the AD-17 step table: 1. `infra/bootstrap/` (operator: state, resource groups, deploy identities, two Entra app registrations per environment, the `ACS Email Sender` role) → 2. `shared/foundation` (PostgreSQL B1ms PG 18 with `invoicing_dev` and `invoicing_prod`, DI F0 with a custom subdomain, ACS Email and its domain, the PostgreSQL firewall open for the PoC) → 3. operator RBAC step → 4. `<env>/foundation` → 4b. operator PGP key step → 5. operator database step → 6. migrations → 7. `<env>/app` → 8. operator redirect-URI step → 9. code deploy.
   - Jenkins on the CI VM authenticates with the per-stack deploy identities attached to the VM (Dj, 2026-09-29). Dev applies its saved plan automatically on merge, an accepted departure from `terraform.md` rules 26 and 33. Prod and `shared` apply only after manual approval.
 - **CI checks:**
   - lint and format;
@@ -320,7 +320,7 @@ So that every later story deploys into named, tagged, budgeted Azure resources i
 **And** the three resource groups exist, named per P-16 (`babaloo-sea-lng-rg-<nn>`: Dev `0x`, Prod `1x`, shared `2x`), with the 5 P-17 tags, and the resource providers are registered
 **And** the deploy identities for `dev`, `prod` and `shared` exist (no federated credentials: the shared and Dev identities are attached to the CI VM, Dj, 2026-09-29), each holding only the rights in AD-17 "Deploy identity rights"
 **And** each environment has two Entra app registrations: `staff-api` (app roles `admin`, `finance`, `procurement`, `management` and `goods_in`, "assignment required", ID-token issuance on) and `accounts-sim`
-**And** the custom role `ACS Email Sender` (the email send action only) and the $8 subscription budget alert exist
+**And** the custom role `ACS Email Sender` (the email send action only) exists; the $8 subscription budget alert is not created (Dj, 2026-09-30: dropped, the subscription holds other projects; the resource-group budgets track this project)
 
 **Given** the `shared/foundation` stack is applied
 **When** it completes
@@ -376,7 +376,7 @@ So that nothing reaches Prod without passing checks and my approval.
 **When** the deploy pipeline runs
 **Then** each stage signs in only as its stack's user-assigned deploy identity attached to the CI VM; no Azure secret is stored; only the shared and Dev identities are attached (Dj, 2026-09-29)
 **And** it applies `dev` from a saved plan automatically on merge to `main`, the accepted departure from `terraform.md` rules 26 and 33 and `security.md` rule 34 recorded in AD-17
-**And** it applies `shared` and `prod` from a saved plan only after manual approval
+**And** it applies `shared` from a saved plan only after Dj's approval in Jenkins; Prod has no Jenkins stage until Dj decides how Prod deploys (Dj, 2026-09-29)
 **And** the operator steps (AD-17 steps 1, 3, 4b, 5 and 8) stay outside the pipeline, in the bootstrap README
 
 **Given** the CI VM bootstrap (`ci-vm.sh`)
@@ -491,7 +491,7 @@ So that I learn about cost, failures and quota before users do.
 **When** monitoring is applied
 **Then** every app sends traces to that environment's Application Insights, with sampling on and one trace per `correlation_id`
 **And** a metrics helper in the `invoicing` package emits Application Insights custom metrics with dimensions, and alerting on custom metric dimensions is turned on (AD-17)
-**And** alerts to Dj fire through the action group when a resource-group budget threshold or the $8 subscription budget is crossed
+**And** alerts to Dj fire through the action group when a resource-group budget threshold is crossed (the $8 subscription budget was dropped, Dj 2026-09-30)
 
 **Note:** the pipeline alerts use custom metrics emitted by later stories: `poison_message{queue}` and `stuck_invoices` (Story 2.2) and `di_pages_used_pct` (Story 2.3). Each of those stories adds its own alert rule. There is no separate log-cap alert (Dj's decision, AD-17).
 

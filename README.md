@@ -10,15 +10,16 @@ web/         supplier/ and staff/: Vite + React + TypeScript single-page apps, e
              from the same origin (client routes must not start with api/, admin/ or runtime/)
 shared/      quality-thresholds.json and the client-side photo quality check (quality/)
 infra/       Terraform and operator scripts (terraform.md)
-  bootstrap/   operator scripts for AD-17 steps 1, 3, 4b and 5 and the Azure DevOps setup; see infra/bootstrap/README.md
+  bootstrap/   operator scripts for AD-17 steps 1 (with the CI VM, ci-vm.sh), 3, 4b and 5; see infra/bootstrap/README.md
   modules/     naming (P-16 names, P-17 tags), env-foundation and env-app
   shared/      foundation: PostgreSQL, Document Intelligence F0, ACS Email (both environments)
   dev/, prod/  foundation: identities, storage, Key Vault, monitoring, budget per environment;
                app: the four Flex Function apps, their plans, settings and runtime roles
   scripts/     check_tags.py (P-17 tag gate) and its tests
-ci/          checks.sh (the PR checks, runnable locally) and the deploy-stage scripts (code-deploy.sh builds
-             one zip per Function app; --build-only builds without publishing); tests/ for the pipelines
-pipelines/   Azure DevOps YAML: pr.yml, deploy.yml, weekly-scan.yml and templates/
+ci/          checks.sh (the branch checks, runnable locally) and the deploy-stage scripts (code-deploy.sh builds
+             one zip per Function app; --build-only builds without publishing); jenkins/ (the Jenkins image,
+             plugins, configuration as code and the weekly-scan Jenkinsfile); tests/ for the CI
+Jenkinsfile  the CI/CD pipeline Jenkins runs for every branch
 docs/        architecture, standards, governance and costing
 ```
 
@@ -34,10 +35,16 @@ docs/        architecture, standards, governance and costing
 ci/checks.sh all      # or one of: lint, test, audit, secrets, terraform
 ```
 
-The same script runs in the PR build (`pipelines/pr.yml`), so a green local run means a green PR build. It needs `uv`, `terraform`, `gitleaks`, `shellcheck` and Node 22. The web a11y check (Playwright + axe) needs Chromium for each app: run `npx playwright install chromium` in `web/supplier` and in `web/staff` (they pin the same Playwright, so the second run finds it installed); without it the check is skipped locally, while the PR build installs it and never skips. Reports go to `.work/ci/`.
+The same script runs in Jenkins on every branch (`Jenkinsfile`), so a green local run means a green branch build. It needs `uv`, `terraform`, `gitleaks`, `shellcheck` and Node 22. The web a11y check (Playwright + axe) needs Chromium for each app: run `npx playwright install chromium` in `web/supplier` and in `web/staff` (they pin the same Playwright, so the second run finds it installed); without it the check is skipped locally, while Jenkins installs it and never skips. Reports go to `.work/ci/`.
 
-The Terraform tests use mock providers; the script tests run every bootstrap script with `--dry-run` against fake `az`/`psql`/`gpg` binaries that fail if called, and `ci/tests` checks the pipeline YAML (AD-17 stage order, approval environments, saved plans, tag gate).
+The Terraform tests use mock providers; the script tests run every bootstrap script with `--dry-run` against fake `az`/`psql`/`gpg` binaries that fail if called, and `ci/tests` checks the Jenkinsfiles and the Jenkins image (AD-17 stage order, Dj's approval on `shared`, no Prod stage, saved plans, pinned tools).
 
-## Pipelines (Azure DevOps)
+## CI/CD (Jenkins on the CI VM)
 
-`pipelines/pr.yml` (PR build, required by the branch policy on `main`), `pipelines/deploy.yml` (every merge to `main`: Terraform in the AD-17 order, migrations, code deploy; `shared` and Prod after approval) and `pipelines/weekly-scan.yml` (dependency audit every Monday). `infra/bootstrap/ado-setup.sh` creates them with their service connections, environments and branch policy; see `infra/bootstrap/README.md`.
+The code lives in Azure Repos (`example-org/ocrinvoicing`). Jenkins runs in Docker on one small VM (`infra/bootstrap/ci-vm.sh`; SSH from Dj's IP only, the UI through an SSH tunnel) and polls it every 5 minutes:
+
+- every branch: `ci/checks.sh` (lint, test, audit, secrets, terraform), with the result posted as the status `jenkins/checks` on the branch's pull request; a branch policy on `main` requires it;
+- `main`: the checks, then the AD-17 chain from saved, tag-gated plans: `shared/foundation` after Dj approves, then `dev/foundation`, Dev migrations, `dev/app` and the Dev code deploy, applied automatically. Each stage signs in as its stack's deploy identity attached to the VM; no Azure secret is stored. Only the shared and Dev identities are on the VM, so there are no Prod stages (Dj, 2026-09-29);
+- `ci/jenkins/Jenkinsfile.weekly`: the dependency audit every Monday.
+
+Setup, first run and the branch policy: `infra/bootstrap/README.md`, steps 1b and 1c.

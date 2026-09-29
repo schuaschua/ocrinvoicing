@@ -67,10 +67,10 @@
       ]
     },
     {
-      "id": "ado",
-      "label": "Azure DevOps Pipelines + Terraform",
+      "id": "ci",
+      "label": "Jenkins + Terraform on the CI VM",
       "kind": "external",
-      "icon": "devops/Azure_DevOps",
+      "icon": "compute/Virtual_Machine",
       "cite": "AD-17"
     },
     {
@@ -199,19 +199,13 @@
       "cite": "AD-14"
     },
     {
-      "from": "ado",
+      "from": "ci",
       "to": "devapps",
       "label": "auto apply on merge",
       "cite": "AD-17"
     },
     {
-      "from": "ado",
-      "to": "prodapps",
-      "label": "manual approval",
-      "cite": "AD-17"
-    },
-    {
-      "from": "ado",
+      "from": "ci",
       "to": "pg",
       "label": "shared: manual approval",
       "cite": "AD-17"

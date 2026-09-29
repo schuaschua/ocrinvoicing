@@ -19,3 +19,10 @@ regexes = [
   '''^\s*(readonly\s+)?ROLE_[A-Z_]+="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\s*$''',
   '''^\s*[A-Z_]+ = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"\s*$''',
 ]
+
+[[allowlists]]
+description = "Jenkins plugin pins (plugin-id:version, e.g. ci/jenkins/plugins.txt); plugin ids like *-api or *-credentials trip the generic key rule. Only a finding that is exactly one pin is allowed, so a real token in that file is still caught."
+regexTarget = "match"
+regexes = [
+  '''^[a-z0-9][a-z0-9-]*:[0-9][A-Za-z0-9._-]*$''',
+]

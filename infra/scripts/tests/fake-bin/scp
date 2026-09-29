@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Test double: a dry run must never call this tool.
+echo "FAKE-TOOL-CALLED: scp $*" >&2
+exit 97

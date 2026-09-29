@@ -1,6 +1,6 @@
 """Offline tests for infra/bootstrap: the security content of each --dry-run plan.
 
-A fake az/psql/gpg/gpgconf is put first on PATH; each exits 97 and prints
+A fake az/psql/gpg/gpgconf/ssh/scp is put first on PATH; each exits 97 and prints
 FAKE-TOOL-CALLED, so any call from a dry run fails the test. Nothing reaches Azure.
 """
 
@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import uuid
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -23,11 +25,6 @@ FAKE_INPUTS = {
     "TAG_COST_CENTRE": "test-cc",
     "TAG_APPLICATION": "test-app",
     "TAG_DATA_CLASSIFICATION": "test-class",
-    "ADO_ORG": "test-org",
-    "ADO_ORG_ID": "44444444-4444-4444-4444-444444444444",
-    "ADO_PROJECT": "test-project",
-    "ADO_APPROVER": "dj@example.test",
-    "ALERT_EMAIL": "alerts@example.test",
     "ENVIRONMENT": "dev",
     "PG_ADMIN_USER": "babaloo-sea-lng-grp-21",
 }
@@ -129,7 +126,7 @@ def _json_blocks(output: str) -> list[dict]:
 
 def test_story_1_1_state_backend_dry_run_plan() -> None:
     """state-backend.sh --dry-run (AD-17, OCR-129). Covers, in order:
-    plan matches AD-17 (no shared keys, WIF subject/issuer, rg-22 state and deploy identities,
+    plan matches AD-17 (no shared keys, no federated credentials, rg-22 state and deploy identities,
     Contributor only on stack groups, conditioned RBAC Administrator); OCR-129 private-key
     vaults kv-22/kv-23 created in rg-22; nobody gets a role on those vaults or rg-22 in step 1;
     no RBAC Administrator reaches rg-22; RBAC Administrator conditions allow only runtime roles
@@ -139,8 +136,8 @@ def test_story_1_1_state_backend_dry_run_plan() -> None:
 
     # plan matches AD-17
     assert "--allow-shared-key-access false" in out
-    assert "sc://test-org/test-project/azure-dev" in out
-    assert "https://vstoken.dev.azure.com/44444444-4444-4444-4444-444444444444" in out
+    # Dj, 2026-09-29: the CI VM carries the deploy identities; no federated credential exists.
+    assert "federated-credential" not in out
     # State and deploy identities live in the bootstrap-only rg-22.
     assert "az storage account create --name babaloosealngst21 --resource-group babaloo-sea-lng-rg-22" in out
     assert "az identity create --name babaloo-sea-lng-id-21 --resource-group babaloo-sea-lng-rg-22" in out
@@ -312,6 +309,72 @@ def test_story_1_1_acs_email_sender_role_content() -> None:
     ]
     assert role["DataActions"] == [] and role["NotActions"] == []
     assert role["AssignableScopes"] == ["/subscriptions/00000000-0000-0000-0000-000000000000"]
+
+
+# --- Story 1.2: the CI VM (AD-17 step 1c) -------------------------------------------------
+
+CI_VM_TOKEN = "fake-ado-token-never-logged"
+
+
+def test_story_1_2_ci_vm_dry_run_plan() -> None:
+    """ci-vm.sh --dry-run (I/O matrix "VM bootstrap"). Covers: tagged rg-23; the NSG's only
+    rule allows SSH from the operator's IP; an Ubuntu LTS B2s with SSH keys only and no
+    auto-shutdown; only the shared and Dev deploy identities are attached; Jenkins goes up
+    over SSH with the token on stdin, never in the output; an address range is refused."""
+    scratch = REPO_ROOT / ".work" / "pytest-bootstrap" / uuid.uuid4().hex
+    scratch.mkdir(parents=True)
+    try:
+        (scratch / "id.pub").write_text("ssh-ed25519 AAAAfake operator@test\n")
+        (scratch / "ado-pat").write_text(CI_VM_TOKEN + "\n")
+        inputs = {
+            "CI_SSH_SOURCE_IP": "203.0.113.7",
+            "CI_SSH_PUBLIC_KEY_FILE": str(scratch / "id.pub"),
+            "ADO_ORG": "test-org",
+            "ADO_PROJECT": "test-project",
+            "ADO_PAT_FILE": str(scratch / "ado-pat"),
+        }
+        result = _run("ci-vm.sh", "--dry-run", **inputs)
+        assert result.returncode == 0, result.stderr
+        out = result.stdout
+        lines = out.splitlines()
+
+        # Tagged rg-23, environment shared.
+        (group,) = [line for line in lines if "az group create" in line]
+        assert "--name babaloo-sea-lng-rg-23" in group and "environment=shared" in group
+
+        # The only NSG rule: SSH (22) from the operator's IP, nothing else inbound.
+        (rule,) = [line for line in lines if "az network nsg rule" in line]
+        assert "--source-address-prefixes 203.0.113.7/32" in rule
+        assert "--destination-port-ranges 22" in rule and "--access Allow" in rule
+        assert not re.search(r"\b(8080|443|80)\b", " ".join(line for line in lines if "nsg" in line))
+
+        # An Ubuntu LTS B2s with SSH keys only and no auto-shutdown.
+        (vm,) = [line for line in lines if "az vm create" in line]
+        assert "--size Standard_B2s" in vm and "ubuntu-24_04-lts" in vm
+        assert "--authentication-type ssh" in vm and "--admin-password" not in vm
+        assert "auto-shutdown" not in out
+
+        # Only the shared and Dev deploy identities are attached.
+        assigns = [line for line in lines if "az vm identity assign" in line]
+        assert [re.search(r"<id-of-(\S+)>", line).group(1) for line in assigns] == [
+            "babaloo-sea-lng-id-21",
+            "babaloo-sea-lng-id-22",
+        ]
+        assert "babaloo-sea-lng-id-23" not in " ".join(assigns)
+
+        # Jenkins over SSH; the token never appears.
+        (remote,) = [line for line in lines if "ci-vm-remote.sh test-org" in line]
+        assert remote.startswith("[dry-run] ssh ")
+        assert re.search(r"clientId-of-babaloo-sea-lng-id-21.+clientId-of-babaloo-sea-lng-id-22", remote)
+        assert CI_VM_TOKEN not in out + result.stderr
+
+        # An address range is refused before anything is planned.
+        result = _run("ci-vm.sh", "--dry-run", **{**inputs, "CI_SSH_SOURCE_IP": "0.0.0.0/0"})
+        assert result.returncode == 1
+        assert "must be one IPv4 address" in result.stderr
+        assert "[dry-run]" not in result.stdout
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
 
 
 # --- lib.sh names agree with infra/modules/naming ---------------------------------------

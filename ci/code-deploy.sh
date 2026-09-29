@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# AD-17 step 9: code deploy for one environment (pipelines/templates/code-deploy.yml),
+# AD-17 step 9: code deploy for one environment (the Jenkinsfile's "Deploy code <env>" stage),
 # run as the environment's deploy identity after <env>/app.
 #
 # Builds one flat package per Function app (Story 1.3 Design Notes):
@@ -25,8 +25,8 @@ Usage: ci/code-deploy.sh [--check | --build-only] <dev|prod>
 
   --check       only report whether there is anything to deploy (sets hasWork)
   --build-only  build the four packages under .work/ci/code-deploy/<env>/, publish nothing
-Without a flag, run inside an AzureCLI@2 task signed in with the environment's
-service connection (azure-dev or azure-prod).
+Without a flag, run with `az` signed in as the environment's deploy identity
+(on the CI VM: `az login --identity --client-id`, as the Jenkinsfile does).
 USAGE
 }
 

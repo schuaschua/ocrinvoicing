@@ -1,6 +1,6 @@
 # Bootstrap and operator steps (spine AD-17)
 
-These scripts are the out-of-band steps of AD-17 (terraform.md rule 29). An operator runs them from a shell signed in with `az login`. They never run in the pipeline.
+These scripts are the out-of-band steps of AD-17 (terraform.md rule 29). An operator runs them from a shell signed in with `az login`. They never run in the pipeline (Jenkins on the CI VM).
 
 Every script:
 
@@ -17,14 +17,13 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | Variable | Used by | Meaning |
 | --- | --- | --- |
 | `ARM_SUBSCRIPTION_ID` | all but `app-registrations.sh`, `verify-db-isolation.sh` | target subscription |
-| `ARM_TENANT_ID` | `app-registrations.sh`, `ado-setup.sh` | Entra tenant; `az` must be signed in to it |
-| `TAG_OWNER`, `TAG_COST_CENTRE`, `TAG_APPLICATION`, `TAG_DATA_CLASSIFICATION` | `state-backend.sh` | P-17 tag values (use the same values as the stacks' `terraform.tfvars`) |
-| `ADO_ORG`, `ADO_ORG_ID`, `ADO_PROJECT` | `state-backend.sh` (all three), `ado-setup.sh` (`ADO_ORG`, `ADO_PROJECT`) | Azure DevOps organisation name, organisation id (GUID) and project, for the federated credentials and the ADO setup |
-| `ADO_SC_SHARED`, `ADO_SC_DEV`, `ADO_SC_PROD` | `state-backend.sh`, `ado-setup.sh` (optional) | service connection names; default `azure-shared`, `azure-dev`, `azure-prod`, which `pipelines/deploy.yml` uses. Change them only in all three places |
-| `ADO_APPROVER` | `ado-setup.sh` | Dj's Azure DevOps sign-in: the approver on the `shared` and `prod` environments |
-| `ADO_REPO` | `ado-setup.sh` (optional) | Azure Repos repository; default `ADO_PROJECT` |
-| `ALERT_EMAIL` | `budget-and-roles.sh` | where the $8 subscription budget alert goes (same as the stacks' `alert_email`) |
-| `SHARED_ACTION_GROUP_ID` | `budget-and-roles.sh` (optional) | resource id of the shared action group `ag-21` (`terraform output action_group_id` in `infra/shared/foundation`). Unset: the subscription budget alerts by email only, with a warning |
+| `ARM_TENANT_ID` | `app-registrations.sh` | Entra tenant; `az` must be signed in to it |
+| `TAG_OWNER`, `TAG_COST_CENTRE`, `TAG_APPLICATION`, `TAG_DATA_CLASSIFICATION` | `state-backend.sh`, `ci-vm.sh` | P-17 tag values (use the same values as the stacks' `terraform.tfvars`) |
+| `ADO_ORG`, `ADO_PROJECT` | `ci-vm.sh` | Azure DevOps organisation and project (`example-org`, `ocrinvoicing`): the repository Jenkins polls |
+| `ADO_REPO` | `ci-vm.sh` (optional) | Azure Repos repository; default `ADO_PROJECT` |
+| `ADO_PAT_FILE` | `ci-vm.sh` (optional) | the Azure DevOps personal access token file; default `.work/ado-pat` (gitignored). It is copied to the VM on ssh's standard input and is never printed |
+| `CI_SSH_SOURCE_IP` | `ci-vm.sh` | the operator's public IPv4 address, the only source the NSG lets in (SSH only) |
+| `CI_SSH_PUBLIC_KEY_FILE` | `ci-vm.sh` | the operator's SSH public key for the VM's `ciadmin` user; the private key is the same path without `.pub` (or the ssh agent's) |
 | `STACKS` | `test-alerts.sh` (optional) | which action groups to test; default `shared dev prod`; repeats are ignored |
 | `ENVIRONMENT` | `pgp-step4b.sh`, `database-step5.sh` | `dev` or `prod` |
 | `PG_ADMIN_USER` | `database-step5.sh`, `verify-db-isolation.sh` | the PostgreSQL Entra admin used to connect: the pg-admins group's name, `babaloo-sea-lng-grp-21`, signed in with a member's token. Required, and it must not be the environment's loaders group (the load-script login): the load script never runs as server admin. `database-step5.sh` stops if the two are equal |
@@ -34,16 +33,16 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 
 | What | Name |
 | --- | --- |
-| Resource groups | `babaloo-sea-lng-rg-21` (shared stack), `-rg-01` (dev), `-rg-11` (prod), and `-rg-22` (bootstrap-only: state and deploy identities) |
+| Resource groups | `babaloo-sea-lng-rg-21` (shared stack), `-rg-01` (dev), `-rg-11` (prod), `-rg-22` (bootstrap-only: state and deploy identities) and `-rg-23` (bootstrap-only: the CI VM) |
 | State storage | `babaloosealngst21` in `rg-22`; containers `shared`, `dev`, `prod`; key `foundation.tfstate` per stack |
 | Deploy identities | `babaloo-sea-lng-id-21` (shared), `-id-22` (dev), `-id-23` (prod), all in `rg-22` |
 | Private-key vaults (OCR-129) | `babaloo-sea-lng-kv-22` (dev), `-kv-23` (prod), in `rg-22`; each holds only its environment's `pgp-private-key`; no diagnostic settings, by decision (Dj, 2026-09-29) |
 | App registrations | `babaloo-sea-lng-staff-api-<env>`, `babaloo-sea-lng-accounts-sim-<env>` |
 | Entra security groups (`grp`) | loaders `babaloo-sea-lng-grp-01` (dev), `-grp-11` (prod): the supplier load script's database login; pg-admins `babaloo-sea-lng-grp-21` (shared): the PostgreSQL Entra admin. Dj is a member of all three (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character role-name limit and holds `#`) |
-| Subscription budget | `babaloo-sea-lng-budget-22` ($8) |
-| Action groups (all email Dj) | `babaloo-sea-lng-ag-21` (shared: the `shared` and subscription budgets), `-ag-01` (dev), `-ag-11` (prod) |
+| CI VM (`rg-23`) | `babaloo-sea-lng-vm-21` (Ubuntu 24.04 LTS, B2s), `-vnet-21`/`-snet-21`, `-nsg-21`, `-pip-21`, `-nic-21`, `-osdisk-21` |
+| Action groups (all email Dj) | `babaloo-sea-lng-ag-21` (shared: the `shared` budget), `-ag-01` (dev), `-ag-11` (prod) |
 
-`rg-22` is created and managed only by these scripts. No Terraform stack manages it and no deploy identity holds Contributor on it; each deploy identity has only its container-scoped state roles there, and no identity's RBAC Administrator reaches it. So no stack's identity can change another identity's federated credentials or another stack's state, or read or grant access to a PGP private key.
+`rg-22` is created and managed only by these scripts. No Terraform stack manages it and no deploy identity holds Contributor on it; each deploy identity has only its container-scoped state roles there, and no identity's RBAC Administrator reaches it. So no stack's identity can change another identity or another stack's state through Azure RBAC, or read or grant access to a PGP private key. On the CI VM, though, any build can use both the shared and Dev identities (below), so this separation holds between Prod and the rest, not between shared and Dev.
 
 The Entra groups are not Azure resources: `app-registrations.sh` creates them, `infra/bootstrap/lib.sh` names them (`loaders_group_name`, `pg_admins_group_name`) and `infra/modules/naming` does not. A member signs in to PostgreSQL with the group's name as the user name and their own Entra token.
 
@@ -52,22 +51,23 @@ The Entra groups are not Azure resources: `app-registrations.sh` creates them, `
 Migration `0004_master_audit` needs `pgcrypto` and grants to the environment's loaders group (Dj's load-script login), so on an environment whose step 5 ran before Story 1.6, in this order:
 
 1. Re-run `./app-registrations.sh`. It creates the loaders groups (`grp-01`, `grp-11`) and the pg-admins group (`grp-21`), adds you to each, and prints the pg-admins group's object id and name.
-2. If the PostgreSQL Entra admin is still a user, make it the pg-admins group: set `postgres_entra_admin_object_id`, `postgres_entra_admin_principal_name` and `postgres_entra_admin_principal_type = "Group"` in `infra/shared/foundation/terraform.tfvars` as printed, and let the deploy pipeline apply `shared/foundation`.
+2. If the PostgreSQL Entra admin is still a user, make it the pg-admins group: set `postgres_entra_admin_object_id`, `postgres_entra_admin_principal_name` and `postgres_entra_admin_principal_type = "Group"` in `infra/shared/foundation/terraform.tfvars` as printed, and let the Jenkins deploy chain apply `shared/foundation`.
 3. Re-run step 5 for both environments, connected as the pg-admins group: `ENVIRONMENT=dev ./database-step5.sh`, then `ENVIRONMENT=prod ./database-step5.sh`. It is idempotent; the new parts create the loaders group's login and rights and `pgcrypto` in `invoicing_<env>`.
-4. Merge. The Dev and Prod migration stages then apply `0004_master_audit`. They need no pipeline variable: `ci/migrate.sh` takes the loaders group's name from `lib.sh`. A leftover `DJ_USER_UPN` pipeline variable is ignored; delete it.
+4. Merge. The Dev migration stage then applies `0004_master_audit` (Prod waits for its own deploy decision, below). It needs no variable: `ci/migrate.sh` takes the loaders group's name from `lib.sh`.
 
 ## Run order
 
 | AD-17 step | Who | What to run |
 | --- | --- | --- |
 | 1 | operator with Owner | `./state-backend.sh`, then `./app-registrations.sh`, then `./budget-and-roles.sh` |
-| 1 (ADO) | operator, Project Administrator in the ADO project | `./ado-setup.sh` (after `state-backend.sh`, which creates the deploy identities it binds). Then merge to `main` to start the deploy pipeline |
-| 2 | `shared` deploy identity (pipeline) | `infra/shared/foundation`: fill `terraform.tfvars`; the deploy pipeline plans it, Dj approves the `shared` stage, it applies the saved plan. Then add the email domain's DNS records (below), and re-run `SHARED_ACTION_GROUP_ID=<ag-21 id> ./budget-and-roles.sh` so the subscription budget notifies through `ag-21` |
+| 1b | operator | push the code to Azure Repos (below) |
+| 1c | operator with Owner | `./ci-vm.sh` (after `state-backend.sh`, which creates the deploy identities it attaches), then the Jenkins first run and the branch policy (below). Every later merge to `main` starts the deploy chain |
+| 2 | `shared` deploy identity (Jenkins) | `infra/shared/foundation`: fill `terraform.tfvars`; Jenkins plans it, Dj approves the `Approve shared/foundation` input, it applies the saved plan. Then add the email domain's DNS records (below) |
 | 3 | operator | `./rbac-step3.sh` |
-| 4 | env deploy identity (pipeline) | `infra/dev/foundation` (applies automatically), then `infra/prod/foundation` (after Dj approves the `prod` stage) |
+| 4 | env deploy identity (Jenkins) | `infra/dev/foundation` (applies automatically). Prod has no Jenkins stage: its deploy identity is not on the CI VM, and how Prod deploys is a later decision (Dj, 2026-09-29) |
 | 4b | operator with Owner, plus Key Vault Secrets Officer on both vaults for this step only | after `<env>/foundation` exists (it creates the `staff-api` identity): `ENVIRONMENT=dev ./pgp-step4b.sh`, then, after `prod/foundation`, `ENVIRONMENT=prod ./pgp-step4b.sh` |
 | 5 | operator as PostgreSQL Entra admin (a member of the pg-admins group `grp-21`) | `ENVIRONMENT=dev ./database-step5.sh`, then prod; then `./verify-db-isolation.sh` |
-| 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
+| 6, 7, 9 | Jenkins | Dev migrations, `dev/app`, Dev code deploy (the `Jenkinsfile` at the repository root) |
 | 8 | operator | `staff-api` redirect URI, then the sign-in check (Story 2.7, below) |
 | Purchasing seed | operator, signed in as the env deploy identity | after the environment's migrations: the synthetic PO and goods-received data (below) |
 | Supplier load | Dj, signed in as himself, connecting as the environment's loaders group (`grp-01` dev, `grp-11` prod) | after step 4b, step 5, the environment's migrations and `<env>/app`: the synthetic suppliers and their upload links (below) |
@@ -76,39 +76,67 @@ Migration `0004_master_audit` needs `pgcrypto` and grants to the environment's l
 
 Try each script with `--dry-run` first.
 
-### Step 1: state, groups, identities, app registrations, role, budget
+### Step 1: state, groups, identities, app registrations, role
 
-- `state-backend.sh` registers the resource providers and waits for each (the `azurerm` provider has `resource_provider_registrations = "none"`), creates the four tagged resource groups, the state account (LRS, shared-key access off, public blob access off, TLS 1.2, versioning and 7-day soft delete) and its three containers, the two private-key vaults `kv-22` (dev) and `kv-23` (prod) in `rg-22` (RBAC mode, purge protection, 7-day soft delete, public network access like the environment vaults, the five tags with `environment` set to their environment; an existing vault has these settings and its tags re-applied, and nobody gets a role on it), and the three deploy identities with a federated credential for their Azure DevOps service connection (issuer `https://vstoken.dev.azure.com/<ADO_ORG_ID>`, subject `sc://<org>/<project>/<connection>`). An existing credential whose issuer or subject differs from the current inputs is updated.
+- `state-backend.sh` registers the resource providers and waits for each (the `azurerm` provider has `resource_provider_registrations = "none"`), creates the four tagged resource groups, the state account (LRS, shared-key access off, public blob access off, TLS 1.2, versioning and 7-day soft delete) and its three containers, the two private-key vaults `kv-22` (dev) and `kv-23` (prod) in `rg-22` (RBAC mode, purge protection, 7-day soft delete, public network access like the environment vaults, the five tags with `environment` set to their environment; an existing vault has these settings and its tags re-applied, and nobody gets a role on it), and the three deploy identities. They have no federated credentials: the CI VM carries the shared and Dev ones as user-assigned managed identities (step 1c; Dj, 2026-09-29). If an earlier run made `ado-<owner>` credentials, delete them: `az identity federated-credential delete --name ado-<owner> --identity-name <identity> --resource-group babaloo-sea-lng-rg-22`.
 - Deploy identity rights (azure.md rule 31 and AD-17 "Deploy identity rights"):
   - every deploy identity: Contributor on its own stack's resource group (`rg-21`, `rg-01` or `rg-11`, never `rg-22`), and Storage Blob Data Contributor on its own state container;
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `shared` state container.
 - `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs: put the `staff-api` one in `infra/<env>/app/terraform.tfvars` as `staff_api_client_id` (Story 2.7; not a secret) before `<env>/app` is planned. The redirect URI is step 8.
 - `app-registrations.sh` also creates the Entra security groups used as PostgreSQL logins (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character role-name limit), and adds the signed-in operator (`az ad signed-in-user show`) as a member of each: the loaders groups `babaloo-sea-lng-grp-01` (dev) and `-grp-11` (prod), the supplier load script's login, and the pg-admins group `babaloo-sea-lng-grp-21`, the PostgreSQL Entra admin. An existing group is kept, and an existing member is not re-added. It prints the pg-admins group's object id and name: before `shared/foundation` is first applied, put them in `infra/shared/foundation/terraform.tfvars` as `postgres_entra_admin_object_id` and `postgres_entra_admin_principal_name`, with `postgres_entra_admin_principal_type = "Group"`. Creating groups and adding members needs Entra rights, not just Owner on the subscription: an Entra role such as Groups Administrator (or Global Administrator), or, for an existing group, being its owner. The creator of a group is its owner. A new member's Azure sign-in picks up the group after `az login` is run again.
-- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine) and the $8 subscription budget with an alert to `ALERT_EMAIL`. With `SHARED_ACTION_GROUP_ID` set, the alert also goes through the shared action group `ag-21`. An existing budget keeps its amount, start date and thresholds; the only change the script makes to it is adding `ag-21` to its notifications (once). The first run comes before `ag-21` exists, so run it again after step 2.
+- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine). There is no subscription budget (Dj, 2026-09-30: dropped, the subscription holds other projects; the resource-group budgets track this project). A `babaloo-sea-lng-budget-22` made by an earlier run can be deleted: `az consumption budget delete --budget-name babaloo-sea-lng-budget-22`.
 
-### Step 1 (ADO): service connections, environments, pipelines and branch policy
+### Step 1b: push the code to Azure Repos
 
-`ado-setup.sh` sets up the Azure DevOps side of AD-17. It needs the `azure-devops` extension (`az extension add --name azure-devops`) and an `az login` that is Project Administrator in the ADO project. It creates, or checks and re-applies:
+The code and the Terraform modules live in Azure Repos (`example-org/ocrinvoicing`); Jenkins polls it. Create a personal access token in Azure DevOps (User settings > Personal access tokens) with the scopes **Code: Read & write** and **Code: Status**, and save it, alone, in `.work/ado-pat` (gitignored; `chmod 600`). Read & write is for this push; Jenkins itself needs only Code Read and Code Status. Then:
 
-- service connections `azure-shared`, `azure-dev` and `azure-prod`: Azure Resource Manager, workload identity federation (manual), subscription scope, bound to the deploy identities `id-21`, `id-22` and `id-23` by client id. No secret exists. ADO's federation subject is `sc://<org>/<project>/<connection>`, the one `state-backend.sh` put on each identity's federated credential. An existing connection bound to anything else stops the script; delete it in ADO and re-run;
-- environments `shared`, `dev` and `prod`, each with an exclusive lock (one deploy at a time), and an approval check on `shared` and `prod` with `ADO_APPROVER` as approver. Approvals live on the environments, not in YAML, so this script is what gates `shared` and Prod. Dj may approve his own runs;
-- a branch control check on all three connections and all three environments that allows only `refs/heads/main`. Without it, a manual run of the deploy pipeline on another branch could sign in as `azure-shared` or `azure-prod` in a plan stage, which has no approval;
-- the pipelines `ocrinvoicing-pr` (`pipelines/pr.yml`), `ocrinvoicing-deploy` (`pipelines/deploy.yml`) and `ocrinvoicing-weekly-scan` (`pipelines/weekly-scan.yml`), and it authorises only the deploy pipeline on the three connections and environments;
-- a blocking build policy on `main`: every change goes through a pull request whose `ocrinvoicing-pr` build (lint, tests with coverage, `pip-audit`, `npm audit`, `gitleaks`, Terraform checks) must pass.
+```sh
+git remote add azure https://dev.azure.com/example-org/ocrinvoicing/_git/ocrinvoicing
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader \
+  GIT_CONFIG_VALUE_0="Authorization: Basic $(printf ':%s' "$(cat .work/ado-pat)" | base64)" \
+  git -c credential.helper= push azure main
+```
 
-What the pipelines do:
+The token goes to git through environment variables, never on a command line (where `ps` would show it).
 
-- **PR build**: `ci/checks.sh lint`, `test`, `audit`, `secrets` and `terraform` as parallel jobs. Run `ci/checks.sh all` locally for the same result.
-- **Deploy** (every merge to `main`, one run at a time): for each stack, a plan stage (`plan -out=tfplan`, then `check_tags.py` on `terraform show -json`) and, only when the plan has changes, an apply stage in the stack's environment that applies that saved plan. So a stack with no changes asks for no approval. Order: `shared/foundation`, `dev/foundation`, Dev migrations, `dev/app`, Dev code deploy, `prod/foundation`, Prod migrations, `prod/app`, Prod code deploy. Dev applies without approval (the recorded terraform.md rule 26/33 exception); `shared` and Prod wait for the approval. A failed or rejected stage stops everything after it.
-- **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists. From Story 1.6 the migrations also grant `master` and `audit` to the environment's loaders group (Dj's load-script login), whose name `ci/migrate.sh` takes from `lib.sh`, like the other logins; no pipeline variable is needed.
+The token has an expiry: when it lapses, create a new one, save it in `.work/ado-pat` and re-run `ci-vm.sh`, which replaces the one Jenkins uses.
+
+### Step 1c: the CI VM and Jenkins
+
+`ci-vm.sh` (operator with Owner, `az` signed in; needs `ssh` and `scp`) creates or updates, in the tagged `rg-23`:
+
+- a VNet and subnet, and the NSG `nsg-21`, on the subnet and the NIC, whose only inbound rule allows SSH (22) from `CI_SSH_SOURCE_IP`/32. Azure's default rules deny every other inbound connection, so there is no web port: Jenkins is reached only through an SSH tunnel;
+- a static public IP and the VM `vm-21`: Ubuntu 24.04 LTS, `Standard_B2s` (2 vCPU, 4 GB), SSH key only (user `ciadmin`), no auto-shutdown for now (Dj deallocates it when not in use: `az vm deallocate --name babaloo-sea-lng-vm-21 --resource-group babaloo-sea-lng-rg-23`; a schedule comes later). Cloud-init (`ci-vm-cloud-init.yaml`) installs Docker and keeps Ubuntu's unattended security upgrades on;
+- the shared and Dev deploy identities (`id-21`, `id-22`) attached as user-assigned managed identities, and never Prod's (`id-23`; if it is ever attached, a re-run takes it off). An identity that does not exist yet is skipped with a warning; run `state-backend.sh` and re-run `ci-vm.sh` to attach it;
+- over SSH, `ci-vm-remote.sh` on the VM: it stores the token as `/opt/jenkins/secrets/ado-pat`, generates Dj's Jenkins password once (`/opt/jenkins/secrets/admin-password`), both readable only by root and the Jenkins user; writes the non-secret settings (repository, the two identities' client ids) to `/opt/jenkins/jenkins.env`; builds the image from `ci/jenkins/` and (re)starts the `jenkins` container with `jenkins_home` on a named volume.
+
+A re-run creates nothing that exists, starts the VM if it is deallocated, re-applies the SSH rule (for a new IP, set `CI_SSH_SOURCE_IP` and re-run), tags and identities, and rebuilds the image. It recreates the Jenkins container only when the image or its settings changed, and refuses to while a build is running (wait, or stop the build, then re-run); jobs and history survive in the volume.
+
+What runs on the VM:
+
+- **Jenkins** (`ci/jenkins/Dockerfile`): Jenkins LTS pinned by digest, the plugins pinned in `plugins.txt`, and the build tools pinned with checksums (Terraform, gitleaks, uv, Node 22, shellcheck, the az CLI, the Docker CLI, Python 3.13, Playwright's Chromium). `casc.yaml` configures everything at each start: the local user `dj`, the Terraform tool (the Jenkins Terraform plugin, pointed at the image's checksum-verified Terraform, same version as `ci/lib.sh`; nothing is downloaded), the `ado-pat` credential read from the mounted secret file, the client ids as global variables, and the jobs.
+- **Network**: the container shares the host network and Jenkins listens on `127.0.0.1:8080` only. Nothing listens on a public port.
+- **Docker socket**: the container gets `/var/run/docker.sock`, so the backend tests can start their PostgreSQL containers. That makes Jenkins root-equivalent on the VM, which is accepted for a single-purpose, SSH-only VM (Dj, 2026-09-29).
+- **Identities**: no Azure secret is stored anywhere; each deploy stage signs in as its own stack owner's identity (`az login --identity --client-id`, Terraform through `ARM_USE_MSI`). But both identities are on the VM, and every branch build runs that branch's own `Jenkinsfile` and test code there. So code in any pushed branch can get a token for the shared or Dev identity and change `shared` without Dj's approval: the approval and the per-stage sign-in only guard against mistakes, not against a hostile branch. Dj accepted this for the PoC because only Dj and Claude push (the `azure.md` rule 31 exceptions, Dj 2026-09-30); it must be closed before anyone else gets push access or before Prod.
+- **Capacity**: a B2s has 4 GB of memory and Jenkins runs two executors, so two builds at once (each with Node, pytest and a PostgreSQL container) can run out of memory. Deploy stages hold no executor while waiting for Dj's approval.
+- **No backup**: `jenkins_home` is a Docker volume on the VM's disk with no backup. Everything in it can be rebuilt (`casc.yaml` recreates the configuration and jobs); only build history is lost.
+
+Jenkins first run:
+
+1. Open the tunnel: `ssh -N -L 8080:127.0.0.1:8080 ciadmin@<public IP>` (`ci-vm.sh` prints it), then browse to `http://127.0.0.1:8080`.
+2. Sign in as `dj` with the password from `ssh ciadmin@<public IP> sudo cat /opt/jenkins/secrets/admin-password`. Don't change it in the UI: `casc.yaml` sets it from that file at each start. To change it, edit `/opt/jenkins/secrets/admin-password` on the VM (`sudo`), then re-run `ci-vm.sh` (or `sudo docker restart jenkins`).
+3. Check the jobs: `ocrinvoicing` (multibranch; scans Azure Repos every 5 minutes and builds each branch with the root `Jenkinsfile`) and `ocrinvoicing-weekly-scan` (`ci/checks.sh audit` on `main`, Mondays 01:00 UTC). Start a scan of `ocrinvoicing` by hand the first time.
+4. **Branch policy** (Azure DevOps, Project settings > Repositories > `ocrinvoicing` > Policies > branch `main`): require a pull request, and add a **Status check** policy for the status `jenkins/checks`, required, reset on source update. Jenkins posts it on the latest pull request iteration of the commit it built (`ci/ado-status.sh`), so a failing or missing build blocks the merge.
+   - A branch built before its pull request existed has posted no status: after opening the pull request, click **Build Now** on that branch in the `ocrinvoicing` job.
+   - A status stuck on `pending` (a build that died before posting its result): rebuild the branch (**Build Now**); the new build posts over it.
+5. **Weekly scan alerts**: a failed scheduled run notifies nobody. Look at the job after each Monday, or add a mail server later.
+
+What the jobs do:
+
+- **Every branch other than `main`**: `ci/checks.sh lint`, `test`, `audit`, `secrets` and `terraform` (all run even when one fails), and the result posted to the branch's pull request into `main`. A failed status post fails the build. Run `ci/checks.sh all` locally for the same result.
+- **`main`** (one run at a time): the checks, then the AD-17 chain. Each stack is planned (`plan -out=tfplan`, then `check_tags.py` on `terraform show -json`) and, only when the plan has changes, applied from that saved plan in the same workspace. Order: `shared/foundation` (Dj approves the `input`, 24 hours at most; the wait holds no executor), `dev/foundation`, Dev migrations, `dev/app`, Dev code deploy. Dev applies without approval (the recorded terraform.md rule 26/33 exception). A failed or rejected step stops everything after it. Saved plans and az profiles are deleted at the end of every run.
+- **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists. From Story 1.6 the migrations also grant `master` and `audit` to the environment's loaders group (Dj's load-script login), whose name `ci/migrate.sh` takes from `lib.sh`, like the other logins.
 - **Weekly scan**: `ci/checks.sh audit` on `main` every Monday, failing on any finding.
-
-Prod can ask for up to four approvals in one run: `prod/foundation`, Prod migrations, `prod/app` and the Prod code deploy. ADO evaluates approvals per stage, and each of these is its own stage so it can be skipped (with no approval asked) when it has nothing to do. The pipeline can't tell whether migrations are pending without connecting to the database, so once migrations exist the Prod migration stage asks every run.
-
-Manual operator steps after `ado-setup.sh` (no CLI for them):
-
-1. **Weekly scan alerts.** A failed scheduled run notifies nobody by default. In Project settings > Notifications, add a subscription "A build fails" filtered to the pipeline `ocrinvoicing-weekly-scan`, delivered to Dj.
-2. **Artifact retention.** The deploy run publishes each saved plan (`tfplan-<stack>`) as a pipeline artifact, because the apply stage runs on another agent. A saved plan holds sensitive values (e.g. generated secrets and connection details), and anyone who can view the pipeline's runs can download it (project Readers by default). Branch control limits who can produce one: only runs of `main`, which only a merged PR reaches. To keep them for as short as possible, set Project settings > Pipelines > Settings > Retention "Days to keep artifacts, symbols and attachments" and "Days to keep runs" to the minimum, and do not grant pipeline view rights beyond the project team. YAML cannot set a shorter per-artifact retention.
 
 ### Step 2 extra: verify the email domain, then link it
 
@@ -203,7 +231,7 @@ PG_ADMIN_USER=babaloo-sea-lng-grp-21 ENVIRONMENT=dev ./database-step5.sh   # the
 
 It then gives the loaders group (principal type `Group`) Key Vault Secrets User on the `pgp-public-key` and `hmac-key` secrets only (never the private key, which is in the private-key vault; OCR-129) and Storage Table Data Contributor on the storage account, for the load script. A vault-wide Secrets User assignment from an earlier run of this step is removed. Schema grants are Alembic migrations (step 6), not part of this step.
 
-`verify-db-isolation.sh` checks, as the admin (`PG_ADMIN_USER=babaloo-sea-lng-grp-21`), that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it inside a Dev pipeline job signed in as the dev deploy identity with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
+`verify-db-isolation.sh` checks, as the admin (`PG_ADMIN_USER=babaloo-sea-lng-grp-21`), that both databases exist, that `PUBLIC` cannot connect to either and that each environment login can connect to its own database and not the other (PASS/FAIL per check, exit 1 on any FAIL). To prove a real refusal, run it on the CI VM inside the Jenkins container (`docker exec -it jenkins bash`), signed in as the dev deploy identity (`az login --identity --client-id "$DEPLOY_CLIENT_ID_DEV"`), with `CONNECT_AS_LOGIN=babaloo-sea-lng-id-22 TARGET_DB=invoicing_prod`.
 
 Each environment has its own loaders group, so the loaders groups are cross-checked like the other logins.
 
@@ -233,7 +261,7 @@ Each environment has its own loaders group, so the loaders groups are cross-chec
 
 ### Purchasing seed: synthetic PO and goods-received data (Story 2.4)
 
-The purchasing simulation (AD-10, CAP-20) starts empty. Its data is synthetic (`backend/seed/sim_purchasing.json`, security.md rule 1). The app logins can only read it (AD-11), so the seed must run as the environment's deploy identity, which owns the schema. There is no pipeline stage for it: it is an operator step, once per environment after its migrations. Run these commands from a checkout, in a shell signed in to `az` as that environment's deploy identity (`babaloo-sea-lng-id-22` for Dev, `-id-23` for Prod), for example an `AzureCLI@2` step on that environment's service connection:
+The purchasing simulation (AD-10, CAP-20) starts empty. Its data is synthetic (`backend/seed/sim_purchasing.json`, security.md rule 1). The app logins can only read it (AD-11), so the seed must run as the environment's deploy identity, which owns the schema. There is no pipeline stage for it: it is an operator step, once per environment after its migrations. Run these commands from a checkout, in a shell signed in to `az` as that environment's deploy identity (`babaloo-sea-lng-id-22` for Dev, `-id-23` for Prod). For Dev, that is a shell on the CI VM inside the Jenkins container (`docker exec -it jenkins bash`, then `az login --identity --client-id "$DEPLOY_CLIENT_ID_DEV"`):
 
 ```sh
 export PGHOST=babaloo-sea-lng-psql-21.postgres.database.azure.com PGPORT=5432 PGSSLMODE=require
@@ -292,7 +320,7 @@ uv run --directory backend --locked --no-dev python -m invoicing.tools.load_supp
 
 ### Alert check: prove an alert reaches Dj (Story 1.5)
 
-Every alert goes through an action group that emails Dj: `ag-21` for the `shared` and subscription budgets, `ag-01` and `ag-11` for the Dev and Prod budgets and their metric alerts (AD-17). After the stacks are applied (and after any change to an action group):
+Every alert goes through an action group that emails Dj: `ag-21` for the `shared` budget, `ag-01` and `ag-11` for the Dev and Prod budgets and their metric alerts (AD-17). After the stacks are applied (and after any change to an action group):
 
 1. Run `./test-alerts.sh` (try `--dry-run` first; `STACKS="shared dev"` before Prod exists). It first checks that every requested action group exists and has an email receiver, and stops before sending anything if one doesn't. Then it sends one test notification through each group with `az monitor action-group test-notifications create`, to the email receivers stored on that group (so it tests what Terraform configured, not an address typed on the command line). It changes nothing.
 2. **Check that Dj received it:** one test email per action group at each address the script lists, each naming its group. Look in the spam folder too, and mark the sender as safe.

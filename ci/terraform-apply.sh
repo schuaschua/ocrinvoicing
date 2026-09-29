@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy pipeline, apply half of one stack (pipelines/templates/terraform-stack.yml).
+# Deploy pipeline, apply half of one stack (the Jenkinsfile's "Apply <stack>" stage).
 # Applies only the saved plan from the same run's plan stage (terraform.md rule 26);
 # Terraform refuses it if the state changed since the plan.
 
@@ -11,7 +11,8 @@ usage() {
   cat <<'USAGE'
 Usage: ci/terraform-apply.sh <env>/<stack> <saved-plan-file>
 
-Run inside an AzureCLI@2 task signed in with the stack owner's service connection.
+Run with `az` signed in as the stack owner's deploy identity and CI_MSI_CLIENT_ID set
+to its client id (the Jenkinsfile does both; ci/lib.sh export_arm_context).
 USAGE
 }
 

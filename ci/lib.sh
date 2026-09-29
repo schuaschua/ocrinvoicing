@@ -3,7 +3,8 @@
 # shellcheck disable=SC2034  # constants are used by the scripts that source this file
 #
 # Shared settings for the CI scripts (Story 1.2). Sourced, never executed.
-# The pipelines in pipelines/ only call these scripts, so every check also runs locally.
+# The Jenkins pipelines (Jenkinsfile, ci/jenkins/Jenkinsfile.weekly) only call these
+# scripts, so every check also runs locally.
 
 set -Eeuo pipefail
 
@@ -46,42 +47,42 @@ die() {
   exit 1
 }
 
-# set_output NAME VALUE - an Azure DevOps output variable (read by later stages'
-# conditions); printed plainly when run locally.
+# set_output NAME VALUE - a step result the Jenkinsfile reads (e.g. hasWork, which
+# skips a stage with nothing to do). Always printed; also appended as NAME=VALUE to
+# $CI_OUTPUT_FILE when the Jenkinsfile sets it.
 set_output() {
-  if [[ -n "${TF_BUILD:-}" ]]; then
-    echo "##vso[task.setvariable variable=$1;isOutput=true]$2"
-  else
-    log "output: $1=$2"
+  log "output: $1=$2"
+  if [[ -n "${CI_OUTPUT_FILE:-}" ]]; then
+    mkdir -p "$(dirname "$CI_OUTPUT_FILE")"
+    printf '%s=%s\n' "$1" "$2" >>"$CI_OUTPUT_FILE"
   fi
 }
 
-# Deploy-time settings come from the AzureCLI@2 task's signed-in service connection;
-# nothing is stored in the repo or the pipeline (azure.md rule 6). `az` stays signed
-# in through the task. Terraform (provider and azurerm backend) uses azurerm's Azure
-# DevOps OIDC: it asks the pipeline for a fresh federated token whenever it needs one,
-# so a long apply cannot outlive a static token. The task exposes the connection
-# (AZURESUBSCRIPTION_*); the step maps SYSTEM_ACCESSTOKEN in from $(System.AccessToken);
-# SYSTEM_OIDCREQUESTURI is a predefined agent variable.
+# Deploy-time sign-in (spine AD-17). On the CI VM every deploy stage runs as its stack
+# owner's user-assigned deploy identity, attached to the VM: the Jenkinsfile sets
+# CI_MSI_CLIENT_ID to that identity's client id and signs `az` in with
+# `az login --identity --client-id`. Terraform (provider and azurerm backend) uses the
+# same identity through the VM's managed-identity endpoint (ARM_USE_MSI). No Azure
+# secret exists anywhere (azure.md rule 6). Locally, without CI_MSI_CLIENT_ID,
+# Terraform uses the operator's own `az login`.
 export_arm_context() {
   if [[ -z "${ARM_SUBSCRIPTION_ID:-}" ]]; then
     ARM_SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
   fi
   if [[ -z "${ARM_TENANT_ID:-}" ]]; then
-    ARM_TENANT_ID="${AZURESUBSCRIPTION_TENANT_ID:-${tenantId:-$(az account show --query tenantId -o tsv)}}"
+    ARM_TENANT_ID="$(az account show --query tenantId -o tsv)"
   fi
   export ARM_SUBSCRIPTION_ID ARM_TENANT_ID
-  [[ -n "${TF_BUILD:-}" ]] || return 0
-  local name
-  for name in AZURESUBSCRIPTION_SERVICE_CONNECTION_ID SYSTEM_ACCESSTOKEN SYSTEM_OIDCREQUESTURI; do
-    [[ -n "${!name:-}" ]] || die "$name is not set: run this in an AzureCLI@2 task with SYSTEM_ACCESSTOKEN mapped from \$(System.AccessToken)"
-  done
-  export ARM_USE_OIDC=true ARM_USE_CLI=false
-  export ARM_CLIENT_ID="${AZURESUBSCRIPTION_CLIENT_ID:-${servicePrincipalId:-}}"
-  [[ -n "$ARM_CLIENT_ID" ]] || die "no client id for the service connection (AZURESUBSCRIPTION_CLIENT_ID)"
-  export ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID="$AZURESUBSCRIPTION_SERVICE_CONNECTION_ID"
-  export ARM_OIDC_REQUEST_TOKEN="$SYSTEM_ACCESSTOKEN" ARM_OIDC_REQUEST_URL="$SYSTEM_OIDCREQUESTURI"
-  unset ARM_OIDC_TOKEN
+  if [[ -z "${CI_MSI_CLIENT_ID:-}" ]]; then
+    [[ -z "${TF_BUILD:-}" ]] || die "CI_MSI_CLIENT_ID is not set: in CI a deploy stage signs in only as its stack owner's deploy identity"
+    return 0
+  fi
+  # Only the managed identity: no OIDC, CLI, secret or certificate variable is left for
+  # azurerm to pick up instead.
+  unset ARM_USE_OIDC ARM_USE_CLI ARM_OIDC_TOKEN ARM_OIDC_TOKEN_FILE_PATH ARM_OIDC_REQUEST_TOKEN \
+    ARM_OIDC_REQUEST_URL ARM_ADO_PIPELINE_SERVICE_CONNECTION_ID ARM_CLIENT_SECRET \
+    ARM_CLIENT_CERTIFICATE_PATH ARM_CLIENT_CERTIFICATE_PASSWORD
+  export ARM_USE_MSI=true ARM_CLIENT_ID="$CI_MSI_CLIENT_ID"
 }
 
 # stack_dir STACK - infra/<env>/<stack> for a stack given as <env>/<stack>.

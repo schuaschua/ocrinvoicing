@@ -7,7 +7,7 @@
 # Mode 1 (default), run as the PostgreSQL Entra admin: checks the CONNECT
 #   privileges of every environment login with has_database_privilege.
 # Mode 2 (CONNECT_AS_LOGIN set): signs in as the current az identity (for example the
-#   dev deploy identity inside an Azure DevOps job) and tries to open TARGET_DB;
+#   dev deploy identity inside the Jenkins container on the CI VM) and tries to open TARGET_DB;
 #   PASS means the connection was refused.
 #
 # The load script's login is the environment's loaders group (Dj is a member; Dj,

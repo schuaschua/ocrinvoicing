@@ -41,8 +41,8 @@
             <mxGeometry as="geometry" x="1385.92" y="90" width="44" height="52" />
           </mxCell>
         </object>
-        <object id="n-ado" label="&lt;b&gt;Azure DevOps Pipelines + Terraform&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-17&lt;/font&gt;" cite="AD-17" tooltip="Source: AD-17">
-          <mxCell style="image;aspect=fixed;html=1;points=[];align=center;fontSize=12;image=img/lib/azure2/devops/Azure_DevOps.svg;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;labelWidth=97;" parent="1" vertex="1">
+        <object id="n-ci" label="&lt;b&gt;Jenkins + Terraform on the CI VM&lt;/b&gt;&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-17&lt;/font&gt;" cite="AD-17" tooltip="Source: AD-17">
+          <mxCell style="image;aspect=fixed;html=1;points=[];align=center;fontSize=12;image=img/lib/azure2/compute/Virtual_Machine.svg;verticalLabelPosition=bottom;verticalAlign=top;whiteSpace=wrap;html=1;labelWidth=97;" parent="1" vertex="1">
             <mxGeometry as="geometry" x="1216.6" y="90" width="56" height="56" />
           </mxCell>
         </object>
@@ -129,7 +129,7 @@
           </mxCell>
         </object>
         <object id="e-3" label="auto apply on merge&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-17&lt;/font&gt;" cite="AD-17" tooltip="Source: AD-17">
-          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.2500;exitPerimeter=0;entryX=0.6667;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-ado" target="n-devapps">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.2500;exitPerimeter=0;entryX=0.6667;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-ci" target="n-devapps">
             <mxGeometry as="geometry" relative="1" x="-0.0100">
               <Array as="points">
                 <mxPoint x="1301.2" y="104.0" />
@@ -139,19 +139,8 @@
             </mxGeometry>
           </mxCell>
         </object>
-        <object id="e-4" label="manual approval&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-17&lt;/font&gt;" cite="AD-17" tooltip="Source: AD-17">
-          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.5000;exitPerimeter=0;entryX=0.6667;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-ado" target="n-prodapps">
-            <mxGeometry as="geometry" relative="1" x="0.0461">
-              <Array as="points">
-                <mxPoint x="1307.2" y="118.0" />
-                <mxPoint x="1307.2" y="391.9" />
-                <mxPoint x="2392.7" y="391.9" />
-              </Array>
-            </mxGeometry>
-          </mxCell>
-        </object>
         <object id="e-5" label="shared: manual approval&lt;br&gt;&lt;font style=&quot;font-size:9px&quot; color=&quot;#555555&quot;&gt;AD-17&lt;/font&gt;" cite="AD-17" tooltip="Source: AD-17">
-          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.7500;exitPerimeter=0;entryX=0.2500;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-ado" target="n-pg">
+          <mxCell style="edgeStyle=none;rounded=1;html=1;endArrow=block;endFill=1;fontSize=10;labelBackgroundColor=#FFFFFF;strokeColor=#555555;exitX=1.0000;exitY=0.7500;exitPerimeter=0;entryX=0.2500;entryY=0.0000;entryPerimeter=0;" parent="1" edge="1" source="n-ci" target="n-pg">
             <mxGeometry as="geometry" relative="1" x="-0.3347">
               <Array as="points">
                 <mxPoint x="1313.2" y="132.0" />

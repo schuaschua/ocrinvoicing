@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Installs the pinned CI tools on a hosted Linux x64 agent (pipelines/ only):
-# each download is checked against the SHA-256 pinned in ci/lib.sh before use.
-# Python and Node come from the UsePythonVersion and NodeTool tasks.
+# Installs the pinned CI tools on a Linux x64 host: each download is checked against
+# the SHA-256 pinned in ci/lib.sh before use. The Jenkins image (ci/jenkins/Dockerfile)
+# pins the same versions and sums; ci/tests/test_jenkins.py checks that they match.
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -11,8 +11,8 @@ usage() {
   cat <<'EOF'
 Usage: ci/install-tools.sh <terraform|gitleaks|uv>...
 
-Installs into $CI_TOOLS_DIR (default .work/ci/bin) and, on an Azure DevOps agent,
-prepends it to PATH for later steps.
+Installs into $CI_TOOLS_DIR (default .work/ci/bin); downloads go to a temporary
+folder under $CI_TEMP_DIR (default .work/ci).
 EOF
 }
 
@@ -28,7 +28,7 @@ EOF
 
 BIN_DIR="${CI_TOOLS_DIR:-$CI_WORK/bin}"
 mkdir -p "$BIN_DIR"
-TEMP_PARENT="${AGENT_TEMPDIRECTORY:-$CI_WORK}"
+TEMP_PARENT="${CI_TEMP_DIR:-$CI_WORK}"
 mkdir -p "$TEMP_PARENT"
 DOWNLOADS="$(mktemp -d "$TEMP_PARENT/tools.XXXXXX")"
 trap 'rm -rf "$DOWNLOADS"' EXIT
@@ -62,7 +62,3 @@ for tool in "$@"; do
   esac
   log "installed $tool into $BIN_DIR"
 done
-
-if [[ -n "${TF_BUILD:-}" ]]; then
-  echo "##vso[task.prependpath]$BIN_DIR"
-fi

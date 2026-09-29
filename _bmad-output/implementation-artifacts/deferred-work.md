@@ -52,3 +52,15 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-6-load-suppliers-and-issue-upload-links.md`
   summary: On the first Dev deploy, run the supplier load for real (Key Vault RBAC on the two secrets, Entra login, admin-created pgcrypto, `DJ_USER_UPN` pipeline variable, Table SDK scan and merge) and open a printed link on the deployed supplier-api.
   evidence: Unverified (medium): every Azure-facing path of Story 1.6 was tested offline only, against local PostgreSQL and in-process fakes (review I).
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-ci-cd-on-jenkins.md`
+  summary: Test the Jenkins pipeline logic and the VM-side setup by running them (Jenkins Pipeline Unit or jenkinsfile-runner; a ci-vm-remote.sh test with fake docker/install/getent), not only as text.
+  evidence: Review V3; stage gating, the approval and the secret-file modes are checked only by regex today.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-ci-cd-on-jenkins.md`
+  summary: Decide and build how Prod deploys (a second VM or identity policy), then add the Prod stages and restore the Prod criterion.
+  evidence: Review B9; the Jenkins pipeline has no Prod path by Dj's decision on 2026-09-29.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-ci-cd-on-jenkins.md`
+  summary: Keep the CI VM patched: a cadence for Jenkins LTS, plugin and tool pin updates; email on weekly-scan failure; JUnit reports in Jenkins; jenkins_home backup.
+  evidence: Reviews B10, B11, B14, E11.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-ci-cd-on-jenkins.md`
+  summary: Harden branch builds so they can't reach the metadata endpoint (a separate Docker network with IMDS blocked; deploy only from main's job) before anyone else gets push access or before Prod.
+  evidence: Reviews B1, B2, E9; accepted for the PoC by Dj on 2026-09-30.

@@ -126,8 +126,9 @@ Projects record their own deviations from this baseline here, each with who appr
 | --- | --- | --- | --- |
 | 13, 11 | The PostgreSQL firewall is open to all public IPv4 addresses, so the pipeline's migration step and Dj's load script connect without temporary rules. TLS is required, auth is Entra-only, and each login can connect only to its own database. (Spine AD-17 step 2.) | Dj (owner), 2026-09-28 | End of PoC, or before real supplier bank details are loaded, whichever comes first |
 | 12 | `supplier-api` allows anonymous requests at the edge; every route checks the supplier's upload token in code instead (P-19 exception for suppliers). (Spine AD-14.) | Dj (owner), 2026-09-28 | End of PoC |
-| 31 | Each environment's deploy identity also holds RBAC Administrator on the shared Document Intelligence and ACS resources, conditioned to assigning only their runtime roles. The Entra app registration and the subscription budget are created by the bootstrap script, not by a deploy identity. (Spine AD-17.) | Dj (owner), 2026-09-28 | End of PoC |
+| 31 | Each environment's deploy identity also holds RBAC Administrator on the shared Document Intelligence and ACS resources, conditioned to assigning only their runtime roles. The Entra app registration is created by the bootstrap script, not by a deploy identity. (Spine AD-17.) | Dj (owner), 2026-09-28 | End of PoC |
 | 31 | The deploy identities for `shared` and `dev` are attached to a long-lived CI VM (Jenkins), so any job on it can use them; SSH-only access, only Dj's IP, Prod not attached. (Spine AD-17 step 1c.) | Dj (owner), 2026-09-29 | End of PoC, or before Prod is deployed from it |
+| 31 | Branch builds on the CI VM run each branch's own `Jenkinsfile` and test code, so code in any pushed branch can get tokens for the `shared` and `dev` deploy identities and change `shared` without Dj's Jenkins approval. Accepted because only Dj and Claude push to the repository. (Spine AD-17 step 1c.) | Dj (owner), 2026-09-30 | Before anyone else gets push access, or before Prod |
 
 ## Where to look deeper
 

@@ -30,10 +30,10 @@ def root() -> Iterator[Path]:
 
 
 def _require(tool: str) -> None:
-    """Skip locally when a tool is missing; in the PR build (TF_BUILD) that is a failure."""
+    """Skip locally when a tool is missing; in CI (TF_BUILD) that is a failure."""
     if shutil.which(tool) is None:
         if os.environ.get("TF_BUILD"):
-            pytest.fail(f"{tool} is not installed on the build agent (pipelines/pr.yml test job)")
+            pytest.fail(f"{tool} is not installed in the Jenkins image (ci/jenkins/Dockerfile)")
         pytest.skip(f"{tool} not installed")
 
 

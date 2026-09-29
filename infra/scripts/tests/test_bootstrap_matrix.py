@@ -29,11 +29,6 @@ FAKE_INPUTS = {
     "TAG_COST_CENTRE": "test-cc",
     "TAG_APPLICATION": "test-app",
     "TAG_DATA_CLASSIFICATION": "test-class",
-    "ADO_ORG": "test-org",
-    "ADO_ORG_ID": "44444444-4444-4444-4444-444444444444",
-    "ADO_PROJECT": "test-project",
-    "ADO_APPROVER": "dj@example.test",
-    "ALERT_EMAIL": "alerts@example.test",
     "PG_ADMIN_USER": "babaloo-sea-lng-grp-21",
     "SP_WAIT_SECONDS": "0",
 }
@@ -89,7 +84,7 @@ def _tool_calls(calls: list[list[str]], tool: str) -> list[list[str]]:
 def test_story_1_1_state_backend_rerun(work_dir: Path) -> None:
     """state-backend.sh re-run where everything exists. Covers: the security settings are
     re-applied (shared keys off; OCR-129 private-key vaults keep RBAC and purge protection);
-    stale federated credentials follow changed ADO inputs (updated, never re-created)."""
+    no federated credential is looked up or made (Dj, 2026-09-29)."""
     # Bootstrap re-run re-applies the security settings.
     result, calls = _run("state-backend.sh", _case(work_dir, "rerun"))
     assert result.returncode == 0, result.stderr
@@ -101,16 +96,86 @@ def test_story_1_1_state_backend_rerun(work_dir: Path) -> None:
         assert call[call.index("--resource-group") + 1] == "babaloo-sea-lng-rg-22"
         assert call[call.index("--enable-rbac-authorization") + 1] == "true"
         assert call[call.index("--enable-purge-protection") + 1] == "true"
+    assert not any(_starts_with(call, ["identity", "federated-credential"]) for call in calls)
 
-    # Stale federated credentials are updated.
-    result, calls = _run("state-backend.sh", _case(work_dir, "fed-stale"), FAKE_AZ_FED_STALE="1")
-    assert result.returncode == 0, result.stderr
-    updates = [call for call in calls if _starts_with(call, ["identity", "federated-credential", "update"])]
-    assert len(updates) == 3
-    for call, owner in zip(updates, ["shared", "dev", "prod"]):
-        assert call[call.index("--issuer") + 1] == "https://vstoken.dev.azure.com/44444444-4444-4444-4444-444444444444"
-        assert call[call.index("--subject") + 1] == f"sc://test-org/test-project/azure-{owner}"
-    assert not any(_starts_with(call, ["identity", "federated-credential", "create"]) for call in calls)
+
+# --- ci-vm.sh (Story 1.2, AD-17 step 1c) ------------------------------------------------------
+
+CI_VM_TOKEN = "fake-ado-token-never-logged"
+FAKE_GUID = "55555555-5555-5555-5555-555555555555"  # what the fake az reports for ids
+PROD_ON_VM = "/subscriptions/x/resourceGroups/babaloo-sea-lng-rg-22/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-23"
+DEV_ON_VM = PROD_ON_VM.replace("id-23", "id-22")
+
+
+def _ci_vm(work_dir: Path, **extra_env: str) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    (work_dir / "id.pub").write_text("ssh-ed25519 AAAAfake operator@test\n")
+    (work_dir / "ado-pat").write_text(CI_VM_TOKEN + "\n")
+    inputs = {
+        "CI_SSH_SOURCE_IP": "203.0.113.7",
+        "CI_SSH_PUBLIC_KEY_FILE": str(work_dir / "id.pub"),
+        "ADO_ORG": "test-org",
+        "ADO_PROJECT": "test-project",
+        "ADO_PAT_FILE": str(work_dir / "ado-pat"),
+    }
+    return _run("ci-vm.sh", work_dir, **{**inputs, **extra_env})
+
+
+def test_story_1_2_ci_vm_matrix(work_dir: Path) -> None:
+    """ci-vm.sh against the stateful fakes (I/O matrix rows "Re-run", "Identities not there
+    yet", "VM bootstrap" errors). Covers: a re-run makes no create call and re-applies the SSH
+    rule, tags and identities, takes a hand-attached Prod identity off, and hands the token to
+    the VM on stdin only; a deallocated VM is started before the SSH steps; absent deploy identities are skipped with a warning naming
+    state-backend.sh while the VM and Jenkins still go up; a missing input or token file stops
+    before any Azure call."""
+    # Re-run: everything exists.
+    run_dir = _case(work_dir, "rerun")
+    result, calls = _ci_vm(run_dir, FAKE_AZ_VM_IDENTITIES=f"{DEV_ON_VM}||{PROD_ON_VM}")
+    assert result.returncode == 0, result.stdout + result.stderr
+    az_calls = [call for call in calls if not call[0].startswith("__")]
+    assert not [call for call in az_calls if "create" in call[:4]], "a re-run creates nothing"
+    (rule,) = [call for call in az_calls if _starts_with(call, ["network", "nsg", "rule", "update"])]
+    assert rule[rule.index("--source-address-prefixes") + 1] == "203.0.113.7/32"
+    assert rule[rule.index("--destination-port-ranges") + 1] == "22"
+    assert any(_starts_with(call, ["group", "update"]) and "babaloo-sea-lng-rg-23" in call for call in az_calls)
+    assert len([call for call in az_calls if _starts_with(call, ["vm", "identity", "assign"])]) == 2
+    (removed,) = [call for call in az_calls if _starts_with(call, ["vm", "identity", "remove"])]
+    assert removed[removed.index("--identities") + 1] == PROD_ON_VM
+    # Jenkins over SSH; the token only on the remote step's stdin.
+    (remote,) = [call for call in _tool_calls(calls, "ssh") if "ci-vm-remote.sh" in call[-1]]
+    assert remote[-1].endswith("ci-vm-remote.sh test-org test-project test-project " + " ".join([FAKE_GUID] * 2))
+    assert (run_dir / "az-calls.jsonl.stdin").read_text() == CI_VM_TOKEN + "\n"
+    assert CI_VM_TOKEN not in json.dumps(calls) + result.stdout + result.stderr
+    assert not any(_starts_with(call, ["vm", "start"]) for call in az_calls), "a running VM is not started"
+    # cloud-init's "done with recoverable errors" (exit 2) is accepted.
+    (wait,) = [call for call in _tool_calls(calls, "ssh") if "cloud-init status --wait" in call[-1]]
+    assert "[ $rc -eq 2 ]" in wait[-1]
+
+    # A deallocated VM is started before the SSH steps.
+    result, calls = _ci_vm(_case(work_dir, "deallocated"), FAKE_AZ_VM_POWER="PowerState/deallocated")
+    assert result.returncode == 0, result.stdout + result.stderr
+    start = next(i for i, call in enumerate(calls) if _starts_with(call, ["vm", "start"]))
+    assert start < next(i for i, call in enumerate(calls) if call[0] == "__ssh__")
+
+    # Identities not there yet: skipped with a warning; the VM and Jenkins still go up.
+    result, calls = _ci_vm(
+        _case(work_dir, "no-identities"),
+        FAKE_AZ_NOT_FOUND_MATCH="identity show --name babaloo-sea-lng-id-21||identity show --name babaloo-sea-lng-id-22",
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stderr.count("run state-backend.sh, then re-run ci-vm.sh") == 2
+    assert not any(_starts_with(call, ["vm", "identity", "assign"]) for call in calls)
+    (remote,) = [call for call in _tool_calls(calls, "ssh") if "ci-vm-remote.sh" in call[-1]]
+    assert remote[-1].endswith(" none none")
+
+    # A missing input or token file stops before any Azure call.
+    for name, overrides in {
+        "no-token": {"ADO_PAT_FILE": str(work_dir / "absent")},
+        "no-ip": {"CI_SSH_SOURCE_IP": ""},
+        "range": {"CI_SSH_SOURCE_IP": "10.0.0.0/8"},
+    }.items():
+        result, calls = _ci_vm(_case(work_dir, name), **overrides)
+        assert result.returncode == 1, name
+        assert calls == [], name
 
 
 # --- verify-db-isolation.sh ----------------------------------------------------------------------

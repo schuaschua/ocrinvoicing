@@ -319,7 +319,7 @@ stateDiagram-v2
     - with two databases, `invoicing_dev` and `invoicing_prod`.
   - Each environment's logins can connect only to its own database (AD-11).
   - **Hours.** Dj stops the server by hand. The assumed up-hours are weekdays 09:00–21:00 Singapore time `[ASSUMPTION]`.
-  - **Budget.** A subscription budget alert fires at $8.
+  - **Budget.** The resource-group budgets alert Dj; the $8 subscription budget was dropped because the subscription holds Dj's other projects (Dj, 2026-09-30).
   - **Departs from** P-13 and `terraform.md`'s "environments share nothing", at server level only (Dj's decision).
 - **Cost (P-2):** about $10–11 a month. With it, **the whole solution is about $11–12 a month, which departs from P-2**, accepted by Dj.
 
@@ -400,7 +400,7 @@ stateDiagram-v2
 
     | Step | Owner | Creates |
     | --- | --- | --- |
-    | 1. `infra/bootstrap/` | operator with Owner, `az` CLI | state storage; the three resource groups; deploy identities for `dev`, `prod` and `shared` (no federated credentials; Dj, 2026-09-29); resource provider registrations; per environment, two Entra app registrations: `staff-api` (app roles, "assignment required", ID tokens on) and `accounts-sim`; the custom role `ACS Email Sender`, allowing only the email send action (Microsoft documents only the broad Communication and Email Service Owner role otherwise); the $8 subscription budget |
+    | 1. `infra/bootstrap/` | operator with Owner, `az` CLI | state storage; the three resource groups; deploy identities for `dev`, `prod` and `shared` (no federated credentials; Dj, 2026-09-29); resource provider registrations; per environment, two Entra app registrations: `staff-api` (app roles, "assignment required", ID tokens on) and `accounts-sim`; the custom role `ACS Email Sender`, allowing only the email send action (Microsoft documents only the broad Communication and Email Service Owner role otherwise). No subscription budget (Dj, 2026-09-30: dropped, the subscription holds other projects; the resource-group budgets track this project) |
     | 1c. `infra/bootstrap/ci-vm.sh` | operator with Owner, `az` CLI | the CI VM (Ubuntu, B2s: 2 vCPU, 4 GB, in resource group `babaloo-sea-lng-rg-23`), its NSG (SSH from the operator's IP only, no web port), Docker and Jenkins; attaches the shared and Dev deploy identities (Dj, 2026-09-29) |
     | 2. `shared/foundation` | `shared` deploy identity | PostgreSQL server, both databases, Entra admin, a firewall rule open to all public IPv4 addresses (`0.0.0.0`–`255.255.255.255`) with TLS required and Entra-only auth (departs `azure.md` rule 13, Dj's decision for the PoC), `pgcrypto` allow-list; DI F0 with custom subdomain; ACS and the email domain (the DNS records are added by hand); the `shared` resource-group budget |
     | 3. Operator step (bootstrap README) | operator | gives each environment's deploy identity RBAC Administrator on the DI and ACS resources, conditioned to assigning only the runtime roles those resources need |
@@ -441,7 +441,7 @@ stateDiagram-v2
   - **Redundancy.** All storage is LRS (P-15).
   - **Monitoring.** Each environment has one Log Analytics workspace and one Application Insights instance, with sampling on, a 0.08 GB/day cap and 30-day retention. The 5 GB free allowance is per billing account.
   - **Alerts**, all sent to Dj. Storage queue metrics have no per-queue breakdown, so the queue and pipeline alerts use Application Insights custom metrics, with alerting on custom metric dimensions turned on (dimensions are dropped otherwise):
-    - the resource-group budgets (`azure.md` rule 17) and the $8 subscription budget;
+    - the resource-group budgets (`azure.md` rule 17) (the $8 subscription budget was dropped, Dj 2026-09-30);
     - `poison_message{queue}`, emitted by each poison trigger, more than 0 in an hour;
     - `stuck_invoices`, emitted by the sweeper, more than 0;
     - `di_pages_used_pct`, emitted by the `extract` stage, at 80% of an environment's cap.

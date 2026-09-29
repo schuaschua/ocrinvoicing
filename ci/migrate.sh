@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # AD-17 step 6: Alembic `upgrade head` for one environment, run by the deploy
-# pipeline (pipelines/templates/migrate.yml) after <env>/foundation and before
+# pipeline (the Jenkinsfile's "Migrate <env>" stage) after <env>/foundation and before
 # <env>/app, never at app start. It signs in to PostgreSQL as the environment's
 # deploy identity with an Entra token (no password) and connects directly over TLS:
 # the server firewall is open for the PoC, so no temporary firewall rule is added
@@ -22,8 +22,8 @@ usage() {
 Usage: ci/migrate.sh [--check] <dev|prod>
 
   --check   only report whether there are migrations (sets hasWork); no Azure call
-Without --check, run inside an AzureCLI@2 task signed in with the environment's
-service connection (azure-dev or azure-prod).
+Without --check, run with `az` signed in as the environment's deploy identity
+(on the CI VM: `az login --identity --client-id`, as the Jenkinsfile does).
 USAGE
 }
 
@@ -68,9 +68,6 @@ read -r pg_host pg_user pg_database pipeline_role staff_api_role dj_role <<<"$na
 
 token="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 [[ -n "$token" ]] || die "no Entra token for PostgreSQL"
-if [[ -n "${TF_BUILD:-}" ]]; then
-  echo "##vso[task.setsecret]$token"
-fi
 
 export PGHOST="$pg_host" PGPORT=5432 PGUSER="$pg_user" PGDATABASE="$pg_database" PGSSLMODE=require
 export PGPASSWORD="$token"

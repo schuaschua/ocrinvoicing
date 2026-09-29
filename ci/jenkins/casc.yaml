@@ -1,0 +1,133 @@
+# Story 1.2 (spine AD-17): the whole Jenkins configuration, applied at every start.
+# Values in ${...} come from the container's environment file (/opt/jenkins/jenkins.env
+# on the CI VM, written by infra/bootstrap/ci-vm.sh) or from secret files mounted at
+# /run/secrets. Nothing secret is in this file or in the image.
+#   /run/secrets/admin-password  Dj's Jenkins password, generated on the VM
+#   /run/secrets/ado-pat         the Azure DevOps token (Code read, Code status), the only
+#                                stored secret; from .work/ado-pat on the operator's machine
+jenkins:
+  systemMessage: "ocrinvoicing CI/CD (Story 1.2). Reached only through an SSH tunnel to the CI VM."
+  numExecutors: 2
+  mode: NORMAL
+  # No inbound agents: everything runs on this controller.
+  slaveAgentPort: -1
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        # Dj, the only user and so the only one who can approve the shared apply
+        # (the Jenkinsfile's input step names this id as its submitter).
+        - id: "dj"
+          name: "Dj"
+          password: "${readFile:/run/secrets/admin-password}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  # The deploy identities' client ids (not secrets). Only shared and Dev exist on this
+  # VM: nothing here can reach Prod (Dj, 2026-09-29). An empty value makes the stage
+  # that needs it fail, naming it.
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "DEPLOY_CLIENT_ID_SHARED"
+            value: "${DEPLOY_CLIENT_ID_SHARED:-}"
+          - key: "DEPLOY_CLIENT_ID_DEV"
+            value: "${DEPLOY_CLIENT_ID_DEV:-}"
+          - key: "ADO_ORG"
+            value: "${ADO_ORG}"
+          - key: "ADO_PROJECT"
+            value: "${ADO_PROJECT}"
+          - key: "ADO_REPO"
+            value: "${ADO_REPO}"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          # Polls and clones Azure Repos and posts PR statuses (ci/ado-status.sh).
+          - usernamePassword:
+              scope: GLOBAL
+              id: "ado-pat"
+              username: "jenkins"
+              password: "${readFile:/run/secrets/ado-pat}"
+              description: "Azure DevOps personal access token (Code read, Code status)"
+
+tool:
+  # Terraform for the deploy stages, through the Jenkins Terraform plugin's tool. Its home
+  # is the image's checksum-verified copy (ci/jenkins/Dockerfile), the same version as
+  # ci/lib.sh and every root's required_version; no installer, so nothing is downloaded.
+  terraform:
+    installations:
+      - name: "terraform-1.16.4"
+        home: "/usr/local/bin"
+
+unclassified:
+  location:
+    url: "http://127.0.0.1:8080/"
+
+jobs:
+  - script: |
+      // Every branch of the Azure Repos repository, polled every 5 minutes; each runs the
+      // Jenkinsfile at the repository root (checks everywhere, the deploy chain on main).
+      multibranchPipelineJob('ocrinvoicing') {
+        description('Story 1.2: checks on every branch (status posted to its pull request); AD-17 deploy chain on main.')
+        branchSources {
+          branchSource {
+            source {
+              git {
+                id('ocrinvoicing-azure-repos')
+                remote('${ADO_REPO_URL}')
+                credentialsId('ado-pat')
+                traits {
+                  gitBranchDiscovery()
+                }
+              }
+            }
+          }
+        }
+        factory {
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
+          }
+        }
+        triggers {
+          periodicFolderTrigger {
+            interval('5m')
+          }
+        }
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(20)
+          }
+        }
+      }
+
+      // The weekly dependency scan on main (replaces Dependabot, AD-17): Mondays 01:00 UTC
+      // (09:00 Singapore). The schedule lives only here.
+      pipelineJob('ocrinvoicing-weekly-scan') {
+        description('Story 1.2: ci/checks.sh audit on main every Monday, even when nothing changed.')
+        properties {
+          pipelineTriggers {
+            triggers {
+              cron {
+                spec('0 1 * * 1')
+              }
+            }
+          }
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('${ADO_REPO_URL}')
+                  credentials('ado-pat')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('ci/jenkins/Jenkinsfile.weekly')
+            lightweight(true)
+          }
+        }
+      }

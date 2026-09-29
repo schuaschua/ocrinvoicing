@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Deploy pipeline, plan half of one stack (pipelines/templates/terraform-stack.yml).
+# Deploy pipeline, plan half of one stack (the Jenkinsfile's "Plan <stack>" stage).
 # Runs `terraform plan -out=tfplan -detailed-exitcode`, then the P-17 tag gate on
 # `terraform show -json` of that plan. When the plan has changes it copies the saved
 # plan to PLAN_OUT for the apply stage and sets hasWork=true; otherwise the apply
@@ -15,7 +15,8 @@ Usage: ci/terraform-plan.sh <env>/<stack> <plan-out-dir> [--optional]
 
   --optional   a missing stack folder (e.g. infra/dev/app before Story 1.3) is
                skipped instead of failing
-Run inside an AzureCLI@2 task signed in with the stack owner's service connection.
+Run with `az` signed in as the stack owner's deploy identity and CI_MSI_CLIENT_ID set
+to its client id (the Jenkinsfile does both; ci/lib.sh export_arm_context).
 USAGE
 }
 

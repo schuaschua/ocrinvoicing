@@ -11,25 +11,17 @@ FAKE_AZ_NOT_FOUND_MATCH takes several, separated by "||"):
 Other knobs:
   FAKE_AZ_NO_ROLE_ASSIGNMENTS=1  role assignment lookups find nothing
   FAKE_AZ_STAFF_ROLES      how many of the 5 staff-api app roles already exist
-  FAKE_AZ_FED_STALE=1      existing federated credentials have an old issuer/subject
   FAKE_AZ_DUPLICATE_APPS=1 a display-name lookup returns two app registrations
   FAKE_AZ_NO_GROUPS=1      Entra group lookups find nothing (the groups are created)
-  FAKE_AZ_SC_BINDING       what an existing ADO service connection is bound to
-                           (default WorkloadIdentityFederation|<the fake identity clientId>)
-  FAKE_AZ_SC_FEDERATION    "<issuer>|<subject>" an ADO service connection reports
-                           (default the sc://<ADO_ORG>/<ADO_PROJECT>/<name> subject)
-  FAKE_AZ_BUDGET_GROUPS    comma-separated contactGroups the existing subscription budget
-                           already notifies (default none)
-  FAKE_AZ_BUDGET_NO_NOTIFICATIONS=1  the existing subscription budget has no notifications
+  FAKE_AZ_VM_POWER         the VM's power state (default PowerState/running)
+  FAKE_AZ_VM_IDENTITIES    resource ids (separated by "||") of the identities already on a VM
   FAKE_AZ_NO_RECEIVERS=1   action groups have no email receivers
-Pipelines have integer ids (FAKE_PIPELINE_ID).
 Files passed as @path, --in-file path or --file path are copied into $FAKE_AZ_LOG.files (JSON lines) before the
 script can delete them.
 """
 
 import json
 import os
-import re
 import sys
 
 ROLE_NAMES = {
@@ -48,7 +40,6 @@ ROLE_NAMES = {
 }
 STAFF_ROLES = ["admin", "finance", "procurement", "management", "goods_in"]
 FAKE_GUID = "55555555-5555-5555-5555-555555555555"
-FAKE_PIPELINE_ID = "42"
 OPERATOR_ID = "88888888-8888-8888-8888-888888888888"
 NEW_GROUP_ID = "99999999-9999-9999-9999-999999999999"
 
@@ -93,14 +84,6 @@ elif has("account", "show"):
     print(os.environ.get("ARM_TENANT_ID", ""))
 elif has("account", "get-access-token"):
     print("fake-token")
-elif has("identity", "federated-credential", "show") and "--query" in args:
-    if os.environ.get("FAKE_AZ_FED_STALE"):
-        print("https://vstoken.dev.azure.com/old-org-id|sc://old-org/old-project/old-connection")
-    else:
-        owner = opt("--name").removeprefix("ado-")
-        issuer = f"https://vstoken.dev.azure.com/{os.environ.get('ADO_ORG_ID', '')}"
-        subject = f"sc://{os.environ.get('ADO_ORG', '')}/{os.environ.get('ADO_PROJECT', '')}/azure-{owner}"
-        print(f"{issuer}|{subject}")
 elif has("identity", "show"):
     print(FAKE_GUID)
 elif has("ad", "app", "list"):
@@ -126,56 +109,17 @@ elif has("ad", "group", "create"):
     print(NEW_GROUP_ID)
 elif has("ad", "group", "member", "check"):
     print("true")
-elif has("devops", "service-endpoint", "list") and "workloadIdentityFederationSubject" in opt("--query"):
-    name = re.search(r"name=='([^']+)'", opt("--query")).group(1)
-    default = (
-        f"https://vstoken.dev.azure.com/{os.environ.get('ADO_ORG_ID', 'org-id')}"
-        f"|sc://{os.environ.get('ADO_ORG', '')}/{os.environ.get('ADO_PROJECT', '')}/{name}"
-    )
-    print(os.environ.get("FAKE_AZ_SC_FEDERATION", default))
-elif has("pipelines", "list"):
-    print(FAKE_PIPELINE_ID)
-elif has("devops", "service-endpoint", "show"):
-    print(os.environ.get("FAKE_AZ_SC_BINDING", f"WorkloadIdentityFederation|{FAKE_GUID}"))
-elif (
-    has("devops", "service-endpoint", "list")
-    or has("devops", "project", "show")
-    or has("devops", "user", "show")
-    or has("repos", "show")
-    or has("repos", "policy", "list")
-    or (has("devops", "invoke") and opt("--http-method") == "GET")
-):
-    print(FAKE_GUID)
+elif has("vm", "get-instance-view"):
+    print(os.environ.get("FAKE_AZ_VM_POWER", "PowerState/running"))
+elif has("vm", "identity", "show"):
+    for identity_id in os.environ.get("FAKE_AZ_VM_IDENTITIES", "").split("||"):
+        if identity_id:
+            print(identity_id)
+elif has("network", "public-ip", "show") and "--query" in args:
+    print("203.0.113.23")
 elif has("monitor", "action-group", "show") and "--query" in args:
     if not os.environ.get("FAKE_AZ_NO_RECEIVERS"):
         print("owner\talerts@example.test")
-elif has("rest") and opt("--method") == "get" and "Microsoft.Consumption/budgets/" in opt("--url"):
-    groups = [g for g in os.environ.get("FAKE_AZ_BUDGET_GROUPS", "").split(",") if g]
-    notification = {
-        "enabled": True,
-        "operator": "GreaterThanOrEqualTo",
-        "threshold": 100,
-        "thresholdType": "Actual",
-        "contactEmails": ["alerts@example.test"],
-    }
-    if groups:
-        notification["contactGroups"] = groups
-    print(json.dumps({
-        "id": "/subscriptions/x/providers/Microsoft.Consumption/budgets/babaloo-sea-lng-budget-22",
-        "name": "babaloo-sea-lng-budget-22",
-        "type": "Microsoft.Consumption/budgets",
-        "eTag": "\"1d34d016a593709\"",
-        "properties": {
-            "category": "Cost",
-            "amount": 8,
-            "timeGrain": "Monthly",
-            "timePeriod": {"startDate": "2026-09-01T00:00:00Z"},
-            "currentSpend": {"amount": 1.5, "unit": "USD"},
-            "notifications": (
-                {} if os.environ.get("FAKE_AZ_BUDGET_NO_NOTIFICATIONS") else {"actual_gt_100_percent": notification}
-            ),
-        },
-    }))
 elif has("rest") and opt("--method") == "get":
     print("{}")
 # Every other call (show, create, update, register, set) succeeds silently.

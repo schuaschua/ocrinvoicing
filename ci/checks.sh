@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Story 1.2 quality gate. The PR build (pipelines/pr.yml) and the weekly scan
-# (pipelines/weekly-scan.yml) run these subcommands; run them locally the same way.
+# Story 1.2 quality gate. Jenkins runs these subcommands on every branch and on main
+# (Jenkinsfile) and the audit every week (ci/jenkins/Jenkinsfile.weekly); run them
+# locally the same way. TF_BUILD (set by the Jenkinsfiles) means "running in CI".
 # Each check prints "==> <tool>" and, on failure, "FAILED: <tool>"; the script exits 1
 # when any check failed.
 
@@ -151,7 +152,9 @@ const { chromium } = require("@playwright/test");
 process.exit(existsSync(chromium.executablePath()) ? 0 : 1);') >/dev/null 2>&1
 }
 
-playwright_install() { (cd "$1" && npm exec --no -- playwright install --with-deps chromium); }
+# Chromium's system libraries are already in the Jenkins image (ci/jenkins/Dockerfile), and
+# the jenkins user can't install packages, so only the browser itself is installed here.
+playwright_install() { (cd "$1" && npm exec --no -- playwright install chromium); }
 
 # web_build_checks APP NAME - build, the supplier bundle-size limit and the a11y check
 # (Story 1.4: axe WCAG 2.2 AA, 320px reflow, 48px targets against `vite preview`).
@@ -171,7 +174,7 @@ web_build_checks() {
     return 0
   fi
   if [[ -n "${TF_BUILD:-}" ]]; then
-    # The PR build installs Chromium and never skips the check.
+    # In CI, Chromium is installed and the check never skips.
     failed_before="$FAILED"
     check "playwright install chromium ($name)" playwright_install "$app"
     if [[ "$FAILED" != "$failed_before" ]]; then
@@ -179,7 +182,7 @@ web_build_checks() {
       return 0
     fi
   elif ! chromium_ready "$app"; then
-    skip "a11y ($name)" "Playwright's Chromium is not installed; run (cd $name && npx playwright install chromium). The PR build installs it and never skips."
+    skip "a11y ($name)" "Playwright's Chromium is not installed; run (cd $name && npx playwright install chromium). CI installs it and never skips."
     return 0
   fi
   check "a11y: axe WCAG 2.2 AA, 320px reflow, 48px targets ($name)" \

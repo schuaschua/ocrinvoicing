@@ -153,7 +153,7 @@ def deploy() -> dict[str, Any]:
 def test_story_1_2_deploy_pipeline_structure(deploy: dict[str, Any]) -> None:
     """The compiled deploy pipeline. Covers: triggers only on merge to main; passes every
     structural check (gates, service connections, saved plans); shared and prod apply only in
-    their approval environments."""
+    their approval environments; migrate steps map DJ_USER_UPN (Story 1.6)."""
     # Triggers only on merge to main.
     raw = load(PIPELINES / "deploy.yml")
     assert raw["trigger"] == {"batch": True, "branches": {"include": ["main"]}}
@@ -175,6 +175,18 @@ def test_story_1_2_deploy_pipeline_structure(deploy: dict[str, Any]) -> None:
     assert environments[("migrate", "prod")] == "prod"
     assert environments[("code", "prod")] == "prod"
     assert environments[("apply", "dev/foundation")] == "dev"
+
+    # Story 1.6: every migrate step maps the required DJ_USER_UPN pipeline variable
+    # (the load-script login the migrations grant `master` and `audit` to).
+    migrate_steps = [
+        step
+        for stage in deploy["stages"]
+        for step in _azure_cli_steps(stage)
+        if step["inputs"].get("scriptPath") == "ci/migrate.sh"
+    ]
+    assert len(migrate_steps) == 2
+    for step in migrate_steps:
+        assert step.get("env") == {"DJ_USER_UPN": "$(DJ_USER_UPN)"}
 
 
 # --- mutations the checkers must catch ---------------------------------------------------

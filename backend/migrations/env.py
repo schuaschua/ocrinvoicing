@@ -8,7 +8,10 @@ URL or credential is written anywhere. Tests may pass an open connection as
 Role names: every schema grant is a migration (AD-11), and the logins differ per
 environment, so they come from `-x` arguments and are never literals in a migration:
 
-    alembic -x pipeline_role=<login> -x staff_api_role=<login> upgrade head
+    alembic -x pipeline_role=<login> -x staff_api_role=<login> -x dj_role=<login> \
+        upgrade head
+
+`dj_role` is Dj's user (a UPN), the supplier load script's login (Story 1.6).
 
 Migrations run in the deploy pipeline only, never at app start (AD-17).
 """
@@ -19,7 +22,7 @@ from alembic import context
 from sqlalchemy import Connection, create_engine, pool
 
 # The logins a migration may grant to (AD-11), by `-x` argument name.
-ROLE_ARGUMENTS = ("pipeline_role", "staff_api_role")
+ROLE_ARGUMENTS = ("pipeline_role", "staff_api_role", "dj_role")
 # Entra principal names: managed identity names (letters, digits, - and _) or a UPN.
 _ROLE_NAME = re.compile(r"[A-Za-z0-9_.@-]{1,63}")
 

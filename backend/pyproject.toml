@@ -8,7 +8,9 @@ requires-python = "==3.13.*"
 # Runtime dependencies (Story 1.3), pinned exactly; Pydantic follows the spine's Stack
 # table. aiohttp is the async transport azure-core needs for the aio queue client.
 # azure-data-tables (Story 1.7) reads the supplier link registry (AD-6);
-# azure-storage-blob (Story 1.8) writes upload originals to `images` (AD-6).
+# azure-storage-blob (Story 1.8) writes upload originals to `images` (AD-6);
+# azure-keyvault-secrets (Story 1.6) reads the public and HMAC keys for the supplier
+# load script (AD-11).
 # Story 2.1: SQLAlchemy Core, psycopg (binary: the Flex image ships no libpq) and
 # Alembic follow the spine's Stack table; Pillow, ImageHash and pypdf are the quality
 # stage's readability check, phash (AD-9) and PDF page count (AD-6).
@@ -18,6 +20,7 @@ dependencies = [
     "azure-functions==2.3.0",
     "azure-data-tables==12.7.0",
     "azure-identity==1.25.3",
+    "azure-keyvault-secrets==4.11.2",
     "azure-monitor-opentelemetry==1.8.10",
     "azure-storage-blob==12.30.3",
     "azure-storage-queue==12.17.0",

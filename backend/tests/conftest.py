@@ -155,6 +155,8 @@ class PostgresServer:
     staff_api: str = "staff-api-login"
     # A login with CONNECT but no schema grant (e.g. accounts-sim).
     outsider: str = "accounts-sim-login"
+    # Dj's user, the supplier load script's login (-x dj_role, Story 1.6): a UPN.
+    dj: str = "dj@example.test"
 
     def url(self, user: str, database: str) -> URL:
         return URL.create(
@@ -188,7 +190,8 @@ class PostgresServer:
                 quote = connection.dialect.identifier_preparer.quote_identifier
                 db, owner = quote(name), quote(self.deployer)
                 logins = ", ".join(
-                    quote(r) for r in (self.pipeline, self.staff_api, self.outsider)
+                    quote(r)
+                    for r in (self.pipeline, self.staff_api, self.outsider, self.dj)
                 )
                 connection.execute(text(f"CREATE DATABASE {db} OWNER {owner}"))
                 connection.execute(
@@ -201,8 +204,9 @@ class PostgresServer:
             engine.dispose()
 
     def alembic(self, database: str, *args: str) -> subprocess.CompletedProcess[str]:
-        """`alembic -x pipeline_role=... -x staff_api_role=... <args>` from backend/,
-        connected through the PG* variables only, as ci/migrate.sh runs it."""
+        """`alembic -x pipeline_role=... -x staff_api_role=... -x dj_role=... <args>`
+        from backend/, connected through the PG* variables only, as ci/migrate.sh
+        runs it."""
         env = {
             key: value for key, value in os.environ.items() if not key.startswith("PG")
         }
@@ -216,6 +220,8 @@ class PostgresServer:
                 f"pipeline_role={self.pipeline}",
                 "-x",
                 f"staff_api_role={self.staff_api}",
+                "-x",
+                f"dj_role={self.dj}",
                 *args,
             ],
             cwd=BACKEND_DIR,
@@ -277,6 +283,7 @@ def postgres_server() -> Iterator[PostgresServer]:
                 server.pipeline,
                 server.staff_api,
                 server.outsider,
+                server.dj,
             ):
                 # DDL takes no bound parameters; the password is hex from secrets.
                 connection.execute(

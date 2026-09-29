@@ -43,10 +43,32 @@ class SupplierLink:
         return self.revoked_at is None
 
 
+@dataclass(frozen=True)
+class RegisteredLink:
+    """A stored link with its key, as the load script lists them (Story 1.6). The hash
+    is never printed or logged."""
+
+    token_hash: str
+    link: SupplierLink
+
+
 class SupplierLinkRegistry(Protocol):
-    """Resolves a link by its token hash. Story 1.6 adds issuing and revoking."""
+    """Resolves a link by its token hash (supplier-api, Story 1.7); issues, lists and
+    revokes links (the supplier load script only, Story 1.6). Every method raises
+    `ServiceUnavailableError` when the store can't answer."""
 
     async def resolve(self, token_hash: str) -> SupplierLink | None:
-        """The link stored under `token_hash`, or None when there is none. Raises
-        `ServiceUnavailableError` when the store can't answer."""
+        """The link stored under `token_hash`, or None when there is none."""
+        ...
+
+    async def issue(self, token_hash: str, link: SupplierLink) -> None:
+        """Store a new link under `token_hash` (never overwrites one)."""
+        ...
+
+    async def find_by_supplier(self, supplier_id: UUID) -> list[RegisteredLink]:
+        """Every link ever issued to `supplier_id`, active or revoked."""
+        ...
+
+    async def revoke(self, token_hash: str, at: datetime) -> None:
+        """Set `revoked_at` on the link stored under `token_hash`; the row is kept."""
         ...

@@ -49,3 +49,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-1-1-private-key-vault.md`
   summary: Move the `rg-22` paragraph in `infra/bootstrap/README.md` below the names table, so the App registrations, budget and action group rows render as table rows.
   evidence: Pre-existing at `ef927f0`: the paragraph sits between table rows (review B12).
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-6-load-suppliers-and-issue-upload-links.md`
+  summary: On the first Dev deploy, run the supplier load for real (Key Vault RBAC on the two secrets, Entra login, admin-created pgcrypto, `DJ_USER_UPN` pipeline variable, Table SDK scan and merge) and open a printed link on the deployed supplier-api.
+  evidence: Unverified (medium): every Azure-facing path of Story 1.6 was tested offline only, against local PostgreSQL and in-process fakes (review I).

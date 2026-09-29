@@ -11,6 +11,7 @@
 --   deploy_login    the environment's deploy identity (UAMI name)
 --   dj_login        Dj's user (UPN), for the supplier load script
 -- supplier-api has no database login (AD-11). Schema grants are Alembic migrations.
+-- It ends connected to env_db, where it creates pgcrypto (Story 1.6).
 
 \set ON_ERROR_STOP on
 
@@ -44,3 +45,9 @@ REVOKE CONNECT, TEMPORARY ON DATABASE :"other_db" FROM PUBLIC;
 -- Only this environment's logins may connect to this environment's database.
 GRANT CONNECT ON DATABASE :"env_db"
   TO :"pipeline_login", :"staff_login", :"accounts_login", :"deploy_login", :"dj_login";
+
+-- Story 1.6 / AD-11: pgcrypto (pgp_pub_encrypt for bank details), created as the
+-- admin because only azure_pg_admin may create an extension on Azure; Terraform
+-- allow-lists it (azure.extensions). Migration 0004's IF NOT EXISTS is then a no-op.
+\connect :env_db
+CREATE EXTENSION IF NOT EXISTS pgcrypto;

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # AD-17 step 5 (operator, once per environment, as the PostgreSQL Entra admin):
-#   - the AD-11 database logins, ownership and CONNECT rules (database-step5.sql);
+#   - the AD-11 database logins, ownership and CONNECT rules, and the pgcrypto
+#     extension in the environment's database (database-step5.sql);
 #   - Dj's user gets Key Vault Secrets User on pgp-public-key and hmac-key only (never
 #     the private key, which is in another vault: OCR-129) and Storage Table Data
 #     Contributor on the environment's storage account, for the supplier load script.

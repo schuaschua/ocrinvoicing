@@ -10,7 +10,11 @@
 # Contract for backend/migrations/env.py (Story 1.3): take the connection from the
 # libpq variables PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE and PGSSLMODE; the
 # roles to grant to come as `-x pipeline_role=<login> -x staff_api_role=<login>`
-# (Story 2.1).
+# (Story 2.1) and `-x dj_role=<login>` (Story 1.6).
+#
+# DJ_USER_UPN (required unless --check): Dj's Entra UPN, the supplier load script's
+# login, which database-step5.sh created. The pipeline passes it from the pipeline
+# variable of the same name (infra/bootstrap/README.md).
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -21,7 +25,8 @@ Usage: ci/migrate.sh [--check] <dev|prod>
 
   --check   only report whether there are migrations (sets hasWork); no Azure call
 Without --check, run inside an AzureCLI@2 task signed in with the environment's
-service connection (azure-dev or azure-prod).
+service connection (azure-dev or azure-prod), with DJ_USER_UPN set to Dj's Entra
+UPN (the load-script login the migrations grant `master` to).
 USAGE
 }
 
@@ -54,6 +59,12 @@ if ((check_only)); then
   exit 0
 fi
 
+# The same shape backend/migrations/env.py accepts. An unset ADO variable arrives as the
+# literal text "$(DJ_USER_UPN)", which this refuses too.
+dj_role="${DJ_USER_UPN:-}"
+[[ "$dj_role" =~ ^[A-Za-z0-9_.@-]{1,63}$ ]] ||
+  die "DJ_USER_UPN must be Dj's Entra UPN (set the pipeline variable DJ_USER_UPN)"
+
 # Names come from the bootstrap naming helpers, so they cannot drift from the logins
 # that database-step5.sh created. The app logins are the roles the migrations grant to
 # (AD-11), passed as `-x` arguments (backend/migrations/env.py), never hard-coded.
@@ -73,4 +84,5 @@ export PGHOST="$pg_host" PGPORT=5432 PGUSER="$pg_user" PGDATABASE="$pg_database"
 export PGPASSWORD="$token"
 log "alembic upgrade head on $PGDATABASE as $PGUSER"
 uv run --directory "$REPO_ROOT/backend" --locked --no-dev alembic \
-  -x "pipeline_role=$pipeline_role" -x "staff_api_role=$staff_api_role" upgrade head
+  -x "pipeline_role=$pipeline_role" -x "staff_api_role=$staff_api_role" \
+  -x "dj_role=$dj_role" upgrade head

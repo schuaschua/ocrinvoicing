@@ -499,17 +499,20 @@ So that suppliers can start uploading without anyone typing bank details into a 
 
 **Acceptance Criteria:**
 
-**Given** a CSV of synthetic suppliers (name, phone, `tax_id`, and one column per AD-18 bank field id: `bank_account_number`, `iban` and `swift`)
+**Given** a CSV of synthetic suppliers (`supplier_id`, name, phone, `tax_id`, and one column per AD-18 bank field id: `bank_account_number`, `iban` and `swift`), where `supplier_id` is a required UUID matching the purchasing seed's supplier ids and rows match on it (Dj, 2026-09-29)
 **When** the operator runs the supplier load script against Dev as Dj's user
 **Then** the suppliers are created or updated in `master.supplier{id, name, tax_id, phone}` through the application code (the first `master` migration)
 **And** each non-empty bank value is stored as one `master.supplier_bank{supplier_id, field_id, ciphertext, fingerprint}` row, with `pgp_pub_encrypt` ciphertext plus an HMAC-SHA256 fingerprint, normalised first (spaces and hyphens stripped, uppercase), using the public key and the HMAC key from Key Vault (AD-11)
+**And** a bank field, `phone` or `tax_id` left blank in the CSV leaves any stored value for that field unchanged (Dj, 2026-09-29)
 **And** the migration grants `master` per AD-11: read/write for Dj's user, read including ciphertext for `staff-api`, and read without the ciphertext column for `pipeline`
 **And** it creates `audit.event(id, at, actor, action, entity, entity_id, detail)`, with `INSERT` only for every login that writes it and `SELECT` for `staff-api`
+**And** the script writes an `audit.event` entry when a supplier is created or updated and when a bank field is added or changed, naming field ids only, never values (Dj, 2026-09-29)
 
-**Given** a new supplier
+**Given** a supplier with no active link (new, or revoked earlier and still in the CSV; Dj, 2026-09-29)
 **When** the script runs
 **Then** it creates a 256-bit random token (base64url) and stores only its SHA-256 hash in `supplierlinks` with `supplier_id`, `supplier_name` (for display on the upload page) and `issued_at`
 **And** it prints the full link `https://<supplier-api host>/u#<token>` once, and never again (AD-6)
+**And** it writes an `audit.event` entry for the issue, naming the supplier only, never the token (Dj, 2026-09-29)
 
 **Given** an existing supplier with `--replace-link`
 **When** the script runs

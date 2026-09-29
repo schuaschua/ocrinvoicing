@@ -27,7 +27,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | `SHARED_ACTION_GROUP_ID` | `budget-and-roles.sh` (optional) | resource id of the shared action group `ag-21` (`terraform output action_group_id` in `infra/shared/foundation`). Unset: the subscription budget alerts by email only, with a warning |
 | `STACKS` | `test-alerts.sh` (optional) | which action groups to test; default `shared dev prod`; repeats are ignored |
 | `ENVIRONMENT` | `pgp-step4b.sh`, `database-step5.sh` | `dev` or `prod` |
-| `DJ_USER_UPN` | `database-step5.sh` | Dj's Entra UPN: the load-script login |
+| `DJ_USER_UPN` | `database-step5.sh`; also a required variable of the deploy pipeline (`ci/migrate.sh`, below) | Dj's Entra UPN: the load-script login |
 | `PG_ADMIN_USER` | `database-step5.sh`, `verify-db-isolation.sh` | the PostgreSQL Entra admin used to connect. Required, and it must be a separate principal from `DJ_USER_UPN` (e.g. an Entra group whose members are the operators): the load script never runs as server admin. `database-step5.sh` stops if the two are equal |
 | `CONNECT_AS_LOGIN`, `TARGET_DB` | `verify-db-isolation.sh` (mode 2) | a real connection attempt that must be refused |
 
@@ -45,6 +45,14 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | Subscription budget | `babaloo-sea-lng-budget-22` ($8) |
 | Action groups (all email Dj) | `babaloo-sea-lng-ag-21` (shared: the `shared` and subscription budgets), `-ag-01` (dev), `-ag-11` (prod) |
 
+## Before deploying Story 1.6 (environments already set up)
+
+Migration `0004_master_audit` needs `pgcrypto` and grants to Dj's login, so on an environment whose step 5 ran before Story 1.6, in this order:
+
+1. Re-run step 5 for both environments, as the PostgreSQL Entra admin: `ENVIRONMENT=dev ./database-step5.sh`, then `ENVIRONMENT=prod ./database-step5.sh`. It is idempotent; the new part creates `pgcrypto` in `invoicing_<env>`.
+2. Set the deploy pipeline variable `DJ_USER_UPN` (see **Migrations** below).
+3. Merge. The Dev and Prod migration stages then apply `0004_master_audit`.
+
 ## Run order
 
 | AD-17 step | Who | What to run |
@@ -59,6 +67,7 @@ No script or committed file holds a secret, subscription id or tenant id. Pass t
 | 6, 7, 9 | pipeline | Dev migrations, `dev/app`, Dev code deploy, then the same for Prod after `prod/foundation` (`pipelines/deploy.yml`; `<env>/app` and the code deploy arrive with Story 1.3) |
 | 8 | operator | `staff-api` redirect URI, then the sign-in check (Story 2.7, below) |
 | Purchasing seed | operator, signed in as the env deploy identity | after the environment's migrations: the synthetic PO and goods-received data (below) |
+| Supplier load | Dj, signed in as himself | after step 4b, step 5, the environment's migrations and `<env>/app`: the synthetic suppliers and their upload links (below) |
 | Alert check | operator | `./test-alerts.sh` once the stacks are applied, then check that Dj received every test email (below) |
 | Pipeline check | operator | after the first Dev code deploy: the metric namespace and the stopped-database wait (below) |
 
@@ -87,7 +96,7 @@ What the pipelines do:
 
 - **PR build**: `ci/checks.sh lint`, `test`, `audit`, `secrets` and `terraform` as parallel jobs. Run `ci/checks.sh all` locally for the same result.
 - **Deploy** (every merge to `main`, one run at a time): for each stack, a plan stage (`plan -out=tfplan`, then `check_tags.py` on `terraform show -json`) and, only when the plan has changes, an apply stage in the stack's environment that applies that saved plan. So a stack with no changes asks for no approval. Order: `shared/foundation`, `dev/foundation`, Dev migrations, `dev/app`, Dev code deploy, `prod/foundation`, Prod migrations, `prod/app`, Prod code deploy. Dev applies without approval (the recorded terraform.md rule 26/33 exception); `shared` and Prod wait for the approval. A failed or rejected stage stops everything after it.
-- **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists.
+- **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists. From Story 1.6 the migrations also grant `master` and `audit` to Dj's user, so the deploy pipeline needs the variable `DJ_USER_UPN` (Dj's Entra UPN, the same value as for `database-step5.sh`). Set it once; it is not a secret: `az pipelines variable create --pipeline-name ocrinvoicing-deploy --name DJ_USER_UPN --value <upn> --org https://dev.azure.com/<ADO_ORG> --project <ADO_PROJECT>`. Without it the migration stage stops with "DJ_USER_UPN must be Dj's Entra UPN" before connecting.
 - **Weekly scan**: `ci/checks.sh audit` on `main` every Monday, failing on any finding.
 
 Prod can ask for up to four approvals in one run: `prod/foundation`, Prod migrations, `prod/app` and the Prod code deploy. ADO evaluates approvals per stage, and each of these is its own stage so it can be skipped (with no approval asked) when it has nothing to do. The pipeline can't tell whether migrations are pending without connecting to the database, so once migrations exist the Prod migration stage asks every run.
@@ -179,7 +188,8 @@ The env vault has purge protection (Terraform sets it and it can't be turned off
 - creates the environment's logins with `pgaadauth_create_principal`: the `pipeline`, `staff-api` and `accounts-sim` identities, the deploy identity, and Dj's user (`supplier-api` has none);
 - makes the deploy identity the owner of `invoicing_<env>`, in one transaction with the temporary role membership it needs;
 - revokes `CONNECT` and `TEMPORARY` from `PUBLIC` on both databases;
-- grants `CONNECT` on `invoicing_<env>` to that environment's logins only.
+- grants `CONNECT` on `invoicing_<env>` to that environment's logins only;
+- connects to `invoicing_<env>` and creates the `pgcrypto` extension there (Story 1.6: `pgp_pub_encrypt` for bank details). Only the server admin may create an extension on Azure; Terraform allow-lists it. Migration `0004_master_audit` then finds it.
 
 It then gives Dj's user Key Vault Secrets User on the `pgp-public-key` and `hmac-key` secrets only (never the private key, which is in the private-key vault; OCR-129) and Storage Table Data Contributor on the storage account, for the load script. A vault-wide Secrets User assignment from an earlier run of this step is removed. Schema grants are Alembic migrations (step 6), not part of this step.
 
@@ -229,6 +239,44 @@ The command checks the file before it writes anything, then prints the rows upse
 - **Idempotent.** Rows are upserted by natural key: material code, PO number, PO line number and delivery number. Re-run it after editing the JSON. Rows removed from the file stay in the database, and the command prints a warning with their count per table.
 - **Prod.** The command refuses `invoicing_prod` unless `--allow-prod` is given. Seeding Prod is a deliberate PoC choice: Prod has no real purchasing system yet, and the data is synthetic only. When the real adapter replaces `sim` (`PURCHASING_ADAPTER`), clear the simulation's data from Prod.
 - **Supplier ids.** The ids in the file are fixed synthetic UUIDs for the supplier load script (Story 1.6) to use.
+
+### Supplier load: suppliers, bank details and upload links (Story 1.6)
+
+The load script creates or updates the supplier master (`master.supplier`, `master.supplier_bank`) from a CSV of **synthetic** suppliers (security.md rule 1), and issues each supplier's upload link. Dj runs it as himself: step 5 gave his user a login, Key Vault Secrets User on `pgp-public-key` and `hmac-key` only, and Storage Table Data Contributor. It never reads the private key and never decrypts.
+
+The CSV has one header row with exactly these columns, in any order: `supplier_id` (required, a UUID; use the ids in `backend/seed/sim_purchasing.json`, rows match on it), `name` (required), `phone`, `tax_id`, `bank_account_number`, `iban`, `swift` (the AD-18 bank field ids). A blank bank, `phone` or `tax_id` cell leaves the stored value unchanged (a new supplier stores it empty). So a blank cell can't clear a phone or tax id, or remove a bank field. To do that, an admin (the PostgreSQL Entra admin, not Dj's load-script login, which has no DELETE) runs the change by hand and records it in the audit log in the same transaction, naming column or field ids only, never values:
+
+```sql
+BEGIN;
+UPDATE master.supplier SET phone = NULL WHERE id = '<supplier_id>';          -- or tax_id
+-- DELETE FROM master.supplier_bank WHERE supplier_id = '<supplier_id>' AND field_id = 'iban';
+INSERT INTO audit.event (id, action, entity, entity_id, detail)
+VALUES (gen_random_uuid(), 'supplier.updated', 'supplier', '<supplier_id>',
+        '{"fields": ["phone"], "by_hand": true}');                            -- or 'supplier_bank.removed', {"field_id": "iban"}
+COMMIT;
+``` Keep the file outside the repository, or under the gitignored `.work/`.
+
+```sh
+az login   # as Dj
+export PGHOST=babaloo-sea-lng-psql-21.postgres.database.azure.com PGPORT=5432 PGSSLMODE=require
+export PGUSER="<Dj's UPN>" PGDATABASE=invoicing_dev   # prod: invoicing_prod
+export PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
+uv run --directory backend --locked --no-dev python -m invoicing.tools.load_suppliers \
+  --file .work/suppliers.csv \
+  --host babaloo-sea-lng-func-01.azurewebsites.net \
+  --vault-uri https://babaloo-sea-lng-kv-01.vault.azure.net/ \
+  --account babaloosealngst01
+# Prod: -func-11, -kv-11, babaloosealngst11, and --allow-prod.
+```
+
+`--host` is the `supplier-api` host (`terraform output -json function_apps` in `infra/<env>/app`).
+
+- **What it does.** It checks the whole CSV first (a bad file exits 2 with one line naming the row and column, and writes nothing). In one database transaction it creates or updates each supplier, stores each non-empty bank value as `pgp_pub_encrypt` ciphertext plus an HMAC-SHA256 fingerprint of the value normalised (spaces and hyphens stripped, uppercase), and writes an `audit.event` row per change (field ids only, never values). After that commits, each supplier in the CSV without an active link gets one. Every link change is audited before it is made (`supplier_link.issued`, `supplier_link.replaced`, `supplier_link.revoked`, supplier id only).
+- **Links are printed once.** Each new link is printed on its own line, `link for <supplier_id> (<name>): https://<host>/u#<token>`, for Dj to send by WhatsApp or SMS. Only its SHA-256 is stored (`supplierlinks`), so it can never be shown again: a lost link is replaced, not recovered. Don't paste the output anywhere else.
+- **Idempotent.** Running it again with the same CSV changes nothing and prints `links: none issued`. A value written differently (spaces, hyphens, case) is not a change.
+- **Replace or revoke** (Dj, AD-6): `--replace-link <supplier_id>` revokes the supplier's active link and prints a new one; `--revoke <supplier_id>` revokes it and issues none (the page then shows "This link isn't working"). Both are audited. `--file` and `--vault-uri` are optional with these; `--revoke` needs no `--host`. A revoked supplier still in the CSV gets a fresh link from the next load, so to keep a supplier revoked, remove it from the CSV (Dj, 2026-09-29). An unknown supplier, or `--revoke` with no active link, exits 2 and changes nothing.
+- **A failed link write** (Table Storage unreachable) exits 1 after the database commit, and the one-line error names the exact recovery: usually run the same command again (for `--replace-link` or `--revoke`, that command for the same supplier). If storing a new link failed, its response may have been lost after the link was stored, so nobody has seen its token: if the re-run prints no link for that supplier, run `--replace-link <supplier_id>`.
+- **Prod** is refused unless `--allow-prod` is given, as for the purchasing seed.
 
 ### Alert check: prove an alert reaches Dj (Story 1.5)
 

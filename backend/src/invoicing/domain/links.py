@@ -7,6 +7,7 @@ Never log, raise or return a token or its hash in an error (AD-14, security.md r
 import base64
 import hashlib
 import re
+import secrets
 
 # 32 bytes encode to 43 base64url characters when unpadded.
 TOKEN_BYTES = 32
@@ -29,3 +30,16 @@ def parse_token(text: str | None) -> str | None:
 def token_hash(token: str) -> str:
     """The registry key of `token`: SHA-256 of its base64url text (ASCII), lowercase hex."""
     return hashlib.sha256(token.encode("ascii")).hexdigest()
+
+
+def new_token() -> str:
+    """A new link token: 256 random bits, base64url without padding (Story 1.6)."""
+    return (
+        base64.urlsafe_b64encode(secrets.token_bytes(TOKEN_BYTES)).decode().rstrip("=")
+    )
+
+
+def upload_link(host: str, token: str) -> str:
+    """The link a supplier opens: the token sits in the fragment, which browsers never
+    send to the server (AD-6)."""
+    return f"https://{host}/u#{token}"

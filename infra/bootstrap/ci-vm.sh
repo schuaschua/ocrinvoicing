@@ -89,9 +89,16 @@ else
   run az group create --name "$CI_RG" --location "$LOCATION" --tags "${TAGS[@]}"
 fi
 
+# retag NAME TYPE - re-applies the tags of an existing resource. The az CLI's network
+# "update" commands take no --tags, so tags go through the generic resource command.
+retag() {
+  run az resource tag --resource-group "$CI_RG" --name "$1" --resource-type "$2" \
+    --tags "${TAGS[@]}" --output none
+}
+
 step "Virtual network $VNET"
 if exists az network vnet show --name "$VNET" --resource-group "$CI_RG"; then
-  run az network vnet update --name "$VNET" --resource-group "$CI_RG" --tags "${TAGS[@]}"
+  retag "$VNET" Microsoft.Network/virtualNetworks
 else
   run az network vnet create --name "$VNET" --resource-group "$CI_RG" --location "$LOCATION" \
     --address-prefixes 10.23.0.0/24 --subnet-name "$SUBNET" --subnet-prefixes 10.23.0.0/27 \
@@ -102,7 +109,7 @@ fi
 # other inbound traffic from the internet, so Jenkins has no public port.
 step "Network security group $NSG (SSH from $CI_SSH_SOURCE_IP only)"
 if exists az network nsg show --name "$NSG" --resource-group "$CI_RG"; then
-  run az network nsg update --name "$NSG" --resource-group "$CI_RG" --tags "${TAGS[@]}"
+  retag "$NSG" Microsoft.Network/networkSecurityGroups
 else
   run az network nsg create --name "$NSG" --resource-group "$CI_RG" --location "$LOCATION" \
     --tags "${TAGS[@]}"
@@ -122,7 +129,7 @@ run az network vnet subnet update --vnet-name "$VNET" --name "$SUBNET" --resourc
 
 step "Public IP $PUBLIC_IP"
 if exists az network public-ip show --name "$PUBLIC_IP" --resource-group "$CI_RG"; then
-  run az network public-ip update --name "$PUBLIC_IP" --resource-group "$CI_RG" --tags "${TAGS[@]}"
+  retag "$PUBLIC_IP" Microsoft.Network/publicIPAddresses
 else
   run az network public-ip create --name "$PUBLIC_IP" --resource-group "$CI_RG" --location "$LOCATION" \
     --sku Standard --allocation-method Static --version IPv4 --tags "${TAGS[@]}"
@@ -131,7 +138,8 @@ fi
 step "Network interface $NIC"
 if exists az network nic show --name "$NIC" --resource-group "$CI_RG"; then
   run az network nic update --name "$NIC" --resource-group "$CI_RG" \
-    --network-security-group "$NSG" --tags "${TAGS[@]}"
+    --network-security-group "$NSG" --output none
+  retag "$NIC" Microsoft.Network/networkInterfaces
 else
   run az network nic create --name "$NIC" --resource-group "$CI_RG" --location "$LOCATION" \
     --vnet-name "$VNET" --subnet "$SUBNET" --network-security-group "$NSG" \
@@ -141,8 +149,7 @@ fi
 step "Virtual machine $VM ($VM_SIZE)"
 vm_created=0
 if exists az vm show --name "$VM" --resource-group "$CI_RG"; then
-  run az resource tag --resource-group "$CI_RG" --name "$VM" \
-    --resource-type Microsoft.Compute/virtualMachines --tags "${TAGS[@]}" --output none
+  retag "$VM" Microsoft.Compute/virtualMachines
   # Dj deallocates the VM when not in use; the SSH steps below need it running.
   power_state="$(value_or_placeholder "" az vm get-instance-view --name "$VM" --resource-group "$CI_RG" \
     --query "instanceView.statuses[?starts_with(code, 'PowerState/')].code | [0]" -o tsv)"

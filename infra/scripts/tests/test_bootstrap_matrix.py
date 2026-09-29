@@ -148,6 +148,12 @@ def test_story_1_2_ci_vm_matrix(work_dir: Path) -> None:
     assert rule[rule.index("--source-address-prefixes") + 1] == "203.0.113.7/32"
     assert rule[rule.index("--destination-port-ranges") + 1] == "22"
     assert any(_starts_with(call, ["group", "update"]) and "babaloo-sea-lng-rg-23" in call for call in az_calls)
+    # Tags on existing network resources and the VM go through "resource tag": the az CLI's
+    # network update commands take no --tags (2026-09-30, az 2.77).
+    assert not [call for call in az_calls if _starts_with(call, ["network"]) and "--tags" in call]
+    retagged = {call[call.index("--resource-type") + 1] for call in az_calls if _starts_with(call, ["resource", "tag"])}
+    assert retagged == {f"Microsoft.{t}" for t in ("Network/virtualNetworks", "Network/networkSecurityGroups",
+                        "Network/publicIPAddresses", "Network/networkInterfaces", "Compute/virtualMachines")}
     assert len([call for call in az_calls if _starts_with(call, ["vm", "identity", "assign"])]) == 2
     (removed,) = [call for call in az_calls if _starts_with(call, ["vm", "identity", "remove"])]
     assert removed[removed.index("--identities") + 1] == PROD_ON_VM

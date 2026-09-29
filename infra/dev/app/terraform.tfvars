@@ -2,10 +2,10 @@
 #
 # Dj fills the P-17 tag values below before the first apply (same values as
 # dev/foundation):
-# owner               = ""
-# cost_centre         = ""
-# application         = ""
-# data_classification = ""
+owner               = "dj"
+cost_centre         = "poc"
+application         = "ocrinvoicing"
+data_classification = "synthetic"
 #
 # Story 2.7: the client id of babaloo-sea-lng-staff-api-dev, which
 # infra/bootstrap/app-registrations.sh prints (not a secret):

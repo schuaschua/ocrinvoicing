@@ -195,7 +195,7 @@ uv_backend() { uv run --directory "$REPO_ROOT/backend" --locked "$@"; }
 # pytest outside the backend project (ci/tests, infra/scripts/tests), pinned.
 pytest_tools() {
   local pins=(--with "pytest==$PYTEST_VERSION" --with "pyyaml==$PYYAML_VERSION") pin
-  for pin in $PYTEST_DEPENDENCY_PINS; do pins+=(--with "$pin"); done
+  for pin in $PYTEST_DEPENDENCY_PINS $PYTEST_XDIST_PINS; do pins+=(--with "$pin"); done
   uv run --no-project --python "$PYTHON_VERSION" "${pins[@]}" pytest -p no:cacheprovider "$@"
 }
 
@@ -297,7 +297,7 @@ run_test() {
   done
 
   if [[ -d "$REPO_ROOT/ci/tests" ]]; then
-    check "pytest (ci/tests)" pytest_tools "$REPO_ROOT/ci/tests" -q --junitxml="$CI_WORK/test-results/ci.xml"
+    check "pytest (ci/tests)" pytest_tools "$REPO_ROOT/ci/tests" -q -n auto --junitxml="$CI_WORK/test-results/ci.xml"
   else
     skip "pytest (ci/tests)" "no ci/tests"
   fi

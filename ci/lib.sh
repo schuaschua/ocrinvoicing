@@ -27,6 +27,8 @@ readonly PYTEST_VERSION="9.1.1"
 readonly PYYAML_VERSION="6.0.3"
 # pytest's own dependencies, pinned too so the test runner is fully reproducible.
 readonly PYTEST_DEPENDENCY_PINS="iniconfig==2.3.0 packaging==26.3 pluggy==1.6.0 pygments==2.21.0"
+# pytest-xdist runs ci/tests in parallel (-n auto); execnet is its only other dependency.
+readonly PYTEST_XDIST_PINS="pytest-xdist==3.8.0 execnet==2.1.2"
 
 # Coverage floors (Story 1.2, coding-style.md rule 25). Never lower them to pass;
 # backend/pyproject.toml [tool.coverage.report] fail_under holds the same backend value.

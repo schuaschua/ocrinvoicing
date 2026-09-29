@@ -237,7 +237,18 @@ def test_story_1_4_web_coverage_below_60_percent_fails_naming_the_percent(root: 
         app,
         ignore=shutil.ignore_patterns("node_modules", "dist", "coverage", "test-results", "playwright-report"),
     )
-    shutil.copytree(REPO_ROOT / "shared", root / "shared")  # the @shared alias target
+    # The @shared alias target, without its tests: checks.sh passes the floor on the
+    # command line, so one trivial test is enough to prove it applies.
+    shutil.copytree(REPO_ROOT / "shared", root / "shared", ignore=shutil.ignore_patterns("*.test.ts"))
+    for test in [*app.glob("src/**/*.test.ts*"), *app.glob("*.test.ts")]:
+        test.unlink()
+    (app / "src" / "fixture.test.ts").write_text(
+        'import { expect, it } from "vitest";\n\nit("runs", () => {\n  expect(1).toBe(1);\n});\n'
+    )
+    # Only the Vitest step matters here: build and a11y do nothing.
+    package = json.loads((app / "package.json").read_text())
+    package["scripts"].update({"build": "node -e ''", "a11y": "node -e ''"})
+    (app / "package.json").write_text(json.dumps(package, indent=2) + "\n")
     # 60 functions no test calls: coverage falls well under the floor.
     (app / "src" / "untested.ts").write_text(
         "".join(

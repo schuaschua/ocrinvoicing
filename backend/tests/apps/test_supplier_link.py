@@ -109,20 +109,6 @@ def _token(token: str) -> dict[str, str]:
     return {"X-Upload-Token": token}
 
 
-def test_story_1_7_valid_link_returns_the_supplier_name_only(
-    supplier_api: Callable[[SupplierLinkRegistry], Callable[..., func.HttpResponse]],
-) -> None:
-    registry = FakeRegistry()
-    response = supplier_api(registry)(_token(VALID))
-    assert response.status_code == 200
-    # The supplier id stays on the server.
-    assert _body(response) == {"supplier_name": "Lim Leather Trading"}
-    assert str(SUPPLIER_ID) not in response.get_body().decode()
-    assert registry.lookups == [token_hash(VALID)]
-    for name, value in SECURITY_HEADERS.items():
-        assert response.headers[name] == value
-
-
 def _not_valid(response: func.HttpResponse) -> dict[str, Any]:
     assert response.status_code == 401
     body = _body(response)
@@ -133,9 +119,21 @@ def _not_valid(response: func.HttpResponse) -> dict[str, Any]:
     return {key: value for key, value in body.items() if key != "correlation_id"}
 
 
-def test_story_1_7_revoked_and_unknown_links_get_the_identical_401(
+def test_story_1_7_the_link_check_names_a_valid_supplier_and_401s_the_rest_alike(
     supplier_api: Callable[[SupplierLinkRegistry], Callable[..., func.HttpResponse]],
 ) -> None:
+    # --- Story 1.7: a valid link returns the supplier name only
+    registry = FakeRegistry()
+    response = supplier_api(registry)(_token(VALID))
+    assert response.status_code == 200
+    # The supplier id stays on the server.
+    assert _body(response) == {"supplier_name": "Lim Leather Trading"}
+    assert str(SUPPLIER_ID) not in response.get_body().decode()
+    assert registry.lookups == [token_hash(VALID)]
+    for name, value in SECURITY_HEADERS.items():
+        assert response.headers[name] == value
+
+    # --- Story 1.7: revoked and unknown links get the identical 401
     registry = FakeRegistry()
     call = supplier_api(registry)
     revoked = call(_token(REVOKED))
@@ -147,20 +145,12 @@ def test_story_1_7_revoked_and_unknown_links_get_the_identical_401(
     # The same work for both: one lookup each, so neither answers faster.
     assert registry.lookups == [token_hash(REVOKED), token_hash(UNKNOWN)]
 
-
-@pytest.mark.parametrize(
-    "headers",
-    [{}],
-)
-def test_story_1_7_missing_or_malformed_token_gets_the_same_401_without_a_lookup(
-    headers: dict[str, str],
-    supplier_api: Callable[[SupplierLinkRegistry], Callable[..., func.HttpResponse]],
-) -> None:
+    # --- Story 1.7: a missing token gets the same 401 without a lookup
     registry = FakeRegistry()
     call = supplier_api(registry)
     expected = _not_valid(call(_token(UNKNOWN)))
     registry.lookups.clear()
-    assert _not_valid(call(headers)) == expected
+    assert _not_valid(call({})) == expected
     assert registry.lookups == []
 
 

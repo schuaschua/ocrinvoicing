@@ -2,6 +2,7 @@
 real PostgreSQL 18, signed in as the pipeline login, and the engine's token sign-in."""
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -62,9 +63,10 @@ def _history(engine: Engine) -> list[tuple[str | None, str, str]]:
         return [tuple(row) for row in rows]
 
 
-def test_story_2_1_insert_if_absent_creates_the_row_once_from_the_metadata(
-    pipeline_engine: Engine,
+def test_story_2_1_postgres_invoice_repository_inserts_transitions_and_routes_once(
+    pipeline_engine: Engine, reset_intake: Callable[[], None]
 ) -> None:
+    # --- Story 2.1: insert if absent creates the row once from the metadata
     repo = _repo(pipeline_engine)
     assert asyncio.run(repo.status(INVOICE_ID)) is None
     assert asyncio.run(repo.insert_if_absent(NEW)) is True
@@ -84,10 +86,8 @@ def test_story_2_1_insert_if_absent_creates_the_row_once_from_the_metadata(
     assert asyncio.run(repo.status(INVOICE_ID)) is S.RECEIVED
     assert _history(pipeline_engine) == [(None, "received", "pipeline:quality")]
 
-
-def test_story_2_1_a_transition_is_conditional_and_writes_history_and_facts(
-    pipeline_engine: Engine,
-) -> None:
+    # --- Story 2.1: a transition is conditional and writes history and facts
+    reset_intake()
     repo = _repo(pipeline_engine)
     asyncio.run(repo.insert_if_absent(NEW))
     plan = plan_transition(
@@ -108,10 +108,8 @@ def test_story_2_1_a_transition_is_conditional_and_writes_history_and_facts(
         ("received", "awaiting_extraction", "pipeline:quality"),
     ]
 
-
-def test_story_2_1_route_to_admin_writes_items_history_and_facts_in_one_go(
-    pipeline_engine: Engine,
-) -> None:
+    # --- Story 2.1: route to admin writes items history and facts in one go
+    reset_intake()
     repo = _repo(pipeline_engine)
     asyncio.run(repo.insert_if_absent(NEW))
     with pipeline_engine.begin() as connection:
@@ -149,10 +147,8 @@ def test_story_2_1_route_to_admin_writes_items_history_and_facts_in_one_go(
     assert len(_history(pipeline_engine)) == 2
     assert [r["phash"] for r in _rows(pipeline_engine, image_hash)] == [5]
 
-
-def test_story_2_1_route_to_admin_that_loses_the_race_writes_nothing(
-    pipeline_engine: Engine,
-) -> None:
+    # --- Story 2.1: route to admin that loses the race writes nothing
+    reset_intake()
     repo = _repo(pipeline_engine)
     asyncio.run(repo.insert_if_absent(NEW))
     asyncio.run(

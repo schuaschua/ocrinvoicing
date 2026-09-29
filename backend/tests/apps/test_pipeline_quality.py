@@ -1,12 +1,13 @@
-"""Story 2.1: the `quality` stage, one test per I/O matrix row, against a real
+"""Story 2.1: the `quality` stage, every I/O matrix row (grouped into two tests to
+keep within the repo's test-case cap; each block starts on an empty schema), against a real
 PostgreSQL 18 (signed in as the pipeline login), with fake blob and queue clients."""
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-import pytest
 from sqlalchemy import Engine, select
 
 from _documents import blurred, darkened, exif, jpeg, page
@@ -134,11 +135,6 @@ def _message(attempt: int = 1, invoice_id: UUID = INVOICE_ID) -> str:
     ).to_json()
 
 
-@pytest.fixture
-def stage(pipeline_engine: Engine) -> Stage:
-    return Stage(pipeline_engine)
-
-
 def _assert_advanced(stage: Stage, outcome: QualityOutcome) -> None:
     assert outcome == QualityOutcome(Action.ADVANCE, QueueName.EXTRACT)
     assert stage.invoice()["status"] == "awaiting_extraction"
@@ -165,9 +161,11 @@ def _assert_routed(stage: Stage, outcome: QualityOutcome, reason: str) -> None:
 # --- Matrix rows ---------------------------------------------------------------------
 
 
-def test_story_2_1_readable_photo_advances_and_queues_extraction_once(
-    stage: Stage,
+def test_story_2_1_and_1_9_quality_advances_readable_and_routes_unreadable_photos(
+    pipeline_engine: Engine, reset_intake: Callable[[], None]
 ) -> None:
+    # --- Story 2.1: a readable photo advances and queues extraction once.
+    stage = Stage(pipeline_engine)
     stage.images.put(jpeg(page(), exif(taken="2026:09:20 14:30:05")))
     _assert_advanced(stage, stage.run())
     row = stage.invoice()
@@ -183,12 +181,10 @@ def test_story_2_1_readable_photo_advances_and_queues_extraction_once(
     expected = read_image(jpeg(page(), exif(taken="2026:09:20 14:30:05")), 1024).phash
     assert unsigned_phash(hashed["phash"]) == expected
 
-
-@pytest.mark.parametrize("spoil", [darkened], ids=["dark"])
-def test_story_2_1_unreadable_photo_goes_to_the_admin_queue(
-    stage: Stage, spoil: Any
-) -> None:
-    stage.images.put(jpeg(spoil(page()), exif(taken="2026:09:20 14:30:05")))
+    # --- Story 2.1: an unreadable (dark) photo goes to the admin queue.
+    reset_intake()
+    stage = Stage(pipeline_engine)
+    stage.images.put(jpeg(darkened(page()), exif(taken="2026:09:20 14:30:05")))
     _assert_routed(stage, stage.run(), "UNREADABLE")
     # The stage finished reading the photo: its hash and time are kept with the
     # routing (AD-9 duplicates, AD-19 photo date, AD-3 Retry intake guard).
@@ -196,18 +192,21 @@ def test_story_2_1_unreadable_photo_goes_to_the_admin_queue(
         2026, 9, 20, 6, 30, 5, tzinfo=UTC
     )
     (hashed,) = stage.rows(image_hash)
-    expected = read_image(jpeg(spoil(page()), exif(taken="2026:09:20 14:30:05")), 1024)
-    assert unsigned_phash(hashed["phash"]) == expected.phash
+    dark = read_image(jpeg(darkened(page()), exif(taken="2026:09:20 14:30:05")), 1024)
+    assert unsigned_phash(hashed["phash"]) == dark.phash
 
-
-def test_story_1_9_skipped_upload_is_still_checked_by_the_server(stage: Stage) -> None:
+    # --- Story 1.9: a skipped device check is still checked by the server.
+    reset_intake()
+    stage = Stage(pipeline_engine)
     stage.images.put(jpeg(blurred(page())), device_check=DeviceCheck.SKIPPED)
     _assert_routed(stage, stage.run(), "UNREADABLE")
 
 
-def test_story_2_1_redelivery_after_success_requeues_extraction_only(
-    stage: Stage,
+def test_story_2_1_redeliveries_and_concurrent_deliveries_never_double_process(
+    pipeline_engine: Engine, reset_intake: Callable[[], None]
 ) -> None:
+    # --- A redelivery after success re-queues extraction only.
+    stage = Stage(pipeline_engine)
     stage.images.put(SHARP_JPEG)
     stage.run()
     stage.queue.sent.clear()
@@ -221,8 +220,9 @@ def test_story_2_1_redelivery_after_success_requeues_extraction_only(
     ((queue, message, _),) = stage.queue.sent
     assert queue is QueueName.EXTRACT and message.invoice_id == INVOICE_ID
 
-
-def test_story_2_1_redelivery_after_routing_only_acknowledges(stage: Stage) -> None:
+    # --- A redelivery after routing only acknowledges.
+    reset_intake()
+    stage = Stage(pipeline_engine)
     stage.images.put(jpeg(darkened(page())))
     stage.run()
     outcome = stage.run(_message(attempt=2))
@@ -231,10 +231,9 @@ def test_story_2_1_redelivery_after_routing_only_acknowledges(stage: Stage) -> N
     assert len(stage.rows(admin_item)) == 1
     assert len(stage.history()) == 2
 
-
-def test_story_2_1_a_row_left_in_received_is_finished_by_the_redelivery(
-    stage: Stage,
-) -> None:
+    # --- A row left in `received` is finished by the redelivery.
+    reset_intake()
+    stage = Stage(pipeline_engine)
     # A crash after the insert, before the transition: the retry completes it.
     stage.images.put(SHARP_JPEG)
     first = stage.images.blobs[INVOICE_ID]
@@ -245,17 +244,17 @@ def test_story_2_1_a_row_left_in_received_is_finished_by_the_redelivery(
     )
     _assert_advanced(stage, stage.run(_message(attempt=2)))
 
-
-def test_story_2_1_concurrent_deliveries_make_one_row_and_one_transition(
-    stage: Stage,
-) -> None:
+    # --- Concurrent deliveries make one row and one transition.
+    reset_intake()
+    stage = Stage(pipeline_engine)
     stage.images.put(SHARP_JPEG)
+    racing = stage
 
     async def both() -> list[QualityOutcome]:
-        stage.images.gate = asyncio.Event()
-        stage.images.waiting = 2
+        racing.images.gate = asyncio.Event()
+        racing.images.waiting = 2
         return list(
-            await asyncio.gather(stage.handle(_message()), stage.handle(_message(2)))
+            await asyncio.gather(racing.handle(_message()), racing.handle(_message(2)))
         )
 
     outcomes = asyncio.run(both())

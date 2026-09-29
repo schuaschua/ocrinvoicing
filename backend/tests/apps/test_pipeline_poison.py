@@ -1,11 +1,11 @@
-"""Story 2.2: the poison triggers (AD-2, AD-4, AD-17), one test per poison row of the
+"""Story 2.2: the poison triggers (AD-2, AD-4, AD-17), every poison row of the
 I/O matrix, against a real PostgreSQL 18 signed in as the pipeline login, with fake
 blob storage and metrics."""
 
 import asyncio
+from collections.abc import Callable
 from typing import Any
 
-import pytest
 from _pipeline_fakes import (
     CORRELATION_ID,
     SUPPLIER_ID,
@@ -94,11 +94,6 @@ class Poison:
         return self.metrics.emitted == [("poison_message", 1, {"queue": queue})]
 
 
-@pytest.fixture
-def quality(pipeline_engine: Engine) -> Poison:
-    return Poison(pipeline_engine, Stage.QUALITY)
-
-
 def _assert_routed(poison: Poison, outcome: PoisonOutcome, queue: str) -> None:
     assert outcome == ROUTED
     assert poison.status() == "in_admin_queue"
@@ -112,9 +107,11 @@ def _assert_routed(poison: Poison, outcome: PoisonOutcome, queue: str) -> None:
 # --- Matrix rows ------------------------------------------------------------------------
 
 
-def test_story_2_2_poison_in_the_input_state_is_routed_and_counted(
-    quality: Poison,
+def test_story_2_2_poison_messages_are_routed_and_counted_but_never_take_a_live_claim(
+    pipeline_engine: Engine, reset_intake: Callable[[], None]
 ) -> None:
+    # --- Story 2.2: poison in the input state is routed and counted
+    quality = Poison(pipeline_engine, Stage.QUALITY)
     quality.seed(S.RECEIVED)
     _assert_routed(quality, quality.run(), "q-quality")
     with quality.engine.connect() as connection:
@@ -132,10 +129,9 @@ def test_story_2_2_poison_in_the_input_state_is_routed_and_counted(
     # The blob was never needed: the row exists.
     assert quality.images.reads == []
 
-
-def test_story_2_2_poison_with_no_row_creates_it_from_the_blob_metadata(
-    quality: Poison,
-) -> None:
+    # --- Story 2.2: poison with no row creates it from the blob metadata
+    reset_intake()
+    quality = Poison(pipeline_engine, Stage.QUALITY)
     quality.images.put(metadata(INVOICE_ID))
     _assert_routed(quality, quality.run(), "q-quality")
     # The metadata came from the blob's properties: its bytes were never downloaded.
@@ -159,30 +155,18 @@ def test_story_2_2_poison_with_no_row_creates_it_from_the_blob_metadata(
     ]
     assert quality.counted("q-quality-poison")
 
-
-@pytest.mark.parametrize(
-    ("stage", "claim_state", "queue"),
-    [(Stage.EXTRACT, S.EXTRACTING, "q-extract")],
-)
-def test_story_2_2_poison_with_an_expired_claim_is_routed(
-    pipeline_engine: Engine, stage: Stage, claim_state: S, queue: str
-) -> None:
-    poison = Poison(pipeline_engine, stage)
-    poison.seed(claim_state, lease="-1 minute")
-    _assert_routed(poison, poison.run(), queue)
+    # --- Story 2.2: poison with an expired claim is routed (extract stage)
+    reset_intake()
+    poison = Poison(pipeline_engine, Stage.EXTRACT)
+    poison.seed(S.EXTRACTING, lease="-1 minute")
+    _assert_routed(poison, poison.run(), "q-extract")
     assert poison.rows(invoice)[0]["claimed_until"] is None
-    assert poison.counted(f"{queue}-poison")
+    assert poison.counted("q-extract-poison")
 
-
-@pytest.mark.parametrize(
-    ("stage", "claim_state"),
-    [(Stage.EXTRACT, S.EXTRACTING)],
-)
-def test_story_2_2_poison_never_takes_a_live_claim(
-    pipeline_engine: Engine, stage: Stage, claim_state: S
-) -> None:
-    poison = Poison(pipeline_engine, stage)
-    poison.seed(claim_state, lease="5 minutes")
+    # --- Story 2.2: poison never takes a live claim (extract stage)
+    reset_intake()
+    poison = Poison(pipeline_engine, Stage.EXTRACT)
+    poison.seed(S.EXTRACTING, lease="5 minutes")
     assert poison.run() == PoisonOutcome(PoisonAction.ACK, "MOVED_ON")
-    assert poison.status() == claim_state.value
+    assert poison.status() == S.EXTRACTING.value
     assert poison.rows(admin_item) == []

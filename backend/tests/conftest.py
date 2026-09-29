@@ -330,24 +330,39 @@ def intake_database(postgres_server: PostgresServer) -> str:
     return INTAKE_DATABASE
 
 
+def truncate_intake(server: PostgresServer, database: str) -> None:
+    """Empty every `intake` table, as the deployer (which owns the schema)."""
+    owner = create_engine(server.url(server.deployer, database))
+    try:
+        with owner.begin() as connection:
+            connection.execute(
+                text(
+                    "TRUNCATE intake.admin_item, intake.image_hash,"
+                    " intake.status_history, intake.invoice_field, intake.invoice_line,"
+                    " intake.extraction_run, intake.di_operation, intake.di_usage,"
+                    " intake.invoice"
+                )
+            )
+    finally:
+        owner.dispose()
+
+
+@pytest.fixture
+def reset_intake(
+    postgres_server: PostgresServer, intake_database: str
+) -> Callable[[], None]:
+    """Empty the `intake` schema again, between the sequential blocks of one merged
+    test (each block starts as a fresh `pipeline_engine` test would)."""
+    return lambda: truncate_intake(postgres_server, intake_database)
+
+
 @pytest.fixture
 def pipeline_engine(
     postgres_server: PostgresServer, intake_database: str
 ) -> Iterator[Engine]:
     """An engine as the pipeline login (so every test also proves its grants), on an
     empty `intake` schema."""
-    owner = create_engine(
-        postgres_server.url(postgres_server.deployer, intake_database)
-    )
-    with owner.begin() as connection:
-        connection.execute(
-            text(
-                "TRUNCATE intake.admin_item, intake.image_hash, intake.status_history,"
-                " intake.invoice_field, intake.invoice_line, intake.extraction_run,"
-                " intake.di_operation, intake.di_usage, intake.invoice"
-            )
-        )
-    owner.dispose()
+    truncate_intake(postgres_server, intake_database)
     engine = postgres_engine(
         host=postgres_server.host,
         port=postgres_server.port,

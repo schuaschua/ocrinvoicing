@@ -49,7 +49,8 @@ def _resolve(table: FakeTable) -> SupplierLink | None:
     return asyncio.run(registry.resolve(TOKEN_HASH))
 
 
-def test_story_1_7_a_stored_link_resolves_to_its_supplier() -> None:
+def test_story_1_7_a_link_resolves_to_its_supplier_as_revoked_or_to_none() -> None:
+    # --- Story 1.7: a stored link resolves to its supplier
     table = FakeTable([ENTITY])
     link = _resolve(table)
     assert link == SupplierLink(
@@ -72,12 +73,10 @@ def test_story_1_7_a_stored_link_resolves_to_its_supplier() -> None:
         "revoked_at",
     }
 
-
-def test_story_1_7_a_revoked_link_resolves_as_revoked() -> None:
+    # --- Story 1.7: a revoked link resolves as revoked
     revoked = {**ENTITY, "revoked_at": datetime(2026, 9, 20, tzinfo=UTC)}
     link = _resolve(FakeTable([revoked]))
     assert link is not None and not link.is_active
 
-
-def test_story_1_7_an_unknown_hash_resolves_to_none() -> None:
+    # --- Story 1.7: an unknown hash resolves to none
     assert _resolve(FakeTable([])) is None

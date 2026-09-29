@@ -172,7 +172,8 @@ def module(
 
 
 @pytest.fixture
-def call(module: ModuleType) -> Call:
+def handler(module: ModuleType) -> Callable[[func.HttpRequest], Any]:
+    """The `upload` function's handler (the host allows reading its functions once)."""
     functions = {fn.get_function_name(): fn for fn in module.app.get_functions()}
     upload = functions["upload"]
     (trigger,) = [
@@ -183,8 +184,11 @@ def call(module: ModuleType) -> Call:
     assert trigger["route"] == "api/upload"
     assert [getattr(m, "value", m) for m in trigger["methods"]] == ["POST"]  # type: ignore[attr-defined]  # a list here
     assert getattr(trigger["authLevel"], "value", None) == "anonymous"
-    handler = upload.get_user_function()
+    return upload.get_user_function()
 
+
+@pytest.fixture
+def call(handler: Callable[[func.HttpRequest], Any]) -> Call:
     def send(
         body: bytes = JPEG,
         *,
@@ -241,12 +245,28 @@ def _nothing_written(storage: Storage) -> None:
     assert not storage.blobs and not storage.messages
 
 
+def _reset(storage: Storage, clock: Clock) -> None:
+    """Empty storage and rewind the clock between the blocks of one merged test, so
+    each block starts as a fresh test would (the handler holds these same fakes)."""
+    storage.keys.clear()
+    storage.blobs.clear()
+    storage.messages.clear()
+    storage.writes.clear()
+    storage.fail = set()
+    storage.yield_on_claim = False
+    clock.now = NOW
+
+
 # --- Happy path and replays ----------------------------------------------------------
 
 
-def test_story_1_8_happy_path_writes_key_then_blob_then_message(
-    call: Call, storage: Storage
+def test_story_1_8_upload_writes_key_blob_message_once_across_retries_and_races(
+    call: Call,
+    handler: Callable[[func.HttpRequest], Any],
+    storage: Storage,
+    clock: Clock,
 ) -> None:
+    # --- The happy path writes the key, then the blob, then the message.
     response = call(JPEG, content_type="image/jpeg")
     invoice_id, reference = _ok(response)
     assert reference.startswith("R-") and len(reference) == 10
@@ -286,10 +306,8 @@ def test_story_1_8_happy_path_writes_key_then_blob_then_message(
         "attempt",
     }
 
-
-def test_story_1_8_a_retry_after_success_returns_the_same_invoice_and_enqueues_again(
-    call: Call, storage: Storage, clock: Clock
-) -> None:
+    # --- A retry after success returns the same invoice and enqueues again.
+    _reset(storage, clock)
     first = call()
     clock.now = NOW + timedelta(minutes=7)
     again = call()
@@ -305,10 +323,8 @@ def test_story_1_8_a_retry_after_success_returns_the_same_invoice_and_enqueues_a
     assert second_message.first_enqueued_at == NOW
     assert storage.blobs[first_message.invoice_id][1].uploaded_at == NOW
 
-
-def test_story_1_8_crash_after_the_blob_skips_it_and_enqueues(
-    call: Call, storage: Storage
-) -> None:
+    # --- A crash after the blob: the retry skips it and enqueues.
+    _reset(storage, clock)
     storage.fail = {"queue"}
     _error(call(), 503, "SERVICE_UNAVAILABLE")
     assert storage.writes == ["key", "blob"]
@@ -317,14 +333,9 @@ def test_story_1_8_crash_after_the_blob_skips_it_and_enqueues(
     assert storage.writes == ["key", "blob", "queue"]
     assert storage.messages[0][1].invoice_id == invoice_id
 
-
-def test_story_1_8_concurrent_requests_with_one_key_make_one_invoice(
-    module: ModuleType, storage: Storage
-) -> None:
+    # --- Concurrent requests with one key make one invoice.
+    _reset(storage, clock)
     storage.yield_on_claim = True
-    handler = next(
-        fn for fn in module.app.get_functions() if fn.get_function_name() == "upload"
-    ).get_user_function()
 
     def request() -> func.HttpRequest:
         return func.HttpRequest(
@@ -337,17 +348,18 @@ def test_story_1_8_concurrent_requests_with_one_key_make_one_invoice(
     async def race() -> list[func.HttpResponse]:
         return list(await asyncio.gather(handler(request()), handler(request())))
 
-    first, second = asyncio.run(race())
-    assert _ok(first) == _ok(second)
+    racer_one, racer_two = asyncio.run(race())
+    assert _ok(racer_one) == _ok(racer_two)
     assert len(storage.keys) == 1 and len(storage.blobs) == 1
 
 
 # --- Refusals: nothing is written ----------------------------------------------------
 
 
-def test_story_1_8_a_key_held_by_another_supplier_is_a_409_and_writes_nothing(
-    call: Call, storage: Storage
+def test_story_1_8_refused_uploads_get_their_error_and_write_nothing(
+    call: Call, storage: Storage, clock: Clock
 ) -> None:
+    # --- A key held by another supplier is a 409 and writes nothing.
     theirs = _ok(call(token=TOKEN_B))
     before = (dict(storage.keys), dict(storage.blobs), list(storage.messages))
     message = _error(call(token=TOKEN_A), 409, "IDEMPOTENCY_KEY_CONFLICT")
@@ -355,36 +367,24 @@ def test_story_1_8_a_key_held_by_another_supplier_is_a_409_and_writes_nothing(
     assert theirs[1] not in message and str(theirs[0]) not in message
     assert (dict(storage.keys), dict(storage.blobs), list(storage.messages)) == before
 
-
-@pytest.mark.parametrize(
-    "key",
-    ["not-a-uuid"],
-)
-def test_story_1_8_a_missing_or_malformed_key_is_a_400(
-    key: str | None, call: Call, storage: Storage
-) -> None:
-    message = _error(call(key=key), 400, "VALIDATION_FAILED")
+    # --- A malformed idempotency key is a 400.
+    _reset(storage, clock)
+    message = _error(call(key="not-a-uuid"), 400, "VALIDATION_FAILED")
     assert "key" in message.lower()
     _nothing_written(storage)
 
-
-@pytest.mark.parametrize(
-    ("body", "declared"),
-    [(b"GIF89a" + b"\x00" * 100, "image/jpeg")],
-)
-def test_story_1_8_a_file_that_is_not_jpeg_png_or_pdf_is_a_415(
-    body: bytes, declared: str, call: Call, storage: Storage
-) -> None:
-    message = _error(call(body, content_type=declared), 415, "UNSUPPORTED_MEDIA_TYPE")
+    # --- A file that is not JPEG, PNG or PDF is a 415.
+    _reset(storage, clock)
+    gif = b"GIF89a" + b"\x00" * 100
+    message = _error(
+        call(gif, content_type="image/jpeg"), 415, "UNSUPPORTED_MEDIA_TYPE"
+    )
     assert "JPEG" in message and "PDF" in message
     _nothing_written(storage)
 
-
-@pytest.mark.parametrize("token", [REVOKED])
-def test_story_1_8_an_invalid_link_gets_the_identical_401_and_writes_nothing(
-    token: str | None, call: Call, storage: Storage
-) -> None:
-    response = call(token=token)
+    # --- An invalid (revoked) link gets the identical 401 and writes nothing.
+    _reset(storage, clock)
+    response = call(token=REVOKED)
     assert _error(response, 401, "LINK_NOT_VALID") == LINK_NOT_WORKING
     assert response.headers["WWW-Authenticate"] == "UploadToken"
     _nothing_written(storage)
@@ -393,15 +393,13 @@ def test_story_1_8_an_invalid_link_gets_the_identical_401_and_writes_nothing(
 # --- Never PostgreSQL, never a secret in logs ----------------------------------------
 
 
-@pytest.mark.parametrize("fail", [{"blob"}])
 def test_story_1_8_no_log_or_span_holds_the_token_the_key_or_the_file(
-    fail: set[str],
     call: Call,
     storage: Storage,
     spans: InMemorySpanExporter,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    storage.fail = fail
+    storage.fail = {"blob"}
     spans.clear()
     with caplog.at_level(logging.DEBUG):
         call(PNG, headers={"Content-Disposition": 'inline; filename="inv-4521.png"'})
@@ -437,23 +435,18 @@ def test_story_1_8_no_log_or_span_holds_the_token_the_key_or_the_file(
 # --- Story 1.9: the device check ------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("header", "stored"),
-    [("skipped", "skipped")],
-)
-def test_story_1_9_the_device_check_is_stored_in_the_blob_metadata(
-    header: str | None, stored: str, call: Call, storage: Storage
+def test_story_1_9_the_device_check_is_stored_and_any_other_value_is_a_400(
+    call: Call, storage: Storage, clock: Clock
 ) -> None:
-    headers = {} if header is None else {"X-Device-Check": header}
-    invoice_id, _ = _ok(call(headers=headers))
-    assert storage.blobs[invoice_id][1].to_blob_metadata()["device_check"] == stored
-    assert storage.keys[UUID(KEY)].device_check == stored
+    # --- "skipped" is stored in the blob metadata and the key.
+    invoice_id, _ = _ok(call(headers={"X-Device-Check": "skipped"}))
+    assert storage.blobs[invoice_id][1].to_blob_metadata()["device_check"] == "skipped"
+    assert storage.keys[UUID(KEY)].device_check == "skipped"
 
-
-@pytest.mark.parametrize("header", ["failed"])
-def test_story_1_9_any_other_device_check_is_a_400_and_writes_nothing(
-    header: str, call: Call, storage: Storage
-) -> None:
-    message = _error(call(headers={"X-Device-Check": header}), 400, "VALIDATION_FAILED")
+    # --- Any other value ("failed") is a 400 and writes nothing.
+    _reset(storage, clock)
+    message = _error(
+        call(headers={"X-Device-Check": "failed"}), 400, "VALIDATION_FAILED"
+    )
     assert "check" in message.lower()
     _nothing_written(storage)

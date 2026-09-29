@@ -11,6 +11,7 @@ import azure.functions as func
 import pytest
 
 import invoicing
+from conftest import APP_ONLY_SETTINGS
 from invoicing.adapters.http import CORRELATION_HEADER
 from invoicing.apps.common import SettingsError
 
@@ -79,45 +80,43 @@ def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper
     assert timer["runOnStartup"] is False and timer["useMonitor"] is True
 
 
-@pytest.mark.parametrize(
-    ("app", "missing"), [("staff_api", "PGP_PRIVATE_KEY_VAULT_URI")]
-)
-def test_story_1_3_missing_setting_stops_the_app_naming_the_setting_not_its_value(
-    app: str,
-    missing: str,
+def test_story_1_3_a_missing_empty_or_malformed_setting_stops_the_app_naming_it_only(
     app_settings: dict[str, str],
     load_app: Callable[[str], ModuleType],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv(missing)
-    with pytest.raises(SettingsError) as raised:
-        load_app(app)
-    text = str(raised.value)
-    assert missing in text
-    assert raised.value.__cause__ is None and raised.value.__suppress_context__
-    for name, value in app_settings.items():
-        assert value not in text, f"{name}'s value leaked into the error"
+    # Each case runs with its app's own settings (as `app_settings` sets them for
+    # that app), undone before the next case.
+    def app_env(env: pytest.MonkeyPatch, app: str) -> dict[str, str]:
+        settings = {**app_settings, **APP_ONLY_SETTINGS.get(app, {})}
+        for name, value in settings.items():
+            env.setenv(name, value)
+        return settings
 
+    # --- A missing setting stops the app, naming the setting and not its value.
+    for app, missing in [("staff_api", "PGP_PRIVATE_KEY_VAULT_URI")]:
+        with monkeypatch.context() as env:
+            settings = app_env(env, app)
+            env.delenv(missing)
+            with pytest.raises(SettingsError) as raised:
+                load_app(app)
+            text = str(raised.value)
+            assert missing in text
+            assert raised.value.__cause__ is None and raised.value.__suppress_context__
+            for name, value in settings.items():
+                assert value not in text, f"{name}'s value leaked into the error"
 
-@pytest.mark.parametrize(
-    ("app", "name", "value"),
-    [
+    # --- An empty or malformed setting stops the app, naming only the setting.
+    for app, name, value in [
         ("staff_api", "KEY_VAULT_URI", "http://plain-http-vault.example"),
         # Story 2.1: a host that could smuggle in libpq options.
         ("pipeline", "POSTGRES_HOST", "db.example host=evil"),
-    ],
-)
-def test_story_1_3_empty_or_malformed_setting_stops_the_app_naming_only_the_setting(
-    app: str,
-    name: str,
-    value: str,
-    app_settings: dict[str, str],
-    load_app: Callable[[str], ModuleType],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(name, value)
-    with pytest.raises(SettingsError) as raised:
-        load_app(app)
-    text = str(raised.value)
-    assert name in text
-    assert value not in text
+    ]:
+        with monkeypatch.context() as env:
+            app_env(env, app)
+            env.setenv(name, value)
+            with pytest.raises(SettingsError) as raised:
+                load_app(app)
+            text = str(raised.value)
+            assert name in text
+            assert value not in text

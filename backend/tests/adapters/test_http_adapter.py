@@ -46,17 +46,18 @@ async def _boom(req: func.HttpRequest, correlation_id: UUID) -> func.HttpRespons
     raise RuntimeError("/srv/app/secret.py line 3: password=hunter2")
 
 
-def test_story_1_3_every_response_carries_the_security_headers() -> None:
+def test_story_1_3_responses_carry_security_headers_and_errors_never_leak_internals(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # --- Story 1.3: every response carries the security headers
     for handler in (_ok, _plain, _boom):
         response = _call(handler)
         for name, value in SECURITY_HEADERS.items():
             assert response.headers[name] == value
     assert "frame-ancestors 'none'" in SECURITY_HEADERS["Content-Security-Policy"]
 
-
-def test_story_1_3_unhandled_error_is_a_500_without_internals(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+    # --- Story 1.3: an unhandled error is a 500 without internals
+    caplog.clear()
     with caplog.at_level(logging.INFO):
         response = _call(_boom, {CORRELATION_HEADER: CALLER_ID})
     body = json.loads(response.get_body())
@@ -74,29 +75,27 @@ def test_story_1_3_unhandled_error_is_a_500_without_internals(
         "code": "INTERNAL_ERROR",
     }
 
+    # --- Story 1.3: a domain error maps to its status and body
+    for error, status in [(DatabaseOfflineError(), 503)]:
 
-@pytest.mark.parametrize(
-    ("error", "status"),
-    [(DatabaseOfflineError(), 503)],
-)
-def test_story_1_3_domain_error_maps_to_its_status_and_body(
-    error: DomainError, status: int, caplog: pytest.LogCaptureFixture
-) -> None:
-    async def handler(req: func.HttpRequest, correlation_id: UUID) -> func.HttpResponse:
-        raise error
+        async def raising(
+            req: func.HttpRequest, correlation_id: UUID, error: DomainError = error
+        ) -> func.HttpResponse:
+            raise error
 
-    with caplog.at_level(logging.INFO):
-        response = _call(handler, {CORRELATION_HEADER: CALLER_ID})
-    assert response.status_code == status
-    (record,) = [r for r in caplog.records if r.name == "invoicing.http"]
-    assert record.getMessage().startswith("http.domain_error ")
-    assert event_fields(record) == {
-        "correlation_id": CALLER_ID,
-        "code": error.code.value,
-    }
-    assert json.loads(response.get_body()) == {
-        "code": error.code.value,
-        "message": error.message,
-        "correlation_id": CALLER_ID,
-    }
-    assert response.mimetype == "application/json"
+        caplog.clear()
+        with caplog.at_level(logging.INFO):
+            response = _call(raising, {CORRELATION_HEADER: CALLER_ID})
+        assert response.status_code == status
+        (record,) = [r for r in caplog.records if r.name == "invoicing.http"]
+        assert record.getMessage().startswith("http.domain_error ")
+        assert event_fields(record) == {
+            "correlation_id": CALLER_ID,
+            "code": error.code.value,
+        }
+        assert json.loads(response.get_body()) == {
+            "code": error.code.value,
+            "message": error.message,
+            "correlation_id": CALLER_ID,
+        }
+        assert response.mimetype == "application/json"

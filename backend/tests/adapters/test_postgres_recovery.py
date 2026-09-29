@@ -4,6 +4,7 @@ lease check, the sweeper's stale scan with its `pg_postmaster_start_time()` guar
 and "database unreachable" detection (AD-7)."""
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -103,12 +104,32 @@ def _db_now(engine: Engine) -> datetime:
         return value
 
 
-# --- AD-3 claim and lease reclaim (matrix "Lease reclaim") ---------------------------------
+# --- Helpers for the sweeper's scan (AD-2) ----------------------------------------------
 
 
-def test_story_2_2_a_claim_moves_the_input_to_its_claim_state_with_a_lease(
-    pipeline_engine: Engine,
+ALL_STAGES = frozenset(Stage)
+
+
+def _stale(
+    repo: PostgresInvoiceRepository,
+    stages: frozenset[Stage] = CONSUMED_QUEUES,
+    limit: int = SWEEP_LIMIT,
+) -> Any:
+    return asyncio.run(repo.stale(STALE_AFTER, stages=stages, limit=limit))
+
+
+def _long_running(engine: Engine) -> PostgresInvoiceRepository:
+    started = _db_now(engine) - timedelta(hours=2)
+    return PostgresInvoiceRepository(engine, database_started_at=started)
+
+
+# --- AD-3 claim and lease reclaim (matrix "Lease reclaim"), then the sweeper's scan ---
+
+
+def test_story_2_2_claims_leases_and_the_stale_scan_in_postgres(
+    pipeline_engine: Engine, reset_intake: Callable[[], None]
 ) -> None:
+    # --- Story 2.2: a claim moves the input to its claim state with a lease
     _seed(pipeline_engine, INVOICE_ID, S.AWAITING_EXTRACTION)
     repo = PostgresInvoiceRepository(pipeline_engine)
     before = _db_now(pipeline_engine)
@@ -131,10 +152,8 @@ def test_story_2_2_a_claim_moves_the_input_to_its_claim_state_with_a_lease(
     assert not asyncio.run(repo.claim(plan_claim(INVOICE_ID, Stage.EXTRACT, "x")))
     assert _row(pipeline_engine)["claimed_until"] == row["claimed_until"]
 
-
-def test_story_2_2_an_expired_lease_is_reclaimed_with_a_new_lease(
-    pipeline_engine: Engine,
-) -> None:
+    # --- Story 2.2: an expired lease is reclaimed with a new lease
+    reset_intake()
     _seed(
         pipeline_engine,
         INVOICE_ID,
@@ -155,37 +174,16 @@ def test_story_2_2_an_expired_lease_is_reclaimed_with_a_new_lease(
     assert _history(pipeline_engine) == history_before
     assert row["status_changed_at"] == changed_before
 
-
-def test_story_2_2_a_live_lease_is_never_taken(pipeline_engine: Engine) -> None:
+    # --- Story 2.2: a live lease is never taken
+    reset_intake()
     _seed(pipeline_engine, INVOICE_ID, S.VALIDATING, lease="5 minutes")
     lease = _row(pipeline_engine)["claimed_until"]
     repo = PostgresInvoiceRepository(pipeline_engine)
     assert not asyncio.run(repo.claim(plan_claim(INVOICE_ID, Stage.VALIDATE, "t")))
     assert _row(pipeline_engine)["claimed_until"] == lease
 
-
-# --- The sweeper's scan (AD-2) --------------------------------------------------------------
-
-
-ALL_STAGES = frozenset(Stage)
-
-
-def _stale(
-    repo: PostgresInvoiceRepository,
-    stages: frozenset[Stage] = CONSUMED_QUEUES,
-    limit: int = SWEEP_LIMIT,
-) -> Any:
-    return asyncio.run(repo.stale(STALE_AFTER, stages=stages, limit=limit))
-
-
-def _long_running(engine: Engine) -> PostgresInvoiceRepository:
-    started = _db_now(engine) - timedelta(hours=2)
-    return PostgresInvoiceRepository(engine, database_started_at=started)
-
-
-def test_story_2_2_the_stale_scan_applies_the_domain_map_in_sql(
-    pipeline_engine: Engine,
-) -> None:
+    # --- Story 2.2: the stale scan applies the domain map in sql
+    reset_intake()
     swept = {
         _invoice_id(1): S.RECEIVED,
         _invoice_id(2): S.AWAITING_EXTRACTION,

@@ -1,4 +1,4 @@
-"""Story 2.2: the sweeper timer (AD-2, AD-6, AD-17), one test per sweeper row of the
+"""Story 2.2: the sweeper timer (AD-2, AD-6, AD-17), every sweeper row of the
 I/O matrix, against a real PostgreSQL 18 signed in as the pipeline login, with fake
 queue, blob, table and metrics clients. The database's start time comes through the
 repository's seam, except in "Just restarted", which uses the container's own. Every
@@ -6,6 +6,7 @@ age is measured on the database's clock, as the sweeper does."""
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -138,9 +139,14 @@ def _done(caplog: pytest.LogCaptureFixture) -> dict[str, Any]:
 # --- Matrix rows ------------------------------------------------------------------------
 
 
-def test_story_2_2_sweeper_map_re_enqueues_stale_received_to_quality(
-    sweep: Sweep, caplog: pytest.LogCaptureFixture
+def test_story_2_2_sweeper_re_enqueues_stale_rows_and_orphans_and_deletes_old_keys(
+    sweep: Sweep,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    pipeline_engine: Engine,
+    reset_intake: Callable[[], None],
 ) -> None:
+    # --- Story 2.2: sweeper map re enqueues stale received to quality
     stale = sweep.seed(1, S.RECEIVED)
     # Story 2.3: extract is a consumed queue now, so it is swept too.
     waiting = sweep.seed(2, S.AWAITING_EXTRACTION)
@@ -170,28 +176,9 @@ def test_story_2_2_sweeper_map_re_enqueues_stale_received_to_quality(
         "failures": 0,
     }
 
-
-def test_story_2_2_sweeper_leaves_admin_final_fresh_backoff_and_leased_rows_alone(
-    sweep: Sweep, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(sweeper_module, "CONSUMED_QUEUES", frozenset(Stage))
-    sweep.seed(1, S.IN_ADMIN_QUEUE, changed="3 days")
-    sweep.seed(2, S.POSTED, changed="3 days")
-    sweep.seed(3, S.REJECTED, changed="3 days")
-    sweep.seed(4, S.RECEIVED, changed="59 minutes")
-    sweep.seed(5, S.READY_TO_POST, next_attempt="10 minutes")
-    sweep.seed(6, S.EXTRACTING, lease="5 minutes")
-    sweep.seed(7, S.VALIDATING, lease="5 minutes")
-    sweep.seed(8, S.POSTING, lease="5 minutes")
-    assert sweep.run() == SweepResult("swept")
-    assert sweep.queue.sent == []
-    # Emitted as 0, so the stuck_invoices alert resolves.
-    assert sweep.stuck() == [0]
-
-
-def test_story_2_2_an_orphaned_upload_is_re_enqueued_once_with_its_own_ids(
-    sweep: Sweep,
-) -> None:
+    # --- Story 2.2: an orphaned upload is re enqueued once with its own ids
+    reset_intake()
+    sweep = Sweep(pipeline_engine)
     orphan = invoice_id(9)
     sweep.images.put(metadata(orphan))
     created = sweep.key(
@@ -220,8 +207,9 @@ def test_story_2_2_an_orphaned_upload_is_re_enqueued_once_with_its_own_ids(
     assert len(sweep.queue.sent) == 1
     assert sweep.stuck() == [1, 0]
 
-
-def test_story_2_2_old_keys_are_deleted(sweep: Sweep) -> None:
+    # --- Story 2.2: old keys are deleted
+    reset_intake()
+    sweep = Sweep(pipeline_engine)
     done = sweep.seed(1, S.POSTED, changed="1 day")
     orphan, lost, recovered = invoice_id(8), invoice_id(9), invoice_id(10)
     sweep.images.put(metadata(orphan))
@@ -239,10 +227,29 @@ def test_story_2_2_old_keys_are_deleted(sweep: Sweep) -> None:
     assert sweep.sent() == {orphan: QueueName.QUALITY}
     assert result == SweepResult("swept", orphans=1, deleted=4)
 
-
-def test_story_2_2_a_key_changed_since_listing_is_not_deleted(sweep: Sweep) -> None:
+    # --- Story 2.2: a key changed since listing is not deleted
+    reset_intake()
+    sweep = Sweep(pipeline_engine)
     done = sweep.seed(1, S.POSTED)
     sweep.key(1, done, timedelta(days=2))
     sweep.keys.changed.add(_key(1))
     assert sweep.run() == SweepResult("swept")
     assert list(sweep.keys.rows) == [_key(1)]
+
+    # --- Story 2.2: sweeper leaves admin final fresh backoff and leased rows alone
+    # (Last: it widens CONSUMED_QUEUES for the rest of the test.)
+    reset_intake()
+    sweep = Sweep(pipeline_engine)
+    monkeypatch.setattr(sweeper_module, "CONSUMED_QUEUES", frozenset(Stage))
+    sweep.seed(1, S.IN_ADMIN_QUEUE, changed="3 days")
+    sweep.seed(2, S.POSTED, changed="3 days")
+    sweep.seed(3, S.REJECTED, changed="3 days")
+    sweep.seed(4, S.RECEIVED, changed="59 minutes")
+    sweep.seed(5, S.READY_TO_POST, next_attempt="10 minutes")
+    sweep.seed(6, S.EXTRACTING, lease="5 minutes")
+    sweep.seed(7, S.VALIDATING, lease="5 minutes")
+    sweep.seed(8, S.POSTING, lease="5 minutes")
+    assert sweep.run() == SweepResult("swept")
+    assert sweep.queue.sent == []
+    # Emitted as 0, so the stuck_invoices alert resolves.
+    assert sweep.stuck() == [0]

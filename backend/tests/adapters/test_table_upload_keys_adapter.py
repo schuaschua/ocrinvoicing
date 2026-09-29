@@ -91,7 +91,10 @@ def _claim(table: FakeTable, candidate: UploadKey = MINE) -> tuple[UploadKey, bo
     return asyncio.run(store.claim(KEY, candidate))
 
 
-def test_story_1_8_a_new_key_is_inserted_with_the_contract_fields() -> None:
+def test_story_1_8_claiming_a_key_inserts_once_returns_the_stored_upload_and_survives_races() -> (
+    None
+):
+    # --- Story 1.8: a new key is inserted with the contract fields
     table = FakeTable()
     assert _claim(table) == (MINE, True)
     ((entity,),) = [table.created]
@@ -103,10 +106,7 @@ def test_story_1_8_a_new_key_is_inserted_with_the_contract_fields() -> None:
     # No read when the insert wins.
     assert table.queries == []
 
-
-def test_story_1_8_an_existing_key_returns_the_stored_upload_and_writes_nothing() -> (
-    None
-):
+    # --- Story 1.8: an existing key returns the stored upload and writes nothing
     table = FakeTable({("3f", str(KEY)): _row(THEIRS)})
     assert _claim(table) == (THEIRS, False)
     assert table.created == []
@@ -115,8 +115,7 @@ def test_story_1_8_an_existing_key_returns_the_stored_upload_and_writes_nothing(
     assert str(KEY) not in query_filter
     assert kwargs["parameters"] == {"pk": "3f", "rk": str(KEY)}
 
-
-def test_story_1_8_two_racing_claims_get_the_same_upload() -> None:
+    # --- Story 1.8: two racing claims get the same upload
     table = FakeTable()
     store = TableUploadKeyStore(table)
     other = UploadKey(

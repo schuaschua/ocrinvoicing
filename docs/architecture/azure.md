@@ -12,7 +12,7 @@ and principles P-1 to P-15. Principles here continue that sequence.
 | 7 | Tags | `owner`, `costCentre`, `environment`, `application`, `dataClassification` | owner: Dj, 2026-09-28 |
 | 8 | Region | Southeast Asia (Singapore), `southeastasia`; no availability zones | owner: Dj, 2026-09-28 |
 | 9 | On-premises connection | None for the PoC. The accounts XML API and the PO / goods-received DB are simulated inside Azure. | owner: Dj, 2026-09-28 |
-| 15 | Managed services | Database: Azure Database for PostgreSQL Flexible Server. CI/CD: Azure DevOps Pipelines. AI platform: Azure AI Document Intelligence. | owner: Dj, 2026-09-28 |
+| 15 | Managed services | Database: Azure Database for PostgreSQL Flexible Server. CI/CD: Jenkins in Docker on one VM, running Terraform (code in Azure Repos) (Dj, 2026-09-29). AI platform: Azure AI Document Intelligence. | owner: Dj, 2026-09-28 |
 
 ## Principles
 
@@ -41,7 +41,7 @@ and principles P-1 to P-15. Principles here continue that sequence.
 - **Applies to:** All staff-facing views.
 
 ### P-20 Approved Azure services
-- **Rule:** Use Azure Database for PostgreSQL Flexible Server for the database, Azure AI Document Intelligence for extraction, and Azure DevOps Pipelines for CI/CD. Other services are chosen in an AD within P-1, P-2 and P-15, and all of them must be available in `southeastasia`.
+- **Rule:** Use Azure Database for PostgreSQL Flexible Server for the database, Azure AI Document Intelligence for extraction, and Jenkins (in Docker on one Azure VM, code in Azure Repos) for CI/CD (Dj, 2026-09-29). Other services are chosen in an AD within P-1, P-2 and P-15, and all of them must be available in `southeastasia`.
 - **Why:** These are the stack the team knows. Cost optimization (1), operational excellence (5).
 - **Source:** Context row 15.
 - **Applies to:** The whole solution.
@@ -53,3 +53,4 @@ and principles P-1 to P-15. Principles here continue that sequence.
 | Date | Item | Change | Why |
 | --- | --- | --- | --- |
 | 2026-09-28 | All | First version, P-16 to P-20 | Agreed with Dj before `bmad-architecture` |
+| 2026-09-29 | P-20, row 15 | CI/CD moves to Jenkins on a VM | Dj, sprint change proposal 2026-09-29 |

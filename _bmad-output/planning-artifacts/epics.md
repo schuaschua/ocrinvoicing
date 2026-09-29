@@ -63,7 +63,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
 - **NFR15 (P-16, P-17):** Names follow `babaloo-sea-lng-<type>-<nn>` (Dev 01–09, Prod 11–19, shared 21–29). The five mandatory tags are applied by the pipeline.
 - **NFR16 (P-18):** Managed identities everywhere. The only secrets (the pgcrypto and HMAC keys) are in Key Vault.
 - **NFR17 (P-19):** Staff sign in with Entra ID and MFA through Security Defaults (an accepted departure) and get role-based access. Suppliers use their links.
-- **NFR18 (P-20):** The approved services are PostgreSQL Flexible Server, Document Intelligence and Azure DevOps Pipelines. Every service runs in `southeastasia`.
+- **NFR18 (P-20):** The approved services are PostgreSQL Flexible Server, Document Intelligence and Jenkins on one VM for CI/CD (Dj, 2026-09-29). Every service runs in `southeastasia`.
 - **NFR19 (spec):** 90% of invoices reach the accounts system with no admin involvement.
 - **NFR20 (spec):** The PoC is tested at no more than 500 invoice pages a month, and no invoice is longer than 2 pages.
 - **NFR21 (UX):** WCAG 2.2 AA on both surfaces.
@@ -89,7 +89,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
 - **Infrastructure (AD-17):**
   - One subscription with three resource groups (`shared`, `dev` and `prod`), named per P-16.
   - Every resource belongs to one step of the AD-17 step table: 1. `infra/bootstrap/` (operator: state, resource groups, deploy identities, two Entra app registrations per environment, the `ACS Email Sender` role, the $8 subscription budget) → 2. `shared/foundation` (PostgreSQL B1ms PG 18 with `invoicing_dev` and `invoicing_prod`, DI F0 with a custom subdomain, ACS Email and its domain, the PostgreSQL firewall open for the PoC) → 3. operator RBAC step → 4. `<env>/foundation` → 4b. operator PGP key step → 5. operator database step → 6. migrations → 7. `<env>/app` → 8. operator redirect-URI step → 9. code deploy.
-  - Azure DevOps pipelines authenticate with workload identity federation, using a separate deploy identity per stack owner. Dev applies its saved plan automatically on merge, an accepted departure from `terraform.md` rules 26 and 33. Prod and `shared` apply only after manual approval.
+  - Jenkins on the CI VM authenticates with the per-stack deploy identities attached to the VM (Dj, 2026-09-29). Dev applies its saved plan automatically on merge, an accepted departure from `terraform.md` rules 26 and 33. Prod and `shared` apply only after manual approval.
 - **CI checks:**
   - lint and format;
   - tests and coverage;
@@ -318,7 +318,7 @@ So that every later story deploys into named, tagged, budgeted Azure resources i
 **When** they finish
 **Then** the Terraform state storage exists with Entra auth, shared-key access disabled and versioning on
 **And** the three resource groups exist, named per P-16 (`babaloo-sea-lng-rg-<nn>`: Dev `0x`, Prod `1x`, shared `2x`), with the 5 P-17 tags, and the resource providers are registered
-**And** the deploy identities for `dev`, `prod` and `shared` exist with their federated credentials, each holding only the rights in AD-17 "Deploy identity rights"
+**And** the deploy identities for `dev`, `prod` and `shared` exist (no federated credentials: the shared and Dev identities are attached to the CI VM, Dj, 2026-09-29), each holding only the rights in AD-17 "Deploy identity rights"
 **And** each environment has two Entra app registrations: `staff-api` (app roles `admin`, `finance`, `procurement`, `management` and `goods_in`, "assignment required", ID-token issuance on) and `accounts-sim`
 **And** the custom role `ACS Email Sender` (the email send action only) and the $8 subscription budget alert exist
 
@@ -359,7 +359,7 @@ So that every later story deploys into named, tagged, budgeted Azure resources i
 **And** a test shows that a Dev login can't connect to `invoicing_prod`
 **And** Dj's loaders group, with Dj as a member, holds Key Vault Secrets User on only the `pgp-public-key` and `hmac-key` secrets, and Storage Table Data Contributor on that environment's storage account, for the load script (Dj, 2026-09-29: guest UPN over 63 characters)
 
-### Story 1.2: CI/CD pipeline in Azure DevOps
+### Story 1.2: CI/CD on Jenkins
 
 As Dj,
 I want every pull request checked and every merge deployed through a gated pipeline,
@@ -368,16 +368,22 @@ So that nothing reaches Prod without passing checks and my approval.
 **Acceptance Criteria:**
 
 **Given** a pull request to the integration branch
-**When** the PR build runs
+**When** Jenkins builds the PR (polling Azure Repos)
 **Then** it runs lint and format checks, the backend and web tests with coverage (backend at least 80%, web at least 60%), `pip-audit`, `npm audit --omit=dev` and `gitleaks`
-**And** a failing check blocks the merge through branch policy
+**And** Jenkins posts the result as a PR status, and a branch policy on `main` requires it to merge
 
 **Given** a merge
 **When** the deploy pipeline runs
-**Then** it authenticates only through workload-identity-federation service connections, one deploy identity per stack owner (`shared`, `dev` and `prod`)
+**Then** each stage signs in only as its stack's user-assigned deploy identity attached to the CI VM; no Azure secret is stored; only the shared and Dev identities are attached (Dj, 2026-09-29)
 **And** it applies `dev` from a saved plan automatically on merge to `main`, the accepted departure from `terraform.md` rules 26 and 33 and `security.md` rule 34 recorded in AD-17
 **And** it applies `shared` and `prod` from a saved plan only after manual approval
 **And** the operator steps (AD-17 steps 1, 3, 4b, 5 and 8) stay outside the pipeline, in the bootstrap README
+
+**Given** the CI VM bootstrap (`ci-vm.sh`)
+**When** it runs
+**Then** the VM runs Jenkins in Docker, with Terraform installed through the Jenkins Terraform plugin and the build tools pinned
+**And** its NSG allows only SSH from the operator's IP, and Jenkins is reached through an SSH tunnel
+**And** it is a B2s (2 vCPU, 4 GB) with no auto-shutdown for now (it runs overnight while work continues; a schedule comes later), and Dj deallocates it when not in use (Dj, 2026-09-29)
 
 **Given** the weekly schedule
 **When** the dependency scan runs
@@ -389,7 +395,9 @@ So that nothing reaches Prod without passing checks and my approval.
 **And** every schema grant is part of a migration (AD-11)
 
 **Tasks:**
-- Client side: create the Azure DevOps project in the `example-org` organisation; its name is an input to `state-backend.sh` and `ado-setup.sh` (started 2026-09-29 07:00).
+- Client side: create the Azure DevOps project in the `example-org` organisation, which hosts the repo (Azure Repos) that Jenkins polls (done 2026-09-29).
+- Client side: create the ADO personal access token (Code read, Status write) and the branch policy on `main` that requires the Jenkins PR status (Dj, 2026-09-29).
+- Replace `pipelines/*.yml` and `infra/bootstrap/ado-setup.sh` with `Jenkinsfile`s and `infra/bootstrap/ci-vm.sh` (Dj, 2026-09-29).
 
 ### Story 1.3: Python Functions API skeleton
 

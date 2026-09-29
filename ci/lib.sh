@@ -34,6 +34,9 @@ readonly PYTEST_XDIST_PINS="pytest-xdist==3.8.0 execnet==2.1.2"
 # backend/pyproject.toml [tool.coverage.report] fail_under holds the same backend value.
 readonly BACKEND_COVERAGE_MIN=80
 readonly WEB_COVERAGE_MIN=60
+# At most this many test cases across the repo, each parameterised case counting
+# (Dj, 2026-09-29; coding-style.md rule 20 exception). Never raise it to pass.
+readonly MAX_TEST_CASES=200
 # Supplier page JavaScript budget, gzipped (UX-DR22: weak mobile signal).
 readonly SUPPLIER_JS_GZIP_MAX_KB=150
 

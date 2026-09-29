@@ -255,6 +255,8 @@ run_lint() {
 
 run_test() {
   mkdir -p "$CI_WORK/test-results" "$CI_WORK/coverage"
+  # Reports from an earlier run must not count towards the test-case limit.
+  rm -f "$CI_WORK"/test-results/*.xml
   # A floor can't be dodged by deleting tests: once there is code, tests are required.
   if ! backend_has_code; then
     skip "pytest (backend)" "no tests yet (no backend code yet)"
@@ -301,6 +303,44 @@ run_test() {
   else
     skip "pytest (ci/tests)" "no ci/tests"
   fi
+  check "at most $MAX_TEST_CASES test cases" test_case_limit
+}
+
+# test_case_limit - the whole repo's test cases, each parameterised case counting
+# (coding-style.md rule 20 exception): this run's JUnit reports (backend, Vitest,
+# ci/tests), plus the Playwright a11y tests, infra/scripts/tests and terraform test
+# runs, which are listed rather than run here (a11y may be skipped locally; the other
+# two run in the terraform job).
+test_case_limit() {
+  local reports=() file junit=0 playwright=0 infra=0 terraform=0 app line total
+  for file in "$CI_WORK"/test-results/*.xml; do
+    [[ -e "$file" && "$file" != *-a11y.xml && "$file" != */infra-scripts.xml ]] && reports+=("$file")
+  done
+  if ((${#reports[@]})); then
+    junit="$(cat "${reports[@]}" | grep -o '<testcase ' | wc -l | tr -d ' ')"
+  fi
+  for app in $(web_apps); do
+    web_has_script "$app" a11y || continue
+    line="$(cd "$app" && npm exec --no -- playwright test --list | grep -E '^Total: [0-9]+ test')" || {
+      log "ERROR: could not list the Playwright tests in $(rel "$app")"
+      return 1
+    }
+    playwright=$((playwright + $(awk '{print $2}' <<<"$line")))
+  done
+  if [[ -d "$REPO_ROOT/infra/scripts/tests" ]]; then
+    line="$(pytest_tools "$REPO_ROOT/infra/scripts/tests" --collect-only -q | tail -1)"
+    infra="$(awk '{print $1}' <<<"$line")"
+  fi
+  if [[ -d "$REPO_ROOT/infra" ]]; then
+    terraform="$(find "$REPO_ROOT/infra" -name '*.tftest.hcl' -not -path '*/.terraform/*' -exec cat {} + |
+      { grep -c '^run "' || true; })"
+  fi
+  total=$((junit + playwright + infra + terraform))
+  log "test cases: $total (JUnit $junit, Playwright $playwright, infra/scripts $infra, terraform runs $terraform); limit $MAX_TEST_CASES"
+  ((total <= MAX_TEST_CASES)) || {
+    log "ERROR: $total test cases, over the limit of $MAX_TEST_CASES (coding-style.md rule 20 exception)"
+    return 1
+  }
 }
 
 run_audit() {

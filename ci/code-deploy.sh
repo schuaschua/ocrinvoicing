@@ -209,7 +209,10 @@ import re, sys
 print(re.search(r"^__version__ = \"([^\"]+)\"", open(sys.argv[1], encoding="utf-8").read(), re.M).group(1))' \
     "$build_dir/$app/invoicing/__init__.py")"
   function_app="$(naming function_app_name "$env" "$app")"
-  host="$(az functionapp show --resource-group "$resource_group" --name "$function_app" --query defaultHostName -o tsv)"
+  # A Flex Consumption app reports its host name under `properties` only.
+  host="$(az functionapp show --resource-group "$resource_group" --name "$function_app" \
+    --query "defaultHostName || properties.defaultHostName" -o tsv)"
+  [[ -n "$host" ]] || die "no host name reported for $function_app; published: ${published[*]}"
   health_ok "$app" "$host" "$version" ||
     die "$app did not report healthy version $version; published: ${published[*]}"
 done

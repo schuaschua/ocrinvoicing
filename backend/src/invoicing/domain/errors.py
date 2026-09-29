@@ -36,6 +36,12 @@ class ErrorCode(StrEnum):
     IMAGE_DELETED = "IMAGE_DELETED"
     # An admin action the invoice's open reasons don't allow (Story 2.10): HTTP 409.
     ACTION_NOT_ALLOWED = "ACTION_NOT_ALLOWED"
+    # An accounts XML document that is malformed or not valid against invoice-v1.xsd
+    # (AD-10, Story 3.1): HTTP 400.
+    XML_INVALID = "XML_INVALID"
+    # accounts-sim's failure mode answered instead of storing (Story 3.1); its HTTP
+    # status is the one the operator set (sim_accounts.failure_mode).
+    SIMULATED_FAILURE = "SIMULATED_FAILURE"
 
 
 class DomainError(Exception):
@@ -172,3 +178,14 @@ class ImageDeletedError(DomainError):
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.IMAGE_DELETED, "Image deleted after 30 days.")
+
+
+class XmlInvalidError(DomainError):
+    """An accounts XML document that can't be parsed or breaks the contract (AD-10).
+    The message never echoes the document."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            ErrorCode.XML_INVALID,
+            "The invoice XML is not valid against invoice-v1.xsd.",
+        )

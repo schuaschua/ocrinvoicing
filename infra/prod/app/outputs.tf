@@ -13,6 +13,11 @@ output "metric_alerts" {
   value       = module.app.metric_alerts
 }
 
+output "accounts_sim_auth" {
+  description = "accounts-sim's built-in auth (AD-10): client id, issuer, audiences, allowed principal ids, sign-in required, signed-out action, site."
+  value       = module.app.accounts_sim_auth
+}
+
 output "staff_api_auth" {
   description = "staff-api's built-in auth (AD-14): client id, issuer, sign-in required, signed-out action, excluded paths, token store."
   value       = module.app.staff_api_auth

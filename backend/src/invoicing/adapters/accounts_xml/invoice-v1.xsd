@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The accounts XML contract (AD-10, Story 3.1): one invoice posted to the accounts
+  system. The pipeline's accounts adapter builds documents valid against it and
+  accounts-sim validates every request against it; both read this one file, so they
+  cannot drift apart.
+
+  Money is xs:decimal with 2 decimals (spine conventions), quantities 3. No bank data:
+  the accounts system pays from its own supplier master (AD-11).
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:inv="urn:ocrinvoicing:accounts:invoice:v1"
+           targetNamespace="urn:ocrinvoicing:accounts:invoice:v1"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified">
+
+  <!-- A lowercase UUID, as the app writes every id. -->
+  <xs:simpleType name="Uuid">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- A calendar date with no timezone (YYYY-MM-DD), as the parser reads it. -->
+  <xs:simpleType name="Date">
+    <xs:restriction base="xs:date">
+      <xs:pattern value="\d{4}-\d{2}-\d{2}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Code">
+    <xs:restriction base="xs:token">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="64"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Currency">
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]{3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Money">
+    <xs:restriction base="xs:decimal">
+      <xs:totalDigits value="18"/>
+      <xs:fractionDigits value="2"/>
+      <xs:minInclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Quantity">
+    <xs:restriction base="xs:decimal">
+      <xs:totalDigits value="18"/>
+      <xs:fractionDigits value="3"/>
+      <xs:minExclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="Description">
+    <xs:restriction base="xs:string">
+      <xs:minLength value="1"/>
+      <xs:maxLength value="500"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="Line">
+    <xs:sequence>
+      <xs:element name="line_no" type="xs:positiveInteger"/>
+      <xs:element name="material_id" type="inv:Uuid"/>
+      <xs:element name="description" type="inv:Description"/>
+      <xs:element name="quantity" type="inv:Quantity"/>
+      <xs:element name="unit_price" type="inv:Money"/>
+      <xs:element name="amount" type="inv:Money"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="Lines">
+    <xs:sequence>
+      <xs:element name="line" type="inv:Line" minOccurs="1" maxOccurs="500"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:element name="invoice">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="invoice_id" type="inv:Uuid"/>
+        <xs:element name="supplier_id" type="inv:Uuid"/>
+        <xs:element name="invoice_number" type="inv:Code"/>
+        <xs:element name="invoice_date" type="inv:Date"/>
+        <xs:element name="currency" type="inv:Currency"/>
+        <xs:element name="po_number" type="inv:Code"/>
+        <xs:element name="sub_total" type="inv:Money"/>
+        <xs:element name="total_tax" type="inv:Money"/>
+        <xs:element name="invoice_total" type="inv:Money"/>
+        <xs:element name="lines" type="inv:Lines"/>
+      </xs:sequence>
+    </xs:complexType>
+    <xs:unique name="uniqueLineNo">
+      <xs:selector xpath="inv:lines/inv:line"/>
+      <xs:field xpath="inv:line_no"/>
+    </xs:unique>
+  </xs:element>
+</xs:schema>

@@ -90,6 +90,24 @@ class AppSettings(BaseSettings):
         return value
 
 
+class PlatformAuthSettings(AppSettings):
+    """An app behind App Service built-in auth (staff-api AD-14, accounts-sim AD-10).
+
+    Set by App Service itself (Story 2.7): WEBSITE_SITE_NAME exists only in Azure, and
+    WEBSITE_AUTH_ENABLED is "True" when built-in auth is on. In Azure without it, the
+    principal headers could be spoofed, so every protected route fails closed."""
+
+    website_site_name: str | None = None
+    website_auth_enabled: str | None = None
+
+    @property
+    def platform_auth_trusted(self) -> bool:
+        """True locally (no platform), or in Azure with built-in auth on."""
+        if not self.website_site_name:
+            return True
+        return (self.website_auth_enabled or "").strip().lower() == "true"
+
+
 def load_settings[S: AppSettings](settings_class: type[S]) -> S:
     """Build `settings_class` from the environment, or fail fast naming the bad settings."""
     try:

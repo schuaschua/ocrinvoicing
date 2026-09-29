@@ -61,8 +61,8 @@ development_status:
   2-11-opt-in-keyboard-shortcuts-for-the-admin-queue: review
   epic-2-retrospective: optional
 
-  epic-3: backlog
-  3-1-simulated-accounts-system: backlog
+  epic-3: in-progress
+  3-1-simulated-accounts-system: review
   3-2-clean-invoices-post-automatically: backlog
   3-3-admin-approves-exceptions-after-checking-them: backlog
   3-4-search-all-invoices: backlog

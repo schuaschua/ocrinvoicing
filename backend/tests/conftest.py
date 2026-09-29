@@ -45,6 +45,14 @@ APP_ONLY_SETTINGS = {
         "DI_MONTHLY_PAGE_CAP": "100",
         "INVOICE_CURRENCY": "SGD",
     },
+    # Story 3.1: accounts-sim's own login, and the one principal it serves (the
+    # environment's pipeline identity).
+    "accounts_sim": {
+        "POSTGRES_HOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",
+        "POSTGRES_DATABASE": "invoicing_dev",
+        "POSTGRES_USER": "babaloo-sea-lng-id-04",
+        "PIPELINE_PRINCIPAL_ID": "10000000-0000-0000-0000-000000000003",
+    },
     "pipeline": {
         "POSTGRES_HOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",
         "POSTGRES_DATABASE": "invoicing_dev",
@@ -163,8 +171,9 @@ class PostgresServer:
     # The app logins the migrations grant to (-x pipeline_role / staff_api_role).
     pipeline: str = "pipeline-login"
     staff_api: str = "staff-api-login"
-    # A login with CONNECT but no schema grant (e.g. accounts-sim).
-    outsider: str = "accounts-sim-login"
+    # The accounts-sim login (-x accounts_sim_role, Story 3.1): only `sim_accounts`,
+    # so it is also the login with no grant on any other schema.
+    accounts_sim: str = "accounts-sim-login"
     # The supplier load script's login (-x dj_role, Story 1.6): the environment's
     # loaders group, which Dj is a member of (Dj, 2026-09-29: guest UPN over 63 characters).
     dj: str = "babaloo-sea-lng-grp-01"
@@ -202,7 +211,7 @@ class PostgresServer:
                 db, owner = quote(name), quote(self.deployer)
                 logins = ", ".join(
                     quote(r)
-                    for r in (self.pipeline, self.staff_api, self.outsider, self.dj)
+                    for r in (self.pipeline, self.staff_api, self.accounts_sim, self.dj)
                 )
                 connection.execute(text(f"CREATE DATABASE {db} OWNER {owner}"))
                 connection.execute(
@@ -215,7 +224,8 @@ class PostgresServer:
             engine.dispose()
 
     def alembic(self, database: str, *args: str) -> subprocess.CompletedProcess[str]:
-        """`alembic -x pipeline_role=... -x staff_api_role=... -x dj_role=... <args>`
+        """`alembic -x pipeline_role=... -x staff_api_role=... -x dj_role=...
+        -x accounts_sim_role=... <args>`
         from backend/, connected through the PG* variables only, as ci/migrate.sh
         runs it."""
         env = {
@@ -233,6 +243,8 @@ class PostgresServer:
                 f"staff_api_role={self.staff_api}",
                 "-x",
                 f"dj_role={self.dj}",
+                "-x",
+                f"accounts_sim_role={self.accounts_sim}",
                 *args,
             ],
             cwd=BACKEND_DIR,
@@ -293,7 +305,7 @@ def postgres_server() -> Iterator[PostgresServer]:
                 server.deployer,
                 server.pipeline,
                 server.staff_api,
-                server.outsider,
+                server.accounts_sim,
                 server.dj,
             ):
                 # DDL takes no bound parameters; the password is hex from secrets.

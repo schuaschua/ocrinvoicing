@@ -57,6 +57,16 @@ variable "staff_api_client_id" {
   }
 }
 
+variable "accounts_sim_client_id" {
+  description = "Client (application) id of this environment's accounts-sim app registration, babaloo-sea-lng-accounts-sim-<env>, as infra/bootstrap/app-registrations.sh prints it (AD-10, Story 3.1). Its identifier URI api://<client id> is the audience built-in auth accepts. Not a secret."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", var.accounts_sim_client_id))
+    error_message = "accounts_sim_client_id must be the app registration's client id: a lowercase UUID."
+  }
+}
+
 variable "storage_account" {
   description = "The environment's storage account from <env>/foundation (name and resource id)."
   type = object({

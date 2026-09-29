@@ -19,6 +19,8 @@ module "app" {
   app_names         = local.app_names
   # Story 2.7: staff-api's built-in auth signs in through this app registration.
   staff_api_client_id = var.staff_api_client_id
+  # Story 3.1: accounts-sim's built-in auth accepts tokens for this app registration.
+  accounts_sim_client_id = var.accounts_sim_client_id
   identities = {
     for app, identity in local.foundation.identities : app => {
       name         = identity.name

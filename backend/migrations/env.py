@@ -9,10 +9,12 @@ Role names: every schema grant is a migration (AD-11), and the logins differ per
 environment, so they come from `-x` arguments and are never literals in a migration:
 
     alembic -x pipeline_role=<login> -x staff_api_role=<login> -x dj_role=<login> \
-        upgrade head
+        -x accounts_sim_role=<login> upgrade head
 
 `dj_role` is the environment's loaders group (an Entra group Dj is a member of), the
 supplier load script's login (Story 1.6; Dj, 2026-09-29: guest UPN over 63 characters).
+`accounts_sim_role` is the accounts-sim identity's login, the only one on `sim_accounts`
+(Story 3.1).
 
 Migrations run in the deploy pipeline only, never at app start (AD-17).
 """
@@ -23,7 +25,7 @@ from alembic import context
 from sqlalchemy import Connection, create_engine, pool
 
 # The logins a migration may grant to (AD-11), by `-x` argument name.
-ROLE_ARGUMENTS = ("pipeline_role", "staff_api_role", "dj_role")
+ROLE_ARGUMENTS = ("pipeline_role", "staff_api_role", "dj_role", "accounts_sim_role")
 # Entra principal names: managed identity and group names (letters, digits, - and _) or a UPN.
 _ROLE_NAME = re.compile(r"[A-Za-z0-9_.@-]{1,63}")
 

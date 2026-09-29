@@ -155,8 +155,8 @@ GRANTS = (
         ("pipeline", "master.supplier_bank", "UPDATE", False),
         ("pipeline", "master.supplier_bank.ciphertext", "SELECT", False),
         ("pipeline", "audit.event", "SELECT", False),
-        ("outsider", "master.supplier", "SELECT", False),
-        ("outsider", "audit.event.action", "INSERT", False),
+        ("accounts_sim", "master.supplier", "SELECT", False),
+        ("accounts_sim", "audit.event.action", "INSERT", False),
     ]
     + [
         (login, "audit.event", privilege, False)

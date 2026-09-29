@@ -91,7 +91,7 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
     finally:
         staff.dispose()
     # Other logins have no grant on the schema at all.
-    outsider = _engine(postgres_server, postgres_server.outsider, intake_database)
+    outsider = _engine(postgres_server, postgres_server.accounts_sim, intake_database)
     try:
         with (
             outsider.connect() as connection,

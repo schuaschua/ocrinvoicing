@@ -40,7 +40,8 @@ def _copy_package(tmp_path: Path) -> Path:
 def test_story_2_4_lint_imports_passes_on_the_package(tmp_path: Path) -> None:
     result = _lint_imports(_copy_package(tmp_path))
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "1 kept, 0 broken" in result.stdout
+    # Story 3.1 added the second contract: only adapters/accounts_xml imports xmlschema.
+    assert "2 kept, 0 broken" in result.stdout
 
 
 def test_story_2_4_lint_imports_fails_when_another_module_imports_the_simulation(
@@ -49,8 +50,11 @@ def test_story_2_4_lint_imports_fails_when_another_module_imports_the_simulation
     root = _copy_package(tmp_path)
     (root / "invoicing" / "apps" / "sneaky.py").write_text(
         "from invoicing.adapters.purchasing_sim.adapter import PurchasingSimAdapter\n"
+        # Story 3.1: XML is parsed only in the accounts adapter (AD-10).
+        "import xmlschema\n"
     )
     result = _lint_imports(root)
     assert result.returncode != 0
-    assert "BROKEN" in result.stdout
+    assert "0 kept, 2 broken" in result.stdout
     assert "invoicing.apps.sneaky" in result.stdout
+    assert "invoicing.apps.sneaky -> xmlschema" in result.stdout

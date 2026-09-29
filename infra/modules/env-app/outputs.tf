@@ -71,6 +71,24 @@ output "staff_api_auth" {
   }
 }
 
+output "accounts_sim_auth" {
+  description = "accounts-sim's built-in auth (AD-10): Entra client id, OpenID issuer, allowed audiences, allowed principal ids, whether sign-in is required, the action for signed-out calls and the site it is on."
+  value = {
+    client_id                     = local.accounts_sim_auth.identityProviders.azureActiveDirectory.registration.clientId
+    open_id_issuer                = local.accounts_sim_auth.identityProviders.azureActiveDirectory.registration.openIdIssuer
+    allowed_audiences             = local.accounts_sim_auth.identityProviders.azureActiveDirectory.validation.allowedAudiences
+    allowed_principal_ids         = local.accounts_sim_auth.identityProviders.azureActiveDirectory.validation.defaultAuthorizationPolicy.allowedPrincipals.identities
+    require_authentication        = local.accounts_sim_auth.globalValidation.requireAuthentication
+    unauthenticated_client_action = local.accounts_sim_auth.globalValidation.unauthenticatedClientAction
+    site_id                       = azapi_update_resource.accounts_sim_auth.parent_id
+  }
+}
+
+output "accounts_sim_app_settings" {
+  description = "accounts-sim's app settings as this module sets them (no secrets)."
+  value       = local.app_settings["accounts_sim"]
+}
+
 output "staff_api_app_settings" {
   description = "staff-api's app settings as this module sets them (no secrets: the Application Insights connection string is passed to the AVM module separately)."
   value       = local.app_settings["staff_api"]

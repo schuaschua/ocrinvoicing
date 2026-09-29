@@ -4,7 +4,8 @@
 # The ACS Email Sender assignment (5.2) is added later; Story 1.5 added the telemetry
 # settings, Story 2.2 the pipeline's poison_message and stuck_invoices metric alerts,
 # Story 2.3 the pipeline's DI settings, its Cognitive Services User assignment and the
-# di_pages_used_pct alert, and Story 2.7 staff-api's built-in auth.
+# di_pages_used_pct alert, Story 2.7 staff-api's built-in auth, and Story 3.1
+# accounts-sim's built-in auth and database settings.
 
 locals {
   apps = toset(keys(var.app_names))
@@ -77,7 +78,15 @@ locals {
       DI_MONTHLY_PAGE_CAP = tostring(var.di_monthly_page_cap)
       INVOICE_CURRENCY    = var.invoice_currency
     }
-    accounts_sim = {}
+    # Story 3.1 (AD-10, AD-11): accounts-sim's own database login (its identity's
+    # name, Entra token, no password), and the one principal it serves, this
+    # environment's pipeline identity (checked again in code).
+    accounts_sim = {
+      POSTGRES_HOST         = var.database.fqdn
+      POSTGRES_DATABASE     = var.database.name
+      POSTGRES_USER         = var.identities["accounts_sim"].name
+      PIPELINE_PRINCIPAL_ID = var.identities["pipeline"].principal_id
+    }
   }
 
   app_settings = { for app in local.apps : app => merge(local.common_settings[app], local.app_specific_settings[app]) }
@@ -274,7 +283,7 @@ resource "azurerm_role_assignment" "runtime" {
 # Entra sign-in, single tenant, through the bootstrap's `staff-api` app registration
 # (assignment required, app roles, ID tokens on; infra/bootstrap/app-registrations.sh).
 # ID tokens only, so there is no client secret. The redirect URI is operator step 8
-# (infra/bootstrap/README.md). accounts-sim's auth comes with its XML route (AD-10).
+# (infra/bootstrap/README.md). accounts-sim's auth is below (AD-10, Story 3.1).
 
 data "azapi_client_config" "current" {}
 
@@ -337,6 +346,66 @@ resource "azapi_update_resource" "staff_api_auth" {
   name      = "authsettingsV2"
   parent_id = module.function_apps["staff_api"].resource_id
   body      = { properties = local.staff_api_auth }
+}
+
+# --- Built-in auth on accounts-sim (AD-10, Story 3.1) -----------------------------------
+#
+# Only this environment's pipeline identity may call it: a managed-identity token for
+# the bootstrap's `accounts-sim` app registration (audience api://<client id>), from the
+# pipeline's principal (allowedPrincipals.identities). Human users and every other
+# identity, the other environment's pipeline included, are refused with 403; a call
+# without a token gets 401. The app checks the principal again (apps/accounts_sim).
+
+locals {
+  accounts_sim_auth = {
+    platform = {
+      enabled        = true
+      runtimeVersion = "~1"
+    }
+    globalValidation = {
+      requireAuthentication = true
+      # An API with no pages: signed-out calls get 401, never a redirect. No route is
+      # anonymous (accounts-sim has no health route).
+      unauthenticatedClientAction = "Return401"
+    }
+    identityProviders = {
+      azureActiveDirectory = {
+        enabled = true
+        registration = {
+          clientId = var.accounts_sim_client_id
+          # Single tenant. [ASSUMPTION] Managed-identity tokens are v1 (issuer
+          # sts.windows.net); built-in auth accepts v1 and v2 tokens for this issuer.
+          # To confirm on the first Dev deploy (plan 3.1 Design Notes).
+          openIdIssuer = "https://sts.windows.net/${data.azapi_client_config.current.tenant_id}/v2.0"
+        }
+        validation = {
+          allowedAudiences = ["api://${var.accounts_sim_client_id}"]
+          defaultAuthorizationPolicy = {
+            allowedPrincipals = {
+              identities = [var.identities["pipeline"].principal_id]
+            }
+          }
+        }
+      }
+    }
+    login = {
+      # Bearer tokens only; nothing is kept server side.
+      tokenStore = { enabled = false }
+    }
+    httpSettings = {
+      requireHttps = true
+      routes       = { apiPrefix = "/.auth" }
+      forwardProxy = { convention = "NoProxy" }
+    }
+  }
+}
+
+# azapi, not azurerm, for the same reason as staff_api_auth above.
+resource "azapi_update_resource" "accounts_sim_auth" {
+  type      = "Microsoft.Web/sites/config@2025-03-01"
+  name      = "authsettingsV2"
+  parent_id = module.function_apps["accounts_sim"].resource_id
+  body      = { properties = local.accounts_sim_auth }
 }
 
 # --- Metric alerts (AD-17): the pipeline's custom metrics, sent to Dj ---------------------

@@ -258,8 +258,10 @@ def test_story_1_2_terraform_apply_only_from_the_saved_plan(work_dir: Path) -> N
 
 
 MIGRATE_ENVIRONMENTS = [
-    ("dev", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-03", "babaloo-sea-lng-id-02", "babaloo-sea-lng-grp-01"),
-    ("prod", "babaloo-sea-lng-id-23", "babaloo-sea-lng-id-13", "babaloo-sea-lng-id-12", "babaloo-sea-lng-grp-11"),
+    ("dev", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-03", "babaloo-sea-lng-id-02", "babaloo-sea-lng-grp-01",
+     "babaloo-sea-lng-id-04"),
+    ("prod", "babaloo-sea-lng-id-23", "babaloo-sea-lng-id-13", "babaloo-sea-lng-id-12", "babaloo-sea-lng-grp-11",
+     "babaloo-sea-lng-id-14"),
 ]
 
 
@@ -267,7 +269,8 @@ def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token
     """migrate.sh, for dev and then prod: --check finds work; the run uses the env deploy
     identity's login with an Entra token over TLS, grants to the env's app logins (Story 2.1),
     asks az for one token and opens no firewall. Story 1.6: it also grants to the env's
-    loaders group (Dj's load-script login), named by the naming helpers; a leftover
+    loaders group (Dj's load-script login), named by the naming helpers, and Story 3.1 to
+    the env's accounts-sim login; a leftover
     DJ_USER_UPN is ignored (Dj, 2026-09-29: guest UPN over 63 characters). --check with no
     migrations writes exactly hasWork=false to the Jenkinsfile's CI_OUTPUT_FILE, and with
     migrations exactly hasWork=true."""
@@ -276,7 +279,7 @@ def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token
                  CI_MIGRATIONS_DIR=str(work_dir / "no-migrations"), CI_OUTPUT_FILE=str(output_file))
     assert check.returncode == 0, check.stderr
     assert output_file.read_text() == "hasWork=false\n"
-    for env, login, pipeline_role, staff_api_role, loaders_group in MIGRATE_ENVIRONMENTS:
+    for env, login, pipeline_role, staff_api_role, loaders_group, accounts_sim_role in MIGRATE_ENVIRONMENTS:
         migrations = work_dir / f"migrations-{env}"
         migrations.mkdir()
         (migrations / "env.py").write_text("# fixture\n")
@@ -299,7 +302,8 @@ def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token
         assert call["args"] == [
             "run", "--directory", str(REPO_ROOT / "backend"), "--locked", "--no-dev", "alembic",
             "-x", f"pipeline_role={pipeline_role}", "-x", f"staff_api_role={staff_api_role}",
-            "-x", f"dj_role={loaders_group}", "upgrade", "head",
+            "-x", f"dj_role={loaders_group}", "-x", f"accounts_sim_role={accounts_sim_role}",
+            "upgrade", "head",
         ]
         assert call["env"] == {
             "PGHOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",

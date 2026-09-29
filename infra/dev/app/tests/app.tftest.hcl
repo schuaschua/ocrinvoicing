@@ -142,6 +142,8 @@ variables {
   application         = "test-app"
   data_classification = "test-class"
   staff_api_client_id = "30000000-0000-0000-0000-0000000000a1"
+  # Story 3.1: accounts-sim's app registration.
+  accounts_sim_client_id = "30000000-0000-0000-0000-0000000000b1"
 }
 
 run "dev_app" {
@@ -306,5 +308,21 @@ run "dev_app" {
       output.staff_api_auth.open_id_issuer == "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
     )
     error_message = "dev staff-api must require Entra sign-in through staff_api_client_id, single tenant (AD-14)."
+  }
+  # Story 3.1: built-in auth on accounts-sim admits only the dev pipeline identity, with
+  # a token for accounts-sim's own app registration; it signs in to the dev database
+  # as its own identity.
+  assert {
+    condition = (
+      output.accounts_sim_auth.client_id == "30000000-0000-0000-0000-0000000000b1" &&
+      output.accounts_sim_auth.allowed_audiences == ["api://30000000-0000-0000-0000-0000000000b1"] &&
+      output.accounts_sim_auth.allowed_principal_ids == [local.foundation.identities["pipeline"].principal_id] &&
+      output.accounts_sim_auth.site_id == output.function_apps["accounts_sim"].resource_id &&
+      output.accounts_sim_auth.site_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Web/sites/babaloo-sea-lng-func-04" &&
+      output.accounts_sim_auth.unauthenticated_client_action == "Return401" &&
+      module.app.accounts_sim_app_settings.POSTGRES_USER == local.foundation.identities["accounts_sim"].name &&
+      module.app.accounts_sim_app_settings.PIPELINE_PRINCIPAL_ID == local.foundation.identities["pipeline"].principal_id
+    )
+    error_message = "dev accounts-sim must accept only the dev pipeline identity's token for its own app registration (AD-10), and sign in to the database as its own identity."
   }
 }

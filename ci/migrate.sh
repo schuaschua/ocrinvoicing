@@ -10,9 +10,10 @@
 # Contract for backend/migrations/env.py (Story 1.3): take the connection from the
 # libpq variables PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE and PGSSLMODE; the
 # roles to grant to come as `-x pipeline_role=<login> -x staff_api_role=<login>`
-# (Story 2.1) and `-x dj_role=<login>` (Story 1.6). `dj_role` is the environment's
-# loaders group, the supplier load script's login, which database-step5.sh created
-# (Dj is a member; Dj, 2026-09-29: guest UPN over 63 characters).
+# (Story 2.1), `-x dj_role=<login>` (Story 1.6) and `-x accounts_sim_role=<login>`
+# (Story 3.1). `dj_role` is the environment's loaders group, the supplier load
+# script's login, which database-step5.sh created (Dj is a member; Dj, 2026-09-29:
+# guest UPN over 63 characters).
 
 # shellcheck source-path=SCRIPTDIR source=lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -60,11 +61,11 @@ fi
 # that database-step5.sh created. The logins are the roles the migrations grant to
 # (AD-11), passed as `-x` arguments (backend/migrations/env.py), never hard-coded.
 # shellcheck disable=SC2016  # expanded by the inner bash
-names="$(bash -c 'source "$1/infra/bootstrap/lib.sh" && printf "%s %s %s %s %s %s" \
+names="$(bash -c 'source "$1/infra/bootstrap/lib.sh" && printf "%s %s %s %s %s %s %s" \
   "$(postgres_fqdn)" "$(deploy_identity_name "$2")" "$(env_database_name "$2")" \
   "$(app_identity_name "$2" pipeline)" "$(app_identity_name "$2" staff-api)" \
-  "$(loaders_group_name "$2")"' bash "$REPO_ROOT" "$env")"
-read -r pg_host pg_user pg_database pipeline_role staff_api_role dj_role <<<"$names"
+  "$(loaders_group_name "$2")" "$(app_identity_name "$2" accounts-sim)"' bash "$REPO_ROOT" "$env")"
+read -r pg_host pg_user pg_database pipeline_role staff_api_role dj_role accounts_sim_role <<<"$names"
 
 token="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 [[ -n "$token" ]] || die "no Entra token for PostgreSQL"
@@ -74,4 +75,4 @@ export PGPASSWORD="$token"
 log "alembic upgrade head on $PGDATABASE as $PGUSER"
 uv run --directory "$REPO_ROOT/backend" --locked --no-dev alembic \
   -x "pipeline_role=$pipeline_role" -x "staff_api_role=$staff_api_role" \
-  -x "dj_role=$dj_role" upgrade head
+  -x "dj_role=$dj_role" -x "accounts_sim_role=$accounts_sim_role" upgrade head

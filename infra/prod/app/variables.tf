@@ -31,6 +31,11 @@ variable "telemetry_sampling_ratio" {
   default = 0.5
 }
 
+variable "accounts_sim_client_id" {
+  description = "Client id of babaloo-sea-lng-accounts-sim-<env>, printed by infra/bootstrap/app-registrations.sh (AD-10, Story 3.1). Not a secret."
+  type        = string
+}
+
 variable "staff_api_client_id" {
   description = "Client id of babaloo-sea-lng-staff-api-<env>, printed by infra/bootstrap/app-registrations.sh (AD-14). Not a secret."
   type        = string

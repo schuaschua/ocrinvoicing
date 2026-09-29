@@ -10,3 +10,7 @@ data_classification = "synthetic"
 # Story 2.7: the client id of babaloo-sea-lng-staff-api-prod, which
 # infra/bootstrap/app-registrations.sh prints (not a secret):
 # staff_api_client_id = ""
+#
+# Story 3.1: the client id of babaloo-sea-lng-accounts-sim-prod, which
+# infra/bootstrap/app-registrations.sh prints (not a secret):
+# accounts_sim_client_id = ""

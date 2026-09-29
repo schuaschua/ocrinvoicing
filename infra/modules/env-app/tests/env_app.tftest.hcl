@@ -135,6 +135,7 @@ variables {
   di_monthly_page_cap                    = 100
   telemetry_sampling_ratio               = 0.5
   staff_api_client_id                    = "30000000-0000-0000-0000-0000000000a1"
+  accounts_sim_client_id                 = "30000000-0000-0000-0000-0000000000b1"
   application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
   tags = {
     owner              = "test-owner"
@@ -145,7 +146,8 @@ variables {
   }
 }
 
-# Covers: four_apps_one_plan_each, runtime_roles_are_exactly_ad17, staff_api_built_in_auth.
+# Covers: four_apps_one_plan_each, runtime_roles_are_exactly_ad17, staff_api_built_in_auth,
+# accounts_sim_built_in_auth.
 run "story_1_3_env_app_applied" {
   command = apply
 
@@ -371,6 +373,56 @@ run "story_1_3_env_app_applied" {
     }
     error_message = "the staff_api_auth output must report the configured auth."
   }
+  # --- accounts_sim_built_in_auth
+  # Story 3.1 (AD-10): only this environment's pipeline identity may call accounts-sim,
+  # with a token for its own app registration; signed-out calls get 401.
+  assert {
+    condition = (
+      azapi_update_resource.accounts_sim_auth.type == "Microsoft.Web/sites/config@2025-03-01" &&
+      azapi_update_resource.accounts_sim_auth.name == "authsettingsV2" &&
+      azapi_update_resource.accounts_sim_auth.parent_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Web/sites/babaloo-sea-lng-func-04" &&
+      azapi_update_resource.accounts_sim_auth.body.properties.platform.enabled &&
+      azapi_update_resource.accounts_sim_auth.body.properties.globalValidation == {
+        requireAuthentication       = true
+        unauthenticatedClientAction = "Return401"
+      }
+    )
+    error_message = "built-in auth v2 must be on the accounts-sim site (func-04), require sign-in on every route and answer 401 to signed-out calls (AD-10)."
+  }
+  assert {
+    condition = (
+      keys(azapi_update_resource.accounts_sim_auth.body.properties.identityProviders) == ["azureActiveDirectory"] &&
+      azapi_update_resource.accounts_sim_auth.body.properties.identityProviders.azureActiveDirectory.registration == {
+        clientId     = "30000000-0000-0000-0000-0000000000b1"
+        openIdIssuer = "https://sts.windows.net/11111111-1111-1111-1111-111111111111/v2.0"
+      } &&
+      azapi_update_resource.accounts_sim_auth.body.properties.identityProviders.azureActiveDirectory.validation == {
+        allowedAudiences           = ["api://30000000-0000-0000-0000-0000000000b1"]
+        defaultAuthorizationPolicy = { allowedPrincipals = { identities = ["10000000-0000-0000-0000-000000000003"] } }
+      }
+    )
+    error_message = "accounts-sim must accept only tokens for its own app registration (api://<client id>), single tenant, from this environment's pipeline identity alone (AD-10)."
+  }
+  assert {
+    condition = (
+      !azapi_update_resource.accounts_sim_auth.body.properties.login.tokenStore.enabled &&
+      azapi_update_resource.accounts_sim_auth.body.properties.httpSettings.requireHttps &&
+      !can(regex("(?i)secret", jsonencode(azapi_update_resource.accounts_sim_auth.body)))
+    )
+    error_message = "accounts-sim's auth must keep no tokens, require HTTPS and use no client secret."
+  }
+  assert {
+    condition = output.accounts_sim_auth == {
+      client_id                     = "30000000-0000-0000-0000-0000000000b1"
+      open_id_issuer                = "https://sts.windows.net/11111111-1111-1111-1111-111111111111/v2.0"
+      allowed_audiences             = ["api://30000000-0000-0000-0000-0000000000b1"]
+      allowed_principal_ids         = ["10000000-0000-0000-0000-000000000003"]
+      require_authentication        = true
+      unauthenticated_client_action = "Return401"
+      site_id                       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Web/sites/babaloo-sea-lng-func-04"
+    }
+    error_message = "the accounts_sim_auth output must report the configured auth."
+  }
 }
 
 # Covers: app_settings_hold_no_secrets, pipeline_database_settings, telemetry_settings, private_key_vault_setting.
@@ -383,7 +435,7 @@ run "story_1_3_env_app_settings_plan" {
       supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
       staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
       pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_ENDPOINT", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
-      accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
+      accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "PIPELINE_PRINCIPAL_ID"])
     }
     error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
   }
@@ -427,12 +479,20 @@ run "story_1_3_env_app_settings_plan" {
     )
     error_message = "staff-api must connect to its environment's database as its own identity's login, with the DI cap and currency (Story 2.8)."
   }
+  # Story 3.1: accounts-sim signs in as its own identity and is told the pipeline's
+  # principal id, the one caller it serves (AD-10).
   assert {
-    condition = alltrue([
-      for app in ["supplier_api", "accounts_sim"] :
-      length([for key in keys(local.app_settings[app]) : key if startswith(key, "POSTGRES_")]) == 0
-    ])
-    error_message = "only the pipeline and staff-api get database settings (supplier-api has no login, AD-11)."
+    condition = (
+      local.app_settings["accounts_sim"].POSTGRES_HOST == "babaloo-sea-lng-psql-21.postgres.database.azure.com" &&
+      local.app_settings["accounts_sim"].POSTGRES_DATABASE == "invoicing_dev" &&
+      local.app_settings["accounts_sim"].POSTGRES_USER == "babaloo-sea-lng-id-04" &&
+      local.app_settings["accounts_sim"].PIPELINE_PRINCIPAL_ID == "10000000-0000-0000-0000-000000000003"
+    )
+    error_message = "accounts-sim must connect to its environment's database as its own identity's login and serve only the pipeline's principal id (Story 3.1)."
+  }
+  assert {
+    condition     = length([for key in keys(local.app_settings["supplier_api"]) : key if startswith(key, "POSTGRES_")]) == 0
+    error_message = "supplier-api gets no database settings (it has no login, AD-11)."
   }
   # --- telemetry_settings
   # Story 1.5: every app exports telemetry with Entra auth and samples (AD-17).

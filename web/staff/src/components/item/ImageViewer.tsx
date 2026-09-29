@@ -3,6 +3,7 @@ import { useState } from "react";
 import { itemImageUrl } from "@/api/item";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useShortcuts } from "@/shell/shortcuts";
 import { strings } from "@/strings";
 
 import type { FlagBox } from "./boxes";
@@ -102,6 +103,28 @@ export function ImageViewer({
     null,
   );
   const url = itemImageUrl(invoiceId);
+  const target = boxes.find((box) => box.fieldId === selected) ?? null;
+  const index = target === null ? -1 : boxes.indexOf(target);
+
+  function step(delta: number) {
+    if (boxes.length === 0) return;
+    const next =
+      index === -1
+        ? delta > 0
+          ? 0
+          : boxes.length - 1
+        : (index + delta + boxes.length) % boxes.length;
+    const box = boxes[next];
+    if (box !== undefined) onStep(box.fieldId, next + 1);
+  }
+
+  // Story 2.11: Previous and Next flag's handler, only while those buttons work.
+  const stepping =
+    imageAvailable && contentType !== "application/pdf" && boxes.length > 0;
+  useShortcuts({
+    n: stepping ? () => step(1) : undefined,
+    p: stepping ? () => step(-1) : undefined,
+  });
 
   if (!imageAvailable) {
     return (
@@ -123,29 +146,15 @@ export function ImageViewer({
     );
   }
 
-  const target = boxes.find((box) => box.fieldId === selected) ?? null;
   const view =
     manual !== null && manual.key === selectionKey
       ? manual.view
       : target !== null
         ? zoomTo(target)
         : WHOLE;
-  const index = target === null ? -1 : boxes.indexOf(target);
 
   function change(next: View) {
     setManual({ key: selectionKey, view: next });
-  }
-
-  function step(delta: number) {
-    if (boxes.length === 0) return;
-    const next =
-      index === -1
-        ? delta > 0
-          ? 0
-          : boxes.length - 1
-        : (index + delta + boxes.length) % boxes.length;
-    const box = boxes[next];
-    if (box !== undefined) onStep(box.fieldId, next + 1);
   }
 
   const v = strings.item.viewer;

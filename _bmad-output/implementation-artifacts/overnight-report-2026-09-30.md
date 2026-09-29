@@ -31,7 +31,61 @@ Dj asked me to "do as many stories as you can" without him, and to keep tests to
 
 ## Per story
 
-(Filled in below as each story finished.)
+Each story: plan, coding agent, edge-case and verification-gap reviews run one after the other, fixes, `ci/checks.sh all`, gitleaks-gated commit, push, Jenkins deploy to Dev.
+
+### 2.3 Invoice fields are extracted by Document Intelligence (`632c42b`, OCR-26), deployed in build #6
+- **What it does:**
+  - An `extract` stage calls the DI REST API (2024-11-30) with a managed identity.
+  - AD-8 limits are kept in `intake.di_usage` under an advisory lock: at most 1 request every 2 s, polls included, and pages reserved before each analyze call.
+  - Results are saved as AD-18 rows, with bank values encrypted and fingerprinted from their first write.
+  - A 429 is re-sent after `Retry-After`; the page cap or a DI quota error routes the invoice as `EXTRACTION_QUOTA`.
+- **Terraform:** the Cognitive Services User role, and the `di_pages_used_pct` alert at 80 % (`ar-03` Dev, `ar-13` Prod).
+- **Review:** 9 findings patched, including a security fix: a non-array `PaymentDetails` could have been stored as plaintext.
+- **To confirm in Dev:** the F0 quota error code (marked `[ASSUMPTION]`).
+
+### 2.5 Validation: confidence, PO match, printed supplier (`cb7fab2`, OCR-28), deployed in build #7
+- **Current values:** one domain function reads them: the latest run, overlaid by admin rows.
+- **Checks:**
+  - PO match: expected amount in `Decimal`, tolerance max(1 %, 1.00). Partial deliveries deduct other invoices' current quantities; a goods-in scan uses its own delivery's receipt.
+  - Printed supplier: tax id, otherwise a rapidfuzz score of 85 or more.
+- Everything is written in one transaction under a per-supplier advisory lock.
+- **New:** a `rapidfuzz` dependency, `GoodsReceipt.delivery_id`, and migration 0006.
+- **Review:** 12 findings patched, including normalising product codes and PO numbers, and closing a gap where an invoice with no lines could auto-pass.
+
+### 2.6 Validation: duplicates, dates, bank changes (`35ba8fb`, OCR-29), deployed in build #8
+- **Duplicates:** matched by fingerprint or by image hash within Hamming distance 8, against the same supplier's earlier, non-rejected invoices, under the lock. Of two concurrent copies only the later is flagged, and a concurrent test proves the lock.
+- **Photo date:** compared as a Singapore date against the latest receipt, passing from 0 to 30 days after it.
+- **`BANK_CHANGED`:** by fingerprint per field id; nothing is decrypted.
+- **Reminders:** the reminder row is deleted after a PO match.
+- **Deferred:** the duplicate edge before extraction, the unbounded history read under the lock, and the resend-after-unreadable UX.
+
+### 2.8 Admin queue list (`1568765`, OCR-31), deployed in build #9
+- **Database access:** staff-api now reads the database. Terraform gained its `POSTGRES_*`, cap and currency settings, and migration 0007 lets it read `di_usage`.
+- **`GET /api/admin/queue`:** admin only; oldest first, 50 a page; open reasons from the latest routing; current totals; filters by reason and supplier with the full supplier list; the 80 % page-usage figure. It reads from one snapshot.
+- **`/queue` screen:** the table, labelled chips (blocking ones marked), filters, paging, the empty and no-match states, and the Alert.
+- **Deferred:** the pre-existing `platform_auth_trusted` default on the `me` route and `staff_endpoint`. The queue route now requires the argument and is tested.
+
+### 2.9 Admin item: crop, fields, bank change (`598b244`, OCR-32), deployed in build #10
+- **Endpoints:** item, image and reveal.
+  - Non-admins, unknown invoices and invoices not in the queue get 404.
+  - Masks are computed in SQL; values of 4 characters or fewer show no digits.
+  - A reveal decrypts in SQL with the private key from the private-key vault and writes its audit row in the same transaction.
+- Extraction now saves page sizes (migration 0008), so flag boxes can be drawn.
+- **Screen:** an image viewer (zoom to flags, numbered haloed boxes, reduced-motion aware), a linked field list, and a bank-change panel with a timed reveal.
+- **Review:** 12 findings patched; a high one was short bank values leaving the server in full.
+- **Deferred:**
+  - a PDF viewer (PDFs open by link for now);
+  - boxes for runs extracted before migration 0008.
+
+### 2.10 Admin corrects, re-extracts or rejects (`317c6b5`, OCR-33), deploying in build #11
+- **Guard:** decides the allowed actions from the open reasons. Approve is Story 3.3.
+- **Four actions:** each is one locked transaction, with a routing-id check against stale pages, the conditional transition, the rows and the audit row. After the commit come the stage message and the corrections JSON blob, which holds no bank data.
+- **Screen:** an action bar, Correct mode, dialogs, a Toast, next-item focus, drafts kept across a re-sign-in, and the "Returned after correction" badge.
+- **Review:** 15 findings patched.
+- The shared API client gained a `SESSION_RESTORED` event, in both apps.
+
+### Test merge (`3c275d2`)
+Backend tests were merged to free room under the cap, 198 → 163 cases, with every assertion kept.
 
 ## Needs you
 

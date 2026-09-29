@@ -15,6 +15,8 @@ import { SignedOut, signInHref } from "@/screens/SignedOut";
 import { SurfacePage } from "@/screens/SurfacePage";
 import { Nav } from "@/shell/Nav";
 import { leftFor, useNotice } from "@/shell/notices";
+import { useShortcuts, useShortcutsEnabled } from "@/shell/shortcuts";
+import { ShortcutsToggle } from "@/shell/ShortcutsToggle";
 import { strings } from "@/strings";
 import {
   canOpen,
@@ -86,15 +88,25 @@ export function App() {
   useEffect(() => leftFor(path), [path]);
   const sheetHeading = useId();
   const dialogHeading = useId();
+  const helpHeading = useId();
+  const shortcutsOn = useShortcutsEnabled();
+  const [helpOpen, setHelpOpen] = useState(false);
+  // Turned off (here or in another tab): the help closes and stays closed.
+  if (!shortcutsOn && helpOpen) setHelpOpen(false);
+  useShortcuts({
+    "?": session.kind === "ready" ? () => setHelpOpen(true) : undefined,
+  });
 
   useEffect(() => {
     const stopExpired = onApiEvent(SESSION_EXPIRED, () => {
       // Dialogs stack one level deep at most: the Sheet gives way.
       setMenuOpen(false);
+      setHelpOpen(false);
       setSessionExpired(true);
     });
     const stopOffline = onApiEvent(OFFLINE, () => {
       setMenuOpen(false);
+      setHelpOpen(false);
       setOffline(true);
     });
     return () => {
@@ -218,6 +230,9 @@ export function App() {
                 {session.me.name}
               </p>
             ) : null}
+            {/* Story 2.11: off by default, kept in this browser only. Below 640px
+                it sits in the Sheet instead, so the header fits 320px. */}
+            <ShortcutsToggle className="hidden sm:inline-flex" />
             <Button asChild variant="ghost">
               <a href={SIGN_OUT_HREF}>{strings.signOut}</a>
             </Button>
@@ -287,6 +302,7 @@ export function App() {
           active={active}
           onNavigate={() => setMenuOpen(false)}
         />
+        <ShortcutsToggle className="mt-3 sm:hidden" />
       </Modal>
 
       <Modal
@@ -304,6 +320,43 @@ export function App() {
         </h2>
         <Button asChild>
           <a href={signInHref(currentLocation())}>{strings.signIn}</a>
+        </Button>
+      </Modal>
+
+      <Modal
+        open={helpOpen && shortcutsOn && !sessionExpired}
+        onClose={() => setHelpOpen(false)}
+        labelledBy={helpHeading}
+        className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-lg border p-6"
+      >
+        <h2 id={helpHeading} className="mb-2 text-lg font-semibold">
+          {strings.shortcuts.helpHeading}
+        </h2>
+        <p className="mb-4">{strings.shortcuts.helpIntro}</p>
+        <table className="mb-4 w-full text-sm">
+          <thead>
+            <tr className="border-b text-left">
+              <th scope="col" className="py-1 pr-4">
+                {strings.shortcuts.keyColumn}
+              </th>
+              <th scope="col" className="py-1">
+                {strings.shortcuts.actionColumn}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {strings.shortcuts.keys.map((row) => (
+              <tr key={row.key} className="border-b">
+                <td className="py-1 pr-4">
+                  <kbd className="rounded border px-1 font-mono">{row.key}</kbd>
+                </td>
+                <td className="py-1">{row.action}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <Button type="button" onClick={() => setHelpOpen(false)}>
+          {strings.shortcuts.close}
         </Button>
       </Modal>
     </div>

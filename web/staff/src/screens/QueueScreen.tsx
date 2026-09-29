@@ -1,6 +1,7 @@
 import {
   useEffect,
   useId,
+  useRef,
   useState,
   type ChangeEvent,
   type MouseEvent,
@@ -22,6 +23,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { navigate } from "@/router";
+import { useShortcuts } from "@/shell/shortcuts";
 import { pageTitle, reasonLabels, strings, type ReasonCode } from "@/strings";
 
 import { usePageHeading } from "./usePageHeading";
@@ -94,6 +96,11 @@ export function QueueScreen() {
     null,
   );
   const [now, setNow] = useState(() => Date.now());
+  // Story 2.11: the row `j`/`k` chose, for the query it was chosen on.
+  const [active, setActive] = useState<{ key: string; index: number } | null>(
+    null,
+  );
+  const body = useRef<HTMLTableSectionElement>(null);
 
   const key = JSON.stringify([page, reason, supplier, attempt]);
   const state: State =
@@ -146,10 +153,14 @@ export function QueueScreen() {
     setPage(1);
   }
 
+  function open(invoiceId: string) {
+    navigate(itemPath(invoiceId));
+  }
+
   function openItem(event: MouseEvent, invoiceId: string) {
     if (!plainClick(event)) return;
     event.preventDefault();
-    navigate(itemPath(invoiceId));
+    open(invoiceId);
   }
 
   const filtered = reason !== null || supplier !== null;
@@ -165,6 +176,31 @@ export function QueueScreen() {
         : null;
   const pages =
     data === null ? 1 : Math.max(1, Math.ceil(data.total / data.pageSize));
+  const items = state.kind === "ready" ? state.data.items : [];
+  const activeIndex =
+    active !== null && active.key === key && active.index < items.length
+      ? active.index
+      : null;
+
+  /** Story 2.11: `j`/`k` move the chosen row and focus it; at the ends it stays. */
+  function move(delta: number) {
+    if (items.length === 0) return;
+    const index =
+      activeIndex === null
+        ? 0
+        : Math.min(Math.max(activeIndex + delta, 0), items.length - 1);
+    setActive({ key, index });
+    const row = body.current?.children[index];
+    if (row instanceof HTMLElement) row.focus();
+  }
+
+  const chosen = activeIndex === null ? undefined : items[activeIndex];
+  useShortcuts({
+    j: () => move(1),
+    k: () => move(-1),
+    Enter: chosen === undefined ? undefined : () => open(chosen.invoiceId),
+  });
+
   const selectClass =
     "min-h-tap-min w-full rounded-md border bg-background px-3 text-sm";
 
@@ -273,12 +309,16 @@ export function QueueScreen() {
                 <TableHead scope="col">{strings.queue.columns.age}</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
-              {data.items.map((item) => (
+            <TableBody ref={body}>
+              {data.items.map((item, index) => (
                 <TableRow
                   key={item.invoiceId}
                   data-testid="queue-row"
-                  className="cursor-pointer"
+                  // Focusable by script only (`j`/`k`), never a tab stop; the ring
+                  // sits inside the row so the table's scroller doesn't clip it.
+                  tabIndex={-1}
+                  aria-current={index === activeIndex ? "true" : undefined}
+                  className="cursor-pointer focus-visible:[outline-offset:calc(var(--focus-ring-width)*-1)]"
                   onClick={(event) => openItem(event, item.invoiceId)}
                 >
                   <TableCell className="numeric">

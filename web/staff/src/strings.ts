@@ -117,6 +117,27 @@ export const strings = {
     menu: "Menu",
     close: "Close menu",
   },
+  /** Story 2.11: opt-in keyboard shortcuts, off by default. */
+  shortcuts: {
+    toggle: "Keyboard shortcuts",
+    helpHeading: "Keyboard shortcuts",
+    helpIntro:
+      "Single keys work when you're not typing in a field and no dialog is open.",
+    close: "Close",
+    keyColumn: "Key",
+    actionColumn: "Does",
+    keys: [
+      { key: "j", action: "Next invoice in the queue" },
+      { key: "k", action: "Previous invoice in the queue" },
+      { key: "Enter", action: "Open the chosen invoice" },
+      { key: "c", action: "Correct the fields" },
+      { key: "r", action: "Reject the invoice" },
+      { key: "n", action: "Next flag on the image" },
+      { key: "p", action: "Previous flag on the image" },
+      { key: "Esc", action: "Close a dialog, or go back to the queue" },
+      { key: "?", action: "Show this list" },
+    ],
+  },
   /** Story 2.8: the admin queue (EXPERIENCE.md Queue table and State Patterns). */
   queue: {
     waiting: (n: number) => `${plural(n, "invoice", "invoices")} waiting`,

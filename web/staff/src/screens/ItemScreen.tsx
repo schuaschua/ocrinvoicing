@@ -19,6 +19,7 @@ import { ReasonChip } from "@/components/ReasonChip";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { navigate } from "@/router";
+import { useShortcuts } from "@/shell/shortcuts";
 import { pageTitle, strings } from "@/strings";
 
 import { usePageHeading } from "./usePageHeading";
@@ -185,6 +186,12 @@ export function ItemScreen({ invoiceId }: { invoiceId: string }) {
     }));
     announce(message);
   }
+
+  // Story 2.11: Esc goes back to the queue, as the Back link does; not in Correct
+  // mode, where leaving would drop the unsaved edits.
+  useShortcuts({
+    Escape: draft === null ? () => navigate(QUEUE_PATH) : undefined,
+  });
 
   const f = strings.item.fields;
   return (

@@ -4,6 +4,7 @@ import { SESSION_EXPIRED, onApiEvent } from "@/api";
 import { rejectItem, rerunItem, type AdminAction } from "@/api/item";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui/button";
+import { useShortcuts } from "@/shell/shortcuts";
 import { strings } from "@/strings";
 
 import { actionFailed, openNext } from "./actionOutcome";
@@ -64,6 +65,12 @@ export function ItemActions({
     setProblem(null);
     setDialog(next);
   }
+
+  // Story 2.11: the buttons' own handlers, only for the buttons shown.
+  useShortcuts({
+    c: allowed.includes("correct") ? onCorrect : undefined,
+    r: allowed.includes("reject") ? () => open("reject") : undefined,
+  });
 
   async function run(action: Dialog) {
     if (action === "reject" && !reason.trim()) {

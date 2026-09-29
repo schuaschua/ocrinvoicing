@@ -192,6 +192,16 @@ class PostgresInvoiceRepository:
         a waiting status (Story 2.3 saves a run with it, AD-3 save-before-finish)."""
         return self._transition(connection, plan, None, {"claimed_until": None})
 
+    def route_in(self, connection: Connection, routing: AdminRouting) -> bool:
+        """Run `routing` inside the caller's transaction (Story 2.5 saves its PO
+        matches with it). False, with nothing written, when its transition changed no
+        rows."""
+        try:
+            return self._route(connection, routing, None, None)
+        except _Discard:
+            # Raised before any write of this routing (there is no metadata row).
+            return False
+
     def _release(self, connection: Connection, claim: Claim) -> bool:
         released = connection.execute(
             update(invoice)

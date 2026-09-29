@@ -67,3 +67,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-2-3-invoice-fields-extracted-by-document-intelligence.md`
   summary: Story 2.5's migration must grant the pipeline login UPDATE (po_line_id, material_id) on intake.invoice_line, the only columns validate fills.
   evidence: AD-18 says validate fills these columns; migration 0005 gives the pipeline SELECT, INSERT only on invoice_line (append-only for DI rows).
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-5-validation-confidence-po-match-printed-supplier.md`
+  summary: Story 2.10's admin Correct must copy `po_line_id` and `material_id` onto a corrected line row, or other invoices' quantities drop out of the PO expected amount.
+  evidence: `_invoiced_elsewhere` counts only current lines with a `po_line_id`; only validate writes it, on the row it matched.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-5-validation-confidence-po-match-printed-supplier.md`
+  summary: Story 2.6 should prove the per-supplier advisory lock (hashtextextended(supplier_id::text, 0)) with a concurrent test, covering both the PO quantities (2.5) and the duplicate race (2.6).
+  evidence: deleting `lock_supplier(...)` in adapters/postgres/validation.py passes every 2.5 test.

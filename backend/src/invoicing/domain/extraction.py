@@ -52,6 +52,18 @@ CHECKED_LINE_FIELDS: tuple[str, ...] = (
     "amount",
 )
 
+# AD-18 checked header fields: always these; `purchase_order` for supplier uploads only
+# (goods-in scans take the PO from the delivery); `vendor_tax_id` when DI returned it.
+CHECKED_HEADER_FIELDS: tuple[str, ...] = (
+    "vendor_name",
+    "invoice_number",
+    "invoice_date",
+    "sub_total",
+    "invoice_total",
+)
+UPLOAD_CHECKED_FIELD = "purchase_order"
+CHECKED_IF_RETURNED_FIELD = "vendor_tax_id"
+
 _WORD_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _TEXT_KEYS = (
     "valueString",

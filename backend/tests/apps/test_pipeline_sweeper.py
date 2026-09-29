@@ -150,9 +150,12 @@ def test_story_2_2_sweeper_re_enqueues_stale_rows_and_orphans_and_deletes_old_ke
     stale = sweep.seed(1, S.RECEIVED)
     # Story 2.3: extract is a consumed queue now, so it is swept too.
     waiting = sweep.seed(2, S.AWAITING_EXTRACTION)
+    # Story 2.5: and validate.
+    validating = sweep.seed(3, S.AWAITING_VALIDATION)
     with caplog.at_level(logging.DEBUG, logger="invoicing"):
         result = sweep.run()
     assert sweep.sent()[waiting] is QueueName.EXTRACT
+    assert sweep.sent()[validating] is QueueName.VALIDATE
     # The invoice's own trace, first enqueued when it was created.
     assert [sent for sent in sweep.queue.sent if sent[1].invoice_id == stale] == [
         (
@@ -166,11 +169,11 @@ def test_story_2_2_sweeper_re_enqueues_stale_rows_and_orphans_and_deletes_old_ke
             0,
         )
     ]
-    assert result == SweepResult("swept", requeued=2)
-    assert sweep.stuck() == [2]
+    assert result == SweepResult("swept", requeued=3)
+    assert sweep.stuck() == [3]
     assert _done(caplog) == {
         "code": "swept",
-        "requeued": 2,
+        "requeued": 3,
         "orphans": 0,
         "deleted": 0,
         "failures": 0,

@@ -30,6 +30,8 @@ REBAR = UUID("01a0c450-7ba0-7326-9cb4-e985278518b7")
 PO_TWO_PARTS = "PO-45012"
 LINE_12_1 = UUID("01a0c450-8370-7ad0-8b7e-e79b9256c746")
 LINE_12_2 = UUID("01a0c450-8758-7c9d-8bc2-3f4db6df5878")
+DELIVERY_12_1 = UUID("01a0c450-9ec8-75d6-8da5-5adc523d9350")
+DELIVERY_12_2 = UUID("01a0c450-a2b0-75b9-9eac-12e4d657f199")
 
 
 def run[T](call: Coroutine[Any, Any, T]) -> T:
@@ -83,3 +85,5 @@ class PurchasingContract:
             {LINE_12_2: Decimal(50)},
         ]
         assert receipts[0].receipt_id != receipts[1].receipt_id
+        # Story 2.5: each receipt names its delivery, so a goods-in scan finds its own.
+        assert [r.delivery_id for r in receipts] == [DELIVERY_12_1, DELIVERY_12_2]

@@ -14,6 +14,7 @@ requires-python = "==3.13.*"
 # Story 2.1: SQLAlchemy Core, psycopg (binary: the Flex image ships no libpq) and
 # Alembic follow the spine's Stack table; Pillow, ImageHash and pypdf are the quality
 # stage's readability check, phash (AD-9) and PDF page count (AD-6).
+# Story 2.5: rapidfuzz is the printed-supplier name similarity AD-19 names.
 dependencies = [
     "aiohttp==3.14.3",
     "alembic==1.20.0",
@@ -32,6 +33,7 @@ dependencies = [
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
     "pypdf==6.19.0",
+    "rapidfuzz==3.14.6",
     "sqlalchemy==2.1.1",
 ]
 

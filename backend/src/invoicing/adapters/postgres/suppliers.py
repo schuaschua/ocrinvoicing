@@ -9,6 +9,7 @@ value is compared by its fingerprint only, so re-loading the same CSV writes not
 `audit.event.detail` holds field ids and counts, never a value (AD-11).
 """
 
+import asyncio
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -18,6 +19,7 @@ from sqlalchemy import (
     TIMESTAMP,
     Column,
     Connection,
+    Engine,
     ForeignKey,
     LargeBinary,
     MetaData,
@@ -31,12 +33,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
+from invoicing.adapters.postgres.engine import open_connection
 from invoicing.domain.ids import new_uuid7
 from invoicing.domain.suppliers import (
     SupplierRow,
     bank_fingerprint,
     normalise_bank_value,
 )
+from invoicing.ports.suppliers import SupplierFacts
 
 MASTER = "master"
 AUDIT = "audit"
@@ -245,3 +249,23 @@ def load_suppliers(
             result.unchanged.remove(row.supplier_id)
             result.updated.append(row.supplier_id)
     return result
+
+
+class PostgresSupplierReader:
+    """`SupplierReader` over `master.supplier` (Story 2.5): the pipeline's SELECT
+    grant, on a worker thread (coding-style.md rule 11)."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    async def get(self, supplier_id: UUID) -> SupplierFacts | None:
+        return await asyncio.to_thread(self._get, supplier_id)
+
+    def _get(self, supplier_id: UUID) -> SupplierFacts | None:
+        with open_connection(self._engine) as connection:
+            row = connection.execute(
+                select(supplier.c.name, supplier.c.tax_id).where(
+                    supplier.c.id == supplier_id
+                )
+            ).one_or_none()
+        return None if row is None else SupplierFacts(name=row.name, tax_id=row.tax_id)

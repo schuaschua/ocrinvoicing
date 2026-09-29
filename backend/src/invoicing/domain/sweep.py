@@ -27,8 +27,10 @@ SWEEP_LIMIT = 500
 
 # The stages whose queue has a consumer today. Sweeping to a queue nobody reads would
 # pile messages up and keep `stuck_invoices` above 0, so each stage story adds its
-# stage here when it adds the consumer (2.3 extract, 2.4 validate, 2.5 post).
-CONSUMED_QUEUES: frozenset[Stage] = frozenset({Stage.QUALITY, Stage.EXTRACT})
+# stage here when it adds the consumer (2.3 extract, 2.5 validate, Epic 3 post).
+CONSUMED_QUEUES: frozenset[Stage] = frozenset(
+    {Stage.QUALITY, Stage.EXTRACT, Stage.VALIDATE}
+)
 
 # The AD-2 map. `in_admin_queue`, `posted` and `rejected` are absent: an admin owns
 # the first, the others are final, so the sweeper never touches them.

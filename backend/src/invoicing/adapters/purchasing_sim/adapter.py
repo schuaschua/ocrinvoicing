@@ -112,6 +112,7 @@ class PurchasingSimAdapter:
             select(
                 goods_receipt.c.receipt_id,
                 goods_receipt.c.received_date,
+                goods_receipt.c.delivery_id,
                 goods_receipt_line.c.po_line_id,
                 goods_receipt_line.c.quantity,
             )
@@ -127,13 +128,20 @@ class PurchasingSimAdapter:
                 goods_receipt_line.c.po_line_id,
             )
         ).all()
-        received: dict[UUID, tuple[date, dict[UUID, Decimal]]] = {}
+        received: dict[UUID, tuple[date, UUID, dict[UUID, Decimal]]] = {}
         for row in rows:
-            _, lines = received.setdefault(row.receipt_id, (row.received_date, {}))
+            _, _, lines = received.setdefault(
+                row.receipt_id, (row.received_date, row.delivery_id, {})
+            )
             lines[row.po_line_id] = row.quantity
         return tuple(
-            GoodsReceipt(receipt_id=receipt_id, received_date=when, lines=lines)
-            for receipt_id, (when, lines) in received.items()
+            GoodsReceipt(
+                receipt_id=receipt_id,
+                received_date=when,
+                lines=lines,
+                delivery_id=delivery_id,
+            )
+            for receipt_id, (when, delivery_id, lines) in received.items()
         )
 
     @staticmethod

@@ -45,11 +45,14 @@ class PurchaseOrder:
 
 @dataclass(frozen=True)
 class GoodsReceipt:
-    """One goods receipt: when it was received and the quantity per `po_line_id`."""
+    """One goods receipt: when it was received, the quantity per `po_line_id`, and the
+    delivery it checked in (Story 2.5: a goods-in scan's expected amount is what its
+    own delivery received, AD-19; None where the system does not say)."""
 
     receipt_id: UUID
     received_date: date
     lines: Mapping[UUID, Decimal]
+    delivery_id: UUID | None = None
 
 
 @dataclass(frozen=True)

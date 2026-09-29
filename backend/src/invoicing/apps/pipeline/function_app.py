@@ -3,8 +3,8 @@
 
 Queue and timer triggers only, never HTTP routes (AD-1). Story 2.1 adds the `quality`
 stage on `q-quality`; Story 2.2 the poison triggers, the AD-7 database wait and the
-sweeper timer; Story 2.3 the `extract` stage on `q-extract`. The other stages arrive
-with their stories.
+sweeper timer; Story 2.3 the `extract` stage on `q-extract`; Story 2.5 the `validate`
+stage on `q-validate`. The other stages arrive with their stories.
 """
 
 import azure.functions as func
@@ -21,6 +21,8 @@ from invoicing.adapters.metrics import OpenTelemetryMetrics
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.postgres.extraction import PostgresExtractionRepository
 from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
+from invoicing.adapters.postgres.suppliers import PostgresSupplierReader
+from invoicing.adapters.postgres.validation import PostgresValidationRepository
 from invoicing.adapters.purchasing_factory import purchasing_port
 from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
@@ -31,6 +33,7 @@ from invoicing.apps.pipeline.poison import poison_handler
 from invoicing.apps.pipeline.quality import quality_handler
 from invoicing.apps.pipeline.settings import PipelineSettings
 from invoicing.apps.pipeline.sweeper import SWEEP_SCHEDULE, Sweeper
+from invoicing.apps.pipeline.validate import ValidateDependencies, validate_handler
 from invoicing.domain.status import Stage
 from invoicing.ports.extraction import DefaultModelSelector
 from invoicing.ports.queue import POISON_QUEUES, QueueName
@@ -98,6 +101,21 @@ extract_stage = wait_for_database(
         )
     ),
 )
+# Story 2.5: purchasing is read before the finishing transaction (AD-10); the PO
+# match and its writes run under the per-supplier lock (AD-9, AD-19).
+validate_stage = wait_for_database(
+    QueueName.VALIDATE,
+    queue,
+    validate_handler(
+        ValidateDependencies(
+            invoices=invoices,
+            validations=PostgresValidationRepository(engine, invoices),
+            purchasing=purchasing,
+            suppliers=PostgresSupplierReader(engine),
+            queue=queue,
+        )
+    ),
+)
 poison_stages = {
     stage: wait_for_database(
         POISON_QUEUES[stage], queue, poison_handler(stage, images, invoices, metrics)
@@ -124,6 +142,16 @@ async def extract(msg: func.QueueMessage) -> None:
     """The extract stage: read the invoice's fields with Document Intelligence
     (Story 2.3)."""
     await extract_stage(msg.get_body())
+
+
+@app.queue_trigger(
+    arg_name="msg",
+    queue_name=QueueName.VALIDATE.value,
+    connection="AzureWebJobsStorage",
+)
+async def validate(msg: func.QueueMessage) -> None:
+    """The validate stage: confidence, PO match and printed supplier (Story 2.5)."""
+    await validate_stage(msg.get_body())
 
 
 # AD-2: one trigger per poison queue; each routes PROCESSING_FAILED under the guard.

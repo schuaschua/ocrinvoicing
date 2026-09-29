@@ -73,6 +73,10 @@ def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper
     (extract,) = [b.get_dict_repr() for b in functions["extract"].get_bindings()]
     assert (extract["type"], extract["queueName"]) == ("queueTrigger", "q-extract")
     assert extract["connection"] == "AzureWebJobsStorage"
+    # Story 2.5: the validate stage consumes q-validate.
+    (validate,) = [b.get_dict_repr() for b in functions["validate"].get_bindings()]
+    assert (validate["type"], validate["queueName"]) == ("queueTrigger", "q-validate")
+    assert validate["connection"] == "AzureWebJobsStorage"
     (timer,) = [b.get_dict_repr() for b in functions["sweeper"].get_bindings()]
     assert timer["type"] == "timerTrigger"
     # AD-2: every 15 minutes, NCRONTAB in UTC; no run on a cold start.

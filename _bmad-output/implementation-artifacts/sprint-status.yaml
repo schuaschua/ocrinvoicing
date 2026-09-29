@@ -53,7 +53,7 @@ development_status:
   2-3-invoice-fields-are-extracted-by-document-intelligence: review
   2-4-simulated-po-and-goods-received-data: review
   2-5-validation-checks-confidence-po-match-and-printed-supplier: review
-  2-6-validation-catches-duplicates-date-mismatches-and-bank-chang: backlog
+  2-6-validation-catches-duplicates-date-mismatches-and-bank-chang: review
   2-7-staff-sign-in-and-see-only-their-surfaces: review
   2-8-admin-queue-list: backlog
   2-9-admin-item-shows-the-crop-fields-and-bank-change-details: backlog

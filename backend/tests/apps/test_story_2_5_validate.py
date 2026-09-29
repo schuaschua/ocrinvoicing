@@ -7,17 +7,15 @@ matrix row is a block of assertions, in order."""
 
 import asyncio
 import logging
-from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
-from decimal import Decimal
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
 import pytest
-from sqlalchemy import Engine, create_engine, func, insert, select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy import Engine, create_engine, func, select, text
 
-from apps._pipeline_fakes import CORRELATION_ID, FakeQueue, invoice_id
+from apps._pipeline_fakes import FakeQueue, FakeReminders
+from apps._validation_seed import Seeder, header, message, one, seed_master
 from conftest import PostgresServer
 from contracts.purchasing_contract import (
     CEMENT,
@@ -26,17 +24,10 @@ from contracts.purchasing_contract import (
     LINE_12_1,
     LINE_12_2,
     REBAR,
-    SUPPLIER_ALPHA,
 )
 from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
-from invoicing.adapters.postgres.schema import (
-    admin_item,
-    extraction_run,
-    invoice,
-    invoice_field,
-    invoice_line,
-)
-from invoicing.adapters.postgres.suppliers import PostgresSupplierReader, supplier
+from invoicing.adapters.postgres.schema import admin_item, invoice, invoice_line
+from invoicing.adapters.postgres.suppliers import PostgresSupplierReader
 from invoicing.adapters.postgres.validation import PostgresValidationRepository
 from invoicing.adapters.purchasing_factory import purchasing_port
 from invoicing.apps.pipeline.quality import StageFailed
@@ -45,148 +36,8 @@ from invoicing.apps.pipeline.validate import (
     ValidateDependencies,
     validate_handler,
 )
-from invoicing.ports.messages import QueueMessage
 from invoicing.ports.queue import QueueName
 from invoicing.ports.validation import ComputeResult
-
-MASTER_NAME = "Synthetic Alpha Building Supplies"
-MASTER_TAX_ID = "201912345K"
-CONFIDENT = 0.99
-
-
-def _message(for_invoice: UUID) -> str:
-    return QueueMessage.first(
-        for_invoice, CORRELATION_ID, datetime(2026, 9, 30, tzinfo=UTC)
-    ).to_json()
-
-
-class Seeder:
-    """Writes invoices with their runs, fields and lines as the deployer (the owner),
-    as the extract stage and admin Correct would have left them."""
-
-    def __init__(self, owner: Engine) -> None:
-        self.owner = owner
-
-    def invoice(
-        self,
-        n: int,
-        *,
-        fields: Mapping[str, tuple[str | Decimal | None, float]],
-        lines: list[tuple[str | None, str | None, str]],
-        status: str = "awaiting_validation",
-        source: str = "link",
-        delivery_id: UUID | None = None,
-        run: bool = True,
-        matched: Mapping[int, UUID] | None = None,
-    ) -> UUID:
-        """`lines` are (product_code, quantity, unit_price); `matched` pre-fills a
-        line's `po_line_id` (an invoice validated earlier)."""
-        created = invoice_id(n)
-        run_id = UUID(int=n)
-        with self.owner.begin() as connection:
-            connection.execute(
-                insert(invoice).values(
-                    id=created,
-                    correlation_id=CORRELATION_ID,
-                    source=source,
-                    supplier_id=SUPPLIER_ALPHA,
-                    delivery_id=delivery_id,
-                    content_type="image/jpeg",
-                    device_check="passed",
-                    status=status,
-                    status_changed_at=func.now(),
-                    post_failures=0,
-                    created_at=func.now(),
-                )
-            )
-            if not run:
-                return created
-            connection.execute(
-                insert(extraction_run).values(
-                    run_id=run_id,
-                    invoice_id=created,
-                    model_id="prebuilt-invoice",
-                    api_version="2024-11-30",
-                    pages=1,
-                    created_at=func.now(),
-                )
-            )
-            for number, (field_id, (value, confidence)) in enumerate(fields.items()):
-                connection.execute(
-                    insert(invoice_field).values(
-                        id=UUID(int=n * 1000 + number),
-                        invoice_id=created,
-                        run_id=run_id,
-                        field_id=field_id,
-                        value_text=value if isinstance(value, str) else None,
-                        value_number=value if isinstance(value, Decimal) else None,
-                        confidence=confidence,
-                        source="di",
-                        created_at=func.now(),
-                    )
-                )
-        # After the commit: each line is its own transaction, like an admin's row.
-        for line_no, (code, quantity, price) in enumerate(lines, start=1):
-            self.line(created, run_id, n, line_no, code, quantity, price, matched)
-        return created
-
-    def line(
-        self,
-        created: UUID,
-        run_id: UUID,
-        n: int,
-        line_no: int,
-        code: str | None,
-        quantity: str | None,
-        price: str,
-        matched: Mapping[int, UUID] | None = None,
-        *,
-        source: str = "di",
-    ) -> None:
-        qty = None if quantity is None else Decimal(quantity)
-        with self.owner.begin() as connection:
-            connection.execute(
-                insert(invoice_line).values(
-                    id=UUID(
-                        int=n * 1000 + 500 + line_no + (50 if source == "admin" else 0)
-                    ),
-                    invoice_id=created,
-                    run_id=run_id,
-                    line_no=line_no,
-                    product_code=code,
-                    quantity=qty,
-                    unit_price=Decimal(price),
-                    amount=(qty or Decimal(1)) * Decimal(price),
-                    confidence=1.0
-                    if source == "admin"
-                    else (0.0 if qty is None else CONFIDENT),
-                    po_line_id=(matched or {}).get(line_no),
-                    source=source,
-                    created_at=func.now(),
-                )
-            )
-
-
-def _header(
-    sub_total: str, po: str | None = "PO-45012", tax_id: str | None = "2019-12345-k"
-) -> dict[str, tuple[str | Decimal | None, float]]:
-    fields: dict[str, tuple[str | Decimal | None, float]] = {
-        "vendor_name": ("Synthetic Alpha Building Supplies Pte. Ltd.", 0.995),
-        "invoice_number": ("INV-A-1", CONFIDENT),
-        "invoice_date": ("2026-09-20", CONFIDENT),
-        "sub_total": (Decimal(sub_total), CONFIDENT),
-        "invoice_total": (Decimal(sub_total) * Decimal("1.09"), CONFIDENT),
-    }
-    if po is not None:
-        fields["purchase_order"] = (po, CONFIDENT)
-    if tax_id is not None:
-        fields["vendor_tax_id"] = (tax_id, CONFIDENT)
-    return fields
-
-
-def _one(engine: Engine, statement: Any) -> Any:
-    with engine.connect() as connection:
-        return connection.execute(statement).one()
 
 
 def _lines(engine: Engine, for_invoice: UUID) -> list[tuple[Any, ...]]:
@@ -215,16 +66,7 @@ def test_story_2_5_validate_stage(
     owner = create_engine(
         postgres_server.url(postgres_server.deployer, purchasing_seeded)
     )
-    with owner.begin() as connection:
-        statement = pg_insert(supplier).values(
-            id=SUPPLIER_ALPHA, name=MASTER_NAME, tax_id=MASTER_TAX_ID
-        )
-        connection.execute(
-            statement.on_conflict_do_update(
-                index_elements=[supplier.c.id],
-                set_={"name": MASTER_NAME, "tax_id": MASTER_TAX_ID},
-            )
-        )
+    seed_master(owner)
     seed = Seeder(owner)
     queue = FakeQueue()
     invoices = PostgresInvoiceRepository(pipeline_engine)
@@ -251,14 +93,15 @@ def test_story_2_5_validate_stage(
             purchasing=purchasing_port("sim", pipeline_engine),
             suppliers=PostgresSupplierReader(pipeline_engine),
             queue=queue,
+            reminders=FakeReminders(),
         )
     )
 
     def run(for_invoice: UUID) -> Any:
-        return asyncio.run(handle(_message(for_invoice)))
+        return asyncio.run(handle(message(for_invoice)))
 
     def status(for_invoice: UUID) -> tuple[str, str | None]:
-        row = _one(
+        row = one(
             pipeline_engine,
             select(invoice.c.status, invoice.c.po_number).where(
                 invoice.c.id == for_invoice
@@ -271,7 +114,7 @@ def test_story_2_5_validate_stage(
     # to 30: the current value counts); one rejected (never counts).
     earlier = seed.invoice(
         10,
-        fields=_header("234.00"),
+        fields=header("234.00"),
         lines=[("ALP-CEM-50", "20", "7.80")],
         status="in_admin_queue",
         matched={1: LINE_12_1},
@@ -289,7 +132,7 @@ def test_story_2_5_validate_stage(
     )
     seed.invoice(
         11,
-        fields=_header("390.00"),
+        fields=header("390.00"),
         lines=[("ALP-CEM-50", "50", "7.80")],
         status="rejected",
         matched={1: LINE_12_1},
@@ -298,7 +141,7 @@ def test_story_2_5_validate_stage(
     # --- All pass: 70 x 7.80 = 546.00 still to invoice, tax ids equal ------------------
     first = seed.invoice(
         1,
-        fields={**_header("546.00"), "payment[0].iban": (None, 0.1)},
+        fields={**header("546.00"), "payment[0].iban": (None, 0.1)},
         lines=[("ALP-CEM-50", "70", "7.80")],
     )
     outcome = run(first)
@@ -306,7 +149,7 @@ def test_story_2_5_validate_stage(
     assert status(first) == ("ready_to_post", "PO-45012")
     assert _lines(pipeline_engine, first) == [(1, LINE_12_1, CEMENT)]
     assert [(q, m.invoice_id) for q, m, _ in queue.sent] == [(QueueName.POST, first)]
-    lease = _one(
+    lease = one(
         pipeline_engine, select(invoice.c.claimed_until).where(invoice.c.id == first)
     )
     assert lease[0] is None
@@ -330,7 +173,7 @@ def test_story_2_5_validate_stage(
     queue.sent.clear()
     scan = seed.invoice(
         2,
-        fields=_header("925.00", po=None, tax_id=None),
+        fields=header("925.00", po=None, tax_id=None),
         lines=[("ALP-RB-12", "50", "18.50")],
         source="goods_in",
         delivery_id=DELIVERY_12_2,
@@ -341,7 +184,7 @@ def test_story_2_5_validate_stage(
     # Only its own delivery's receipt counts: delivery 1 received no rebar.
     other_delivery = seed.invoice(
         6,
-        fields=_header("925.00", po=None, tax_id=None),
+        fields=header("925.00", po=None, tax_id=None, number="INV-A-6"),
         lines=[("ALP-RB-12", "50", "18.50")],
         source="goods_in",
         delivery_id=DELIVERY_12_1,
@@ -366,7 +209,7 @@ def test_story_2_5_validate_stage(
     several = seed.invoice(
         3,
         fields={
-            **_header("100.00", po="PO-45013", tax_id="T99999999Z"),
+            **header("100.00", po="PO-45013", tax_id="T99999999Z"),
             "invoice_date": ("2026-09-20", 0.5),
         },
         lines=[("ALP-CEM-50", "10", "7.80"), ("ALP-RB-12", None, "18.50")],
@@ -403,10 +246,10 @@ def test_story_2_5_validate_stage(
     # --- Lost race: the finish changes 0 rows, so nothing is written, only acked ------
     # Both finishes: to ready_to_post (all pass) and a routing (an unknown PO).
     passing = seed.invoice(
-        4, fields=_header("0.00"), lines=[("ALP-CEM-50", "1", "7.80")]
+        4, fields=header("0.00"), lines=[("ALP-CEM-50", "1", "7.80")]
     )
     failing = seed.invoice(
-        7, fields=_header("7.80", po="PO-99999"), lines=[("ALP-CEM-50", "1", "7.80")]
+        7, fields=header("7.80", po="PO-99999"), lines=[("ALP-CEM-50", "1", "7.80")]
     )
     for lost in (passing, failing):
 
@@ -434,7 +277,7 @@ def test_story_2_5_validate_stage(
     no_run = seed.invoice(5, fields={}, lines=[], run=False)
     with pytest.raises(StageFailed, match="NO_EXTRACTION_RUN"):
         run(no_run)
-    ended = _one(
+    ended = one(
         pipeline_engine,
         select(
             invoice.c.status,

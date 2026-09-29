@@ -73,3 +73,12 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-2-5-validation-confidence-po-match-printed-supplier.md`
   summary: Story 2.6 should prove the per-supplier advisory lock (hashtextextended(supplier_id::text, 0)) with a concurrent test, covering both the PO quantities (2.5) and the duplicate race (2.6).
   evidence: deleting `lock_supplier(...)` in adapters/postgres/validation.py passes every 2.5 test.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-6-validation-duplicates-dates-bank-changes.md`
+  summary: Duplicate check misses a re-photographed copy validated while the earlier copy is still before extraction (no fingerprint yet); consider re-checking or delaying.
+  evidence: `_earlier` reads current values, which don't exist before extraction; phash (stored at quality) still catches a resent file.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-6-validation-duplicates-dates-bank-changes.md`
+  summary: The earlier-invoice read for duplicates loads all of a supplier's history under the advisory lock; replace with an indexed fingerprint/phash lookup before real volumes.
+  evidence: adapters/postgres/validation.py `_earlier` has no window.
+- source_plan: `_bmad-output/implementation-artifacts/plan-2-6-validation-duplicates-dates-bank-changes.md`
+  summary: A clearer resend of an image-quality-routed original is flagged DUPLICATE; decide the admin UX in 2.9/2.10.
+  evidence: the original stays non-rejected in the admin queue with its phash.

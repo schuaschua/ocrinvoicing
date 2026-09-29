@@ -1,5 +1,5 @@
-"""The `validate` stage (Story 2.5, AD-3, AD-4, AD-9, AD-10, AD-18, AD-19), fed by
-`q-validate`.
+"""The `validate` stage (Stories 2.5 and 2.6, AD-3, AD-4, AD-6, AD-9, AD-10, AD-18,
+AD-19), fed by `q-validate`.
 
 1. Claim `awaiting_validation -> validating` with a 10-minute lease (or reclaim an
    expired one). Zero rows: the invoice moved on; re-enqueue `q-post` when it is
@@ -8,11 +8,14 @@
    function. No extraction run: raised with a code (host retry, then poison).
 3. Read the delivery, PO and receipts from purchasing (AD-10) and the supplier's
    master row, before any transaction: they are other systems' data.
-4. Run the confidence and printed-supplier checks, then, in one transaction under
-   the per-supplier advisory lock (AD-9), read the other invoices' current
-   quantities, run the PO match, save the line matches and `po_number`, and either
-   route every failing reason at once (AD-4) or move to `ready_to_post`. After the
-   commit, enqueue `q-post`.
+4. Run the confidence, printed-supplier, photo-date and bank checks, then, in one
+   transaction under the per-supplier advisory lock (AD-9), read the other invoices'
+   current quantities and the earlier invoices' duplicate facts, run the PO match
+   and the duplicate check, save the line matches and `po_number`, and either route
+   every failing reason at once (AD-4) or move to `ready_to_post`.
+5. After the commit, delete the supplier's reminder row for a matched PO (AD-6, best
+   effort: a failure is logged with a code and never fails the invoice), and the
+   handler enqueues `q-post`.
 
 - Zero rows changed by the finish: the result is discarded, nothing is written and
   the message is acknowledged (AD-2).
@@ -26,9 +29,9 @@ ids, codes and timings only, never a field value (security.md rule 31).
 
 import logging
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -37,7 +40,7 @@ from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
 from rapidfuzz import fuzz
 
-from invoicing.adapters.logging import log_event
+from invoicing.adapters.logging import MAX_VALUE_LENGTH, log_event
 from invoicing.adapters.telemetry import correlation_span
 from invoicing.apps.pipeline.quality import StageFailed, failure_code
 from invoicing.domain.current_values import CurrentValues
@@ -58,12 +61,17 @@ from invoicing.domain.transitions import (
     route_to_admin,
 )
 from invoicing.domain.validation import (
+    DuplicateFacts,
     PoLineRef,
     PoRef,
     Similarity,
+    check_bank,
     check_confidence,
+    check_duplicate,
+    check_photo_date,
     check_po,
     check_printed_supplier,
+    duplicate_facts,
     printed_po_number,
 )
 from invoicing.ports.intake import IntakeSource
@@ -71,6 +79,7 @@ from invoicing.ports.invoices import InvoiceRepository
 from invoicing.ports.messages import QueueMessage
 from invoicing.ports.purchasing import PurchaseOrder, PurchasingPort
 from invoicing.ports.queue import STAGE_QUEUES, QueueName, QueueSender
+from invoicing.ports.reminders import ReminderStore
 from invoicing.ports.suppliers import SupplierReader
 from invoicing.ports.validation import (
     InvoiceFacts,
@@ -82,6 +91,8 @@ ACTOR = "pipeline:validate"
 # Raised (host retry, then poison) when the invoice has no extraction run to validate.
 NO_EXTRACTION_RUN = "NO_EXTRACTION_RUN"
 INVOICE_NOT_FOUND = "INVOICE_NOT_FOUND"
+# Logged when a matched PO's reminder row could not be deleted (the invoice goes on).
+REMINDER_DELETE_FAILED = "REMINDER_DELETE_FAILED"
 
 _logger = logging.getLogger("invoicing.pipeline.validate")
 
@@ -118,6 +129,7 @@ class ValidateDependencies:
     purchasing: PurchasingPort
     suppliers: SupplierReader
     queue: QueueSender
+    reminders: ReminderStore
     similarity: Similarity = token_set_ratio
 
 
@@ -126,6 +138,8 @@ class _PurchasingFacts:
     po_number: str | None
     po: PoRef | None
     received: Mapping[UUID, Decimal] | None
+    # The latest received date of those receipts (AD-19's photo date check).
+    latest_receipt: date | None = None
 
 
 def _redelivered(status: InvoiceStatus | None) -> ValidateOutcome:
@@ -183,13 +197,32 @@ async def _purchasing(
     for receipt in receipts:
         for po_line_id, quantity in receipt.lines.items():
             received[po_line_id] = received.get(po_line_id, Decimal(0)) + quantity
-    return _PurchasingFacts(po_number, _po_ref(order), received)
+    latest = max(receipt.received_date for receipt in receipts)
+    return _PurchasingFacts(po_number, _po_ref(order), received, latest)
+
+
+async def _delete_reminder(
+    reminders: ReminderStore, invoice_id: UUID, supplier_id: UUID, po_number: str
+) -> None:
+    """AD-6: the invoice for this PO has arrived, so the supplier's weekly reminder for
+    it stops. Best effort, after the commit: a failure is logged with a code and never
+    fails or retries the invoice (the worst case is one more weekly reminder)."""
+    try:
+        await reminders.delete(supplier_id, po_number)
+    except Exception:  # noqa: BLE001  # best effort: logged by a code, never raised
+        log_event(
+            _logger,
+            "validate.reminder_delete_failed",
+            level=logging.WARNING,
+            invoice_id=invoice_id,
+            code=REMINDER_DELETE_FAILED,
+        )
 
 
 async def validate(
     message: QueueMessage, deps: ValidateDependencies
 ) -> ValidateOutcome:
-    """Steps 1-4 for one parsed message. Raises storage and purchasing errors, and
+    """Steps 1-5 for one parsed message. Raises storage and purchasing errors, and
     `StageFailed` for an invoice with no run, for a host retry, with the lease
     ended."""
     invoice_id = message.invoice_id
@@ -214,9 +247,18 @@ async def validate(
             master_tax_id=None if master is None else master.tax_id,
             similarity=deps.similarity,
         )
+        photo_date = check_photo_date(
+            facts.photo_taken_at, bought.latest_receipt, run_id=values.run_id
+        )
+        bank = check_bank(values, loaded.master_bank)
+        own = duplicate_facts(invoice_id, values, phash=facts.phash)
         routed: list[AdminReason] = []
+        saved_po: list[str | None] = [None]
 
-        def compute(invoiced_elsewhere: Mapping[UUID, Decimal]) -> ValidationResult:
+        def compute(
+            invoiced_elsewhere: Mapping[UUID, Decimal],
+            earlier: Sequence[DuplicateFacts],
+        ) -> ValidationResult:
             po = check_po(
                 values,
                 po_number=bought.po_number,
@@ -226,8 +268,15 @@ async def validate(
                 invoiced_elsewhere=invoiced_elsewhere,
                 supplier_upload=supplier_upload,
             )
-            reasons = [r for r in (confidence, po.reason, printed) if r is not None]
+            # AD-9: decided here, under the supplier lock, against earlier ids only.
+            duplicate = check_duplicate(own, earlier)
+            reasons = [
+                r
+                for r in (confidence, po.reason, printed, duplicate, photo_date, bank)
+                if r is not None
+            ]
             routed[:] = reasons
+            saved_po[0] = po.po_number
             finish: Transition | AdminRouting = (
                 route_to_admin(invoice_id, reasons, claimed, actor=ACTOR)
                 if reasons
@@ -245,6 +294,10 @@ async def validate(
             invoice_id, facts.supplier_id, compute
         ):
             return _redelivered(await deps.invoices.status(invoice_id))
+        if saved_po[0] is not None:
+            await _delete_reminder(
+                deps.reminders, invoice_id, facts.supplier_id, saved_po[0]
+            )
         if routed:
             return ValidateOutcome(
                 ValidateAction.ROUTE, reasons=tuple(r.reason for r in routed)
@@ -324,8 +377,21 @@ def validate_handler(
                 "duration_ms": round((time.perf_counter() - started) * 1000),
             }
             if outcome.reasons:
-                # Codes only; at most three from this stage, so within the log limit.
-                done["reason"] = ",".join(outcome.reasons)
+                # Codes only. Up to six can fail together, longer than one log value
+                # may be (logging.py MAX_VALUE_LENGTH): then one event per reason.
+                joined = ",".join(outcome.reasons)
+                if len(joined) <= MAX_VALUE_LENGTH:
+                    done["reason"] = joined
+                else:
+                    done["count"] = len(outcome.reasons)
+                    for reason in outcome.reasons:
+                        log_event(
+                            _logger,
+                            "validate.reason",
+                            level=logging.INFO,
+                            invoice_id=message.invoice_id,
+                            reason=reason,
+                        )
             if outcome.enqueue is not None:
                 done["queue"] = outcome.enqueue
             log_event(_logger, "validate.done", level=logging.INFO, **done)

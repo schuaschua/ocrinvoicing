@@ -8,7 +8,7 @@ corrections. Pure: the adapter passes the rows in.
 """
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -26,8 +26,10 @@ class RunRow:
 
 @dataclass(frozen=True)
 class FieldValue:
-    """One `intake.invoice_field` row, without bank columns: nothing that reads
-    current values for validation ever needs a bank value (AD-11)."""
+    """One `intake.invoice_field` row, without the bank ciphertext: nothing that reads
+    current values for validation ever needs a bank value (AD-11). A bank field
+    carries only its `bank_fingerprint`, which the validate stage compares with the
+    master's (AD-19, Story 2.6)."""
 
     id: UUID
     field_id: str
@@ -38,6 +40,7 @@ class FieldValue:
     value_text: str | None = None
     value_number: Decimal | None = None
     value_date: date | None = None
+    bank_fingerprint: str | None = field(default=None, repr=False)
 
     @property
     def has_value(self) -> bool:

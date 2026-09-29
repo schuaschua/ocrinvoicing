@@ -1,5 +1,5 @@
-"""Fakes for the Story 2.2 pipeline tests: blob storage, queues, metrics and the
-`uploadkeys` table. Nothing reaches Azure (coding-style.md rule 23)."""
+"""Fakes for the pipeline tests: blob storage, queues, metrics, the `uploadkeys` table
+(Story 2.2) and the `supplierreminders` table (Story 2.6). Nothing reaches Azure (coding-style.md rule 23)."""
 
 import socket
 from collections.abc import Iterator, Mapping
@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import Engine
 
 from invoicing.adapters.postgres.engine import postgres_engine
+from invoicing.domain.errors import ServiceUnavailableError
 from invoicing.domain.upload import UploadContentType
 from invoicing.ports.blobs import ImageNotFoundError, StoredImage
 from invoicing.ports.intake import DeviceCheck, IntakeBlobMetadata, IntakeSource
@@ -162,6 +163,19 @@ class FakeUploadKeys:
         del self.rows[item.key]
         self.deleted.append(item.key)
         return True
+
+
+class FakeReminders:
+    """`ReminderStore` that records each delete; `failing` makes every delete raise."""
+
+    def __init__(self) -> None:
+        self.deleted: list[tuple[UUID, str]] = []
+        self.failing = False
+
+    async def delete(self, supplier_id: UUID, po_number: str) -> None:
+        if self.failing:
+            raise ServiceUnavailableError()
+        self.deleted.append((supplier_id, po_number))
 
 
 def _closed_port() -> int:

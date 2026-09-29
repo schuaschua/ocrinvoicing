@@ -4,7 +4,7 @@
 Queue and timer triggers only, never HTTP routes (AD-1). Story 2.1 adds the `quality`
 stage on `q-quality`; Story 2.2 the poison triggers, the AD-7 database wait and the
 sweeper timer; Story 2.3 the `extract` stage on `q-extract`; Story 2.5 the `validate`
-stage on `q-validate`. The other stages arrive with their stories.
+stage on `q-validate`, and Story 2.6 its duplicate, date and bank checks. The other stages arrive with their stories.
 """
 
 import azure.functions as func
@@ -25,6 +25,7 @@ from invoicing.adapters.postgres.suppliers import PostgresSupplierReader
 from invoicing.adapters.postgres.validation import PostgresValidationRepository
 from invoicing.adapters.purchasing_factory import purchasing_port
 from invoicing.adapters.queue import StorageQueueSender
+from invoicing.adapters.table_reminders import TableReminderStore
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import load_settings, start_telemetry
 from invoicing.apps.pipeline.dbwait import wait_for_database
@@ -51,6 +52,7 @@ _account, _identity = settings.storage_account_name, str(settings.azure_client_i
 images = BlobImageStore.with_managed_identity(_account, _identity)
 queue = StorageQueueSender.with_managed_identity(_account, _identity)
 upload_keys = TableUploadKeyStore.with_managed_identity(_account, _identity)
+reminders = TableReminderStore.with_managed_identity(_account, _identity)
 engine = postgres_engine(
     host=settings.postgres_host,
     database=settings.postgres_database,
@@ -102,7 +104,8 @@ extract_stage = wait_for_database(
     ),
 )
 # Story 2.5: purchasing is read before the finishing transaction (AD-10); the PO
-# match and its writes run under the per-supplier lock (AD-9, AD-19).
+# match, the duplicate check (Story 2.6) and the writes run under the per-supplier
+# lock (AD-9, AD-19). A matched PO's reminder row is deleted after the commit (AD-6).
 validate_stage = wait_for_database(
     QueueName.VALIDATE,
     queue,
@@ -113,6 +116,7 @@ validate_stage = wait_for_database(
             purchasing=purchasing,
             suppliers=PostgresSupplierReader(engine),
             queue=queue,
+            reminders=reminders,
         )
     ),
 )
@@ -150,7 +154,8 @@ async def extract(msg: func.QueueMessage) -> None:
     connection="AzureWebJobsStorage",
 )
 async def validate(msg: func.QueueMessage) -> None:
-    """The validate stage: confidence, PO match and printed supplier (Story 2.5)."""
+    """The validate stage: confidence, PO match and printed supplier (Story 2.5);
+    duplicates, photo date and bank details (Story 2.6)."""
     await validate_stage(msg.get_body())
 
 

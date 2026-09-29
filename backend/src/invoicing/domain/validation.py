@@ -1,4 +1,5 @@
-"""AD-19 validation checks (Story 2.5): confidence, PO match and printed supplier.
+"""AD-19 validation checks: confidence, PO match and printed supplier (Story 2.5);
+duplicates (AD-9), photo date and bank details (Story 2.6).
 
 Pure: each check reads an invoice's AD-18 current values plus the facts the stage
 fetched, and returns the `AdminReason` it fails with (or None), so the stage can route
@@ -9,8 +10,9 @@ The domain uses the standard library only, so the name similarity (rapidfuzz's
 """
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from uuid import UUID
@@ -21,11 +23,13 @@ from invoicing.domain.current_values import (
     FieldValue,
     LineValue,
 )
+from invoicing.domain.exif_time import SINGAPORE
 from invoicing.domain.extraction import (
     CHECKED_HEADER_FIELDS,
     CHECKED_IF_RETURNED_FIELD,
     CHECKED_LINE_FIELDS,
     UPLOAD_CHECKED_FIELD,
+    is_bank_field_id,
     line_field_id,
 )
 from invoicing.domain.reasons import ReasonCode
@@ -40,7 +44,15 @@ TOLERANCE_RATE = Decimal("0.01")
 TOLERANCE_FLOOR = Decimal("1.00")
 CENTS = Decimal("0.01")
 
+# AD-9: the most bits two perceptual hashes may differ in and still be one image.
+DUPLICATE_PHASH_DISTANCE = 8
+# AD-19: the photo is taken on the latest goods-received date or up to 30 days later.
+PHOTO_DATE_MAX_DAYS = 30
+
 SUB_TOTAL = "sub_total"
+INVOICE_NUMBER = "invoice_number"
+INVOICE_TOTAL = "invoice_total"
+INVOICE_DATE = "invoice_date"
 VENDOR_NAME = "vendor_name"
 VENDOR_TAX_ID = "vendor_tax_id"
 PURCHASE_ORDER = UPLOAD_CHECKED_FIELD
@@ -63,6 +75,7 @@ type Similarity = Callable[[str, str], float]
 
 _NOT_ALPHANUMERIC = re.compile(r"[\W_]+")
 _TAX_ID_NOISE = re.compile(r"[^0-9A-Z]")
+_INVOICE_NUMBER_NOISE = re.compile(r"[^0-9A-Z]")
 
 
 class PoProblem:
@@ -376,3 +389,157 @@ def check_po(
             field_ids.append(SUB_TOTAL)
     reason = mismatch(problems, tuple(field_ids), expected) if problems else None
     return PoCheck(po.po_number, matches, reason)
+
+
+# --- Story 2.6 ------------------------------------------------------------------------
+
+
+def normalise_invoice_number(value: str) -> str:
+    """An invoice number as fingerprinted (AD-9): uppercase letters and digits only,
+    so "INV-001" and "inv 001" are one number."""
+    return _INVOICE_NUMBER_NOISE.sub("", value.upper())
+
+
+@dataclass(frozen=True)
+class DuplicateFacts:
+    """What the AD-9 duplicate check compares of one invoice: its id (UUIDv7, so id
+    order is arrival order), whether it is rejected, its current `invoice_number`,
+    `invoice_total` and `invoice_date` (AD-18) and its unsigned 64-bit phash (None
+    for a PDF, or an image that did not decode). `run_id` is the current run."""
+
+    invoice_id: UUID
+    rejected: bool
+    invoice_number: str | None
+    invoice_total: Decimal | None
+    invoice_date: str | None
+    phash: int | None = None
+    run_id: UUID | None = None
+
+    @property
+    def fingerprint(self) -> tuple[str, Decimal, str] | None:
+        """(normalised number, total to 0.01, date), or None unless all three are
+        known: a part that was not read never makes two invoices equal."""
+        if not self.invoice_number or self.invoice_total is None:
+            return None
+        number = normalise_invoice_number(self.invoice_number)
+        if not number or not self.invoice_date:
+            return None
+        return number, money(self.invoice_total), self.invoice_date
+
+
+def duplicate_facts(
+    invoice_id: UUID,
+    values: CurrentValues | None,
+    *,
+    rejected: bool = False,
+    phash: int | None = None,
+) -> DuplicateFacts:
+    """An invoice's `DuplicateFacts` from its AD-18 current values."""
+    if values is None:
+        return DuplicateFacts(invoice_id, rejected, None, None, None, phash)
+    total = values.fields.get(INVOICE_TOTAL)
+    return DuplicateFacts(
+        invoice_id=invoice_id,
+        rejected=rejected,
+        invoice_number=_text(values, INVOICE_NUMBER),
+        invoice_total=None if total is None else total.value_number,
+        invoice_date=_date_text(values.fields.get(INVOICE_DATE)),
+        phash=phash,
+        run_id=values.run_id,
+    )
+
+
+def _date_text(row: FieldValue | None) -> str | None:
+    # DI reads a date as `value_date`; an admin may have typed it as text.
+    if row is None:
+        return None
+    if row.value_date is not None:
+        return row.value_date.isoformat()
+    if row.value_text is None or not row.value_text.strip():
+        return None
+    return row.value_text.strip()
+
+
+def hamming(first: int, second: int) -> int:
+    """The number of bits two unsigned 64-bit hashes differ in."""
+    return (first ^ second).bit_count()
+
+
+def check_duplicate(
+    own: DuplicateFacts, earlier: Iterable[DuplicateFacts]
+) -> AdminReason | None:
+    """`DUPLICATE` naming the earliest matching invoice (AD-9): one of the same
+    supplier's invoices that is not rejected and has a lower id, whose fingerprint
+    equals this one's or whose phash is within Hamming distance 8. The invoice never
+    matches itself or a later one, so of two copies only the later is flagged."""
+    fingerprint = own.fingerprint
+    for other in sorted(earlier, key=lambda facts: facts.invoice_id):
+        if other.rejected or other.invoice_id >= own.invoice_id:
+            continue
+        if fingerprint is not None and other.fingerprint == fingerprint:
+            basis = "fingerprint"
+        elif (
+            own.phash is not None
+            and other.phash is not None
+            and hamming(own.phash, other.phash) <= DUPLICATE_PHASH_DISTANCE
+        ):
+            basis = "phash"
+        else:
+            continue
+        return AdminReason(
+            ReasonCode.DUPLICATE,
+            field_ids=(INVOICE_NUMBER, INVOICE_TOTAL, INVOICE_DATE)
+            if basis == "fingerprint"
+            else (),
+            detail={"invoice_id": str(other.invoice_id), "basis": basis},
+            run_id=own.run_id,
+        )
+    return None
+
+
+def check_photo_date(
+    photo_taken_at: datetime | None,
+    latest_receipt: date | None,
+    *,
+    run_id: UUID | None = None,
+) -> AdminReason | None:
+    """AD-19: the photo's Singapore date must be the PO's latest goods-received date
+    or up to 30 days after it (`DATE_MISMATCH` otherwise, with the days between);
+    `NO_PHOTO_DATE` when the file has none (a PDF or scan). Skipped (None) with no
+    receipt: `PO_MISMATCH` already covers that."""
+    if latest_receipt is None:
+        return None
+    if photo_taken_at is None:
+        return AdminReason(ReasonCode.NO_PHOTO_DATE, run_id=run_id)
+    days = (photo_taken_at.astimezone(SINGAPORE).date() - latest_receipt).days
+    if 0 <= days <= PHOTO_DATE_MAX_DAYS:
+        return None
+    return AdminReason(ReasonCode.DATE_MISMATCH, detail={"days": days}, run_id=run_id)
+
+
+def bare_bank_field_id(field_id: str) -> str:
+    """`iban` of `payment[0].iban`: the `master.supplier_bank.field_id` it is
+    compared with."""
+    return field_id.partition("].")[2]
+
+
+def check_bank(
+    extracted: CurrentValues, master: Mapping[str, str]
+) -> AdminReason | None:
+    """`BANK_CHANGED` naming each extracted bank field (`payment[<n>].<id>`) whose
+    fingerprint differs from the master's for the same bare field id, or for which
+    the master has none (AD-11, AD-19). Fingerprints only: nothing is decrypted, and
+    a SWIFT code is never compared with an account number. A field DI found with no
+    value has no fingerprint and is not compared."""
+    changed = [
+        field_id
+        for field_id, row in sorted(extracted.fields.items())
+        if is_bank_field_id(field_id)
+        and row.bank_fingerprint is not None
+        and master.get(bare_bank_field_id(field_id)) != row.bank_fingerprint
+    ]
+    if not changed:
+        return None
+    return AdminReason(
+        ReasonCode.BANK_CHANGED, field_ids=tuple(changed), run_id=extracted.run_id
+    )

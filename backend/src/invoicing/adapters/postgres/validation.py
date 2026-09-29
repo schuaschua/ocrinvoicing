@@ -1,10 +1,11 @@
-"""`ValidationRepository` over PostgreSQL (Story 2.5, AD-9, AD-18, AD-19).
+"""`ValidationRepository` over PostgreSQL (Stories 2.5 and 2.6, AD-9, AD-18, AD-19).
 
 Reads go through the one AD-18 current-value rule (`domain/current_values.py`). The
-finish is one transaction under `pg_advisory_xact_lock` keyed on the supplier, the
-same key as the AD-9 duplicate check: two invoices of one supplier never count the
-same received quantity twice. The transition is its first write, so when it changes
-nothing, nothing else is written (AD-2).
+finish is one transaction under `pg_advisory_xact_lock` keyed on the supplier, which
+also covers the AD-9 duplicate read: two invoices of one supplier never count the
+same received quantity twice, and of two copies only the later is flagged. The
+transition is its first write, so when it changes nothing, nothing else is written
+(AD-2). Bank fields are read by fingerprint only, never the ciphertext (AD-11).
 """
 
 import asyncio
@@ -17,13 +18,18 @@ from uuid import UUID
 from sqlalchemy import Connection, Engine, bindparam, exists, select, text, update
 
 from invoicing.adapters.postgres.engine import open_connection
-from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
+from invoicing.adapters.postgres.invoices import (
+    PostgresInvoiceRepository,
+    unsigned_phash,
+)
 from invoicing.adapters.postgres.schema import (
     extraction_run,
+    image_hash,
     invoice,
     invoice_field,
     invoice_line,
 )
+from invoicing.adapters.postgres.suppliers import supplier_bank
 from invoicing.domain.current_values import (
     FieldValue,
     LineValue,
@@ -32,6 +38,13 @@ from invoicing.domain.current_values import (
 )
 from invoicing.domain.status import InvoiceStatus
 from invoicing.domain.transitions import AdminRouting
+from invoicing.domain.validation import (
+    INVOICE_DATE,
+    INVOICE_NUMBER,
+    INVOICE_TOTAL,
+    DuplicateFacts,
+    duplicate_facts,
+)
 from invoicing.ports.intake import IntakeSource
 from invoicing.ports.validation import (
     ComputeResult,
@@ -53,6 +66,21 @@ _LINE_COLUMNS = (
     invoice_line.c.amount,
     invoice_line.c.po_line_id,
 )
+# The value columns of a field row; never `bank_ciphertext` (AD-11).
+_FIELD_COLUMNS = (
+    invoice_field.c.id,
+    invoice_field.c.invoice_id,
+    invoice_field.c.field_id,
+    invoice_field.c.run_id,
+    invoice_field.c.source,
+    invoice_field.c.created_at,
+    invoice_field.c.confidence,
+    invoice_field.c.value_text,
+    invoice_field.c.value_number,
+    invoice_field.c.value_date,
+)
+# AD-9: the fingerprint's field ids.
+_DUPLICATE_FIELDS = (INVOICE_NUMBER, INVOICE_TOTAL, INVOICE_DATE)
 
 
 def lock_supplier(connection: Connection, supplier_id: UUID) -> None:
@@ -77,6 +105,21 @@ def _line(row: Any) -> LineValue:
         unit_price=row.unit_price,
         amount=row.amount,
         po_line_id=row.po_line_id,
+    )
+
+
+def _field(row: Any, bank_fingerprint: str | None = None) -> FieldValue:
+    return FieldValue(
+        id=row.id,
+        field_id=row.field_id,
+        run_id=row.run_id,
+        source=row.source,
+        created_at=row.created_at,
+        confidence=row.confidence,
+        value_text=row.value_text,
+        value_number=row.value_number,
+        value_date=row.value_date,
+        bank_fingerprint=bank_fingerprint,
     )
 
 
@@ -107,8 +150,14 @@ class PostgresValidationRepository:
         with open_connection(self._engine) as connection:
             row = connection.execute(
                 select(
-                    invoice.c.source, invoice.c.supplier_id, invoice.c.delivery_id
-                ).where(invoice.c.id == invoice_id)
+                    invoice.c.source,
+                    invoice.c.supplier_id,
+                    invoice.c.delivery_id,
+                    invoice.c.photo_taken_at,
+                    image_hash.c.phash,
+                )
+                .select_from(invoice.outerjoin(image_hash))
+                .where(invoice.c.id == invoice_id)
             ).one_or_none()
             if row is None:
                 return None
@@ -116,6 +165,8 @@ class PostgresValidationRepository:
                 source=IntakeSource(row.source),
                 supplier_id=row.supplier_id,
                 delivery_id=row.delivery_id,
+                photo_taken_at=row.photo_taken_at,
+                phash=None if row.phash is None else unsigned_phash(row.phash),
             )
             runs = connection.execute(
                 select(
@@ -124,42 +175,80 @@ class PostgresValidationRepository:
                     extraction_run.c.created_at,
                 ).where(extraction_run.c.invoice_id == invoice_id)
             ).all()
-            # Bank columns are never read here (AD-11): validation has no use for them.
+            # AD-11: a bank field's fingerprint, never its ciphertext.
             fields = connection.execute(
-                select(
-                    invoice_field.c.id,
-                    invoice_field.c.field_id,
-                    invoice_field.c.run_id,
-                    invoice_field.c.source,
-                    invoice_field.c.created_at,
-                    invoice_field.c.confidence,
-                    invoice_field.c.value_text,
-                    invoice_field.c.value_number,
-                    invoice_field.c.value_date,
-                ).where(invoice_field.c.invoice_id == invoice_id)
+                select(*_FIELD_COLUMNS, invoice_field.c.bank_fingerprint).where(
+                    invoice_field.c.invoice_id == invoice_id
+                )
             ).all()
             lines = connection.execute(
                 select(*_LINE_COLUMNS).where(invoice_line.c.invoice_id == invoice_id)
             ).all()
+            # AD-19: the master's fingerprints only (the pipeline login cannot read
+            # the ciphertext column at all, AD-11).
+            master_bank = {
+                bank.field_id: bank.fingerprint
+                for bank in connection.execute(
+                    select(supplier_bank.c.field_id, supplier_bank.c.fingerprint).where(
+                        supplier_bank.c.supplier_id == row.supplier_id
+                    )
+                )
+            }
         values = current_values(
             _runs(runs).get(invoice_id, []),
-            (
-                FieldValue(
-                    id=f.id,
-                    field_id=f.field_id,
-                    run_id=f.run_id,
-                    source=f.source,
-                    created_at=f.created_at,
-                    confidence=f.confidence,
-                    value_text=f.value_text,
-                    value_number=f.value_number,
-                    value_date=f.value_date,
-                )
-                for f in fields
-            ),
+            (_field(f, f.bank_fingerprint) for f in fields),
             (_line(line) for line in lines),
         )
-        return ValidationInput(facts=facts, values=values)
+        return ValidationInput(facts=facts, values=values, master_bank=master_bank)
+
+    @staticmethod
+    def _earlier(
+        connection: Connection, invoice_id: UUID, supplier_id: UUID
+    ) -> list[DuplicateFacts]:
+        """AD-9: the duplicate facts of the supplier's invoices that come before this
+        one in id (UUIDv7) order and are not rejected, whatever their status."""
+        earlier = (
+            select(invoice.c.id)
+            .where(
+                invoice.c.supplier_id == supplier_id,
+                invoice.c.id < invoice_id,
+                invoice.c.status != InvoiceStatus.REJECTED.value,
+            )
+            .scalar_subquery()
+        )
+        hashes: dict[UUID, int | None] = {
+            row.id: None if row.phash is None else unsigned_phash(row.phash)
+            for row in connection.execute(
+                select(invoice.c.id, image_hash.c.phash)
+                .select_from(invoice.outerjoin(image_hash))
+                .where(invoice.c.id.in_(earlier))
+            )
+        }
+        runs = _runs(
+            connection.execute(
+                select(
+                    extraction_run.c.invoice_id,
+                    extraction_run.c.run_id,
+                    extraction_run.c.created_at,
+                ).where(extraction_run.c.invoice_id.in_(earlier))
+            )
+        )
+        fields: dict[UUID, list[FieldValue]] = defaultdict(list)
+        for row in connection.execute(
+            select(*_FIELD_COLUMNS).where(
+                invoice_field.c.invoice_id.in_(earlier),
+                invoice_field.c.field_id.in_(_DUPLICATE_FIELDS),
+            )
+        ):
+            fields[row.invoice_id].append(_field(row))
+        return [
+            duplicate_facts(
+                other,
+                current_values(runs.get(other, []), fields.get(other, []), ()),
+                phash=phash,
+            )
+            for other, phash in hashes.items()
+        ]
 
     @staticmethod
     def _invoiced_elsewhere(
@@ -210,7 +299,8 @@ class PostgresValidationRepository:
         with open_connection(self._engine) as connection, connection.begin():
             lock_supplier(connection, supplier_id)
             result = compute(
-                self._invoiced_elsewhere(connection, invoice_id, supplier_id)
+                self._invoiced_elsewhere(connection, invoice_id, supplier_id),
+                self._earlier(connection, invoice_id, supplier_id),
             )
             finish = result.finish
             if isinstance(finish, AdminRouting):

@@ -75,7 +75,19 @@ def _json_blocks(output: str) -> list[dict]:
     return blocks
 
 
-def test_story_1_2_service_connections_are_wif_bound_to_the_deploy_identities() -> None:
+def _checks_by_resource(output: str) -> dict[tuple[str, str], set[str]]:
+    found: dict[tuple[str, str], set[str]] = {}
+    for check in (b for b in _json_blocks(output) if "resource" in b):
+        kind = check["settings"].get("displayName") or check["type"]["name"]
+        found.setdefault((check["resource"]["type"], check["resource"]["name"]), set()).add(kind)
+    return found
+
+
+def test_story_1_2_ado_setup_dry_run() -> None:
+    """ado-setup.sh --dry-run. Covers: service connections are WIF-bound to the deploy
+    identities (no key, trusted subject); approval on shared and prod and an exclusive lock on
+    all; branch control allows only main on every connection and environment."""
+    # Service connections are WIF-bound to the deploy identities.
     blocks = _json_blocks(_dry_run().stdout)
     endpoints = [b for b in blocks if b.get("type") == "azurerm"]
     assert [e["name"] for e in endpoints] == ["azure-shared", "azure-dev", "azure-prod"]
@@ -91,16 +103,7 @@ def test_story_1_2_service_connections_are_wif_bound_to_the_deploy_identities() 
     for name in ("azure-shared", "azure-dev", "azure-prod"):
         assert f"subject sc://test-org/test-project/{name}" in out  # as state-backend.sh set it
 
-
-def _checks_by_resource(output: str) -> dict[tuple[str, str], set[str]]:
-    found: dict[tuple[str, str], set[str]] = {}
-    for check in (b for b in _json_blocks(output) if "resource" in b):
-        kind = check["settings"].get("displayName") or check["type"]["name"]
-        found.setdefault((check["resource"]["type"], check["resource"]["name"]), set()).add(kind)
-    return found
-
-
-def test_story_1_2_approval_on_shared_and_prod_and_exclusive_lock_on_all() -> None:
+    # Approval on shared and prod, exclusive lock on all.
     output = _dry_run().stdout
     by_env = {name: kinds for (kind, name), kinds in _checks_by_resource(output).items() if kind == "environment"}
     assert by_env == {
@@ -114,8 +117,7 @@ def test_story_1_2_approval_on_shared_and_prod_and_exclusive_lock_on_all() -> No
         assert approval["settings"]["approvers"] == [{"id": "<identityId-of-dj@example.test>"}]
         assert approval["settings"]["requesterCannotBeApprover"] is False  # Dj merges and approves
 
-
-def test_story_1_2_branch_control_allows_only_main_on_every_connection_and_environment() -> None:
+    # Branch control allows only main.
     output = _dry_run().stdout
     assert {key for key, kinds in _checks_by_resource(output).items() if "Branch control" in kinds} == {
         ("endpoint", "azure-shared"), ("endpoint", "azure-dev"), ("endpoint", "azure-prod"),
@@ -142,18 +144,25 @@ def _real_run(work_dir: Path, **overrides: str) -> tuple[subprocess.CompletedPro
     return result, calls
 
 
-def test_story_1_2_federation_subject_other_than_the_trusted_one_stops(work_dir: Path) -> None:
+def test_story_1_2_existing_service_connection_mismatch_stops(work_dir: Path) -> None:
+    """ado-setup.sh against existing service connections, each run in its own folder. Covers:
+    a federation subject other than the trusted one stops; an existing connection with another
+    binding (not WIF) stops. Neither creates a pipeline."""
+    # A federation subject other than the trusted one stops.
+    run_dir = work_dir / "federation"
+    run_dir.mkdir()
     result, calls = _real_run(
-        work_dir, FAKE_AZ_SC_FEDERATION="https://login.microsoftonline.com/t/v2.0|/eid1/c/pub/t/x/a/y/sc/z/azure-shared"
+        run_dir, FAKE_AZ_SC_FEDERATION="https://login.microsoftonline.com/t/v2.0|/eid1/c/pub/t/x/a/y/sc/z/azure-shared"
     )
     assert result.returncode == 1
     assert "has federation subject '/eid1/c/pub/t/x/a/y/sc/z/azure-shared'" in result.stderr
     assert "trusts 'sc://test-org/test-project/azure-shared'" in result.stderr
     assert not any(call[:2] == ["pipelines", "create"] for call in calls)
 
-
-def test_story_1_2_existing_connection_with_another_binding_stops(work_dir: Path) -> None:
-    result, calls = _real_run(work_dir, FAKE_AZ_SC_BINDING=f"ServicePrincipal|{FAKE_GUID}")
+    # An existing connection with another binding stops.
+    run_dir = work_dir / "binding"
+    run_dir.mkdir()
+    result, calls = _real_run(run_dir, FAKE_AZ_SC_BINDING=f"ServicePrincipal|{FAKE_GUID}")
     assert result.returncode == 1
     assert "not WorkloadIdentityFederation" in result.stderr
     assert not any(call[:2] == ["pipelines", "create"] for call in calls)

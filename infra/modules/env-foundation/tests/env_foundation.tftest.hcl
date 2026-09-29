@@ -73,9 +73,11 @@ variables {
   budget_amount       = 2
 }
 
-run "storage_retention_and_messaging" {
+# Covers: storage_retention_and_messaging, identities_key_vault_monitoring_budget, monitoring_and_alerts.
+run "story_1_1_env_foundation_applied" {
   command = apply
 
+  # --- storage_retention_and_messaging
   assert {
     condition     = local.containers == ["images", "corrections"]
     error_message = "containers must be images and corrections (AD-15)."
@@ -108,11 +110,7 @@ run "storage_retention_and_messaging" {
     condition     = nonsensitive(module.storage.resource.tags) == var.tags
     error_message = "storage must carry the five P-17 tags."
   }
-}
-
-run "identities_key_vault_monitoring_budget" {
-  command = apply
-
+  # --- identities_key_vault_monitoring_budget
   assert {
     condition = {
       for app, identity in module.identities : app => identity.resource.name
@@ -174,12 +172,8 @@ run "identities_key_vault_monitoring_budget" {
     condition     = azurerm_consumption_budget_resource_group.this.name == "babaloo-sea-lng-budget-01" && azurerm_consumption_budget_resource_group.this.amount == 2
     error_message = "the budget name and amount must come from the inputs."
   }
-}
-
-# Story 1.5: dimension alerting, Key Vault audit logs, and budgets through the action group.
-run "monitoring_and_alerts" {
-  command = apply
-
+  # --- monitoring_and_alerts
+  # Story 1.5: dimension alerting, Key Vault audit logs, and budgets through the action group.
   assert {
     condition     = azapi_update_resource.application_insights_custom_metric_dimensions.body.properties.CustomMetricsOptedInType == "WithDimensions" && output.application_insights.custom_metrics_opted_in_type == "WithDimensions"
     error_message = "alerting on custom metric dimensions must be on (AD-17), or poison_message{queue} loses its queue."

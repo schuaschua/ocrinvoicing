@@ -58,10 +58,14 @@ def get_me(
     return call
 
 
-def test_story_2_7_me_returns_name_and_roles_only(
+def test_story_2_7_me(
     get_me: Callable[[dict[str, str]], func.HttpResponse],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """GET /api/me. Covers: returns the name and roles only, with the security headers and no
+    object id or email in the answer or the logs; without a valid principal (none; not base64)
+    it is 401."""
+    # Returns name and roles only.
     with caplog.at_level(logging.DEBUG):
         response = get_me({PRINCIPAL_HEADER: header("finance", "admin")})
     assert response.status_code == 200
@@ -74,11 +78,9 @@ def test_story_2_7_me_returns_name_and_roles_only(
         assert leak not in response.get_body().decode()
         assert leak not in caplog.text
 
-
-@pytest.mark.parametrize("headers", [{}, {PRINCIPAL_HEADER: "%%%not-base64%%%"}])
-def test_story_2_7_me_without_a_valid_principal_is_401(
-    get_me: Callable[[dict[str, str]], func.HttpResponse], headers: dict[str, str]
-) -> None:
-    response = get_me(headers)
-    assert response.status_code == 401
-    assert json.loads(response.get_body())["code"] == "UNAUTHENTICATED"
+    # Without a valid principal: 401.
+    headers: dict[str, str]
+    for headers in [{}, {PRINCIPAL_HEADER: "%%%not-base64%%%"}]:
+        response = get_me(headers)
+        assert response.status_code == 401, headers
+        assert json.loads(response.get_body())["code"] == "UNAUTHENTICATED"

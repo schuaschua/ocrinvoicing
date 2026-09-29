@@ -47,6 +47,13 @@ def work_dir() -> Path:
     shutil.rmtree(path, ignore_errors=True)
 
 
+def _case(work_dir: Path, name: str) -> Path:
+    """A fresh sub-folder per run inside one merged test, so each run has its own call log."""
+    path = work_dir / name
+    path.mkdir()
+    return path
+
+
 def _run(script: str, work_dir: Path, **extra_env: str) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
     log = work_dir / "az-calls.jsonl"
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ARM_", "TAG_", "ADO_", "FAKE_"))}
@@ -67,8 +74,24 @@ def _starts_with(call: list[str], prefix: list[str]) -> bool:
     return call[: len(prefix)] == prefix
 
 
-def test_state_backend_rerun_reapplies_the_security_settings(work_dir: Path) -> None:
-    result, calls = _run("state-backend.sh", work_dir)
+def _files(work_dir: Path) -> list[dict]:
+    path = work_dir / "az-calls.jsonl.files"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+
+def _tool_calls(calls: list[list[str]], tool: str) -> list[list[str]]:
+    return [call for call in calls if call[:1] == [f"__{tool}__"]]
+
+
+# --- state-backend.sh re-run ---------------------------------------------------------------------
+
+
+def test_story_1_1_state_backend_rerun(work_dir: Path) -> None:
+    """state-backend.sh re-run where everything exists. Covers: the security settings are
+    re-applied (shared keys off; OCR-129 private-key vaults keep RBAC and purge protection);
+    stale federated credentials follow changed ADO inputs (updated, never re-created)."""
+    # Bootstrap re-run re-applies the security settings.
+    result, calls = _run("state-backend.sh", _case(work_dir, "rerun"))
     assert result.returncode == 0, result.stderr
     assert any(_starts_with(call, ["storage", "account", "update"]) and "--allow-shared-key-access" in call for call in calls)
     # OCR-129: the private-key vaults keep their settings.
@@ -79,60 +102,8 @@ def test_state_backend_rerun_reapplies_the_security_settings(work_dir: Path) -> 
         assert call[call.index("--enable-rbac-authorization") + 1] == "true"
         assert call[call.index("--enable-purge-protection") + 1] == "true"
 
-
-def test_cross_env_connection_refused_reports_pass(work_dir: Path) -> None:
-    result, _ = _run(
-        "verify-db-isolation.sh",
-        work_dir,
-        CONNECT_AS_LOGIN="babaloo-sea-lng-id-22",
-        TARGET_DB="invoicing_prod",
-        FAKE_PSQL_CROSS_ENV="refuse",
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS babaloo-sea-lng-id-22 refused by invoicing_prod" in result.stdout
-    assert "FAIL" not in result.stdout
-
-
-def test_cross_env_connection_allowed_reports_fail(work_dir: Path) -> None:
-    result, _ = _run(
-        "verify-db-isolation.sh",
-        work_dir,
-        CONNECT_AS_LOGIN="babaloo-sea-lng-id-22",
-        TARGET_DB="invoicing_prod",
-        FAKE_PSQL_CROSS_ENV="allow",
-    )
-    assert result.returncode != 0
-    assert "FAIL babaloo-sea-lng-id-22 connected to invoicing_prod" in result.stdout
-
-
-def test_privilege_check_passes_when_isolated(work_dir: Path) -> None:
-    result, _ = _run("verify-db-isolation.sh", work_dir, FAKE_PSQL_CROSS_ENV="refuse")
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS babaloo-sea-lng-id-03 refused on invoicing_prod" in result.stdout
-    assert "PASS babaloo-sea-lng-id-13 refused on invoicing_dev" in result.stdout
-    assert "All isolation checks passed." in result.stdout
-
-
-def test_privilege_check_fails_when_dev_can_reach_prod(work_dir: Path) -> None:
-    result, _ = _run("verify-db-isolation.sh", work_dir, FAKE_PSQL_CROSS_ENV="allow")
-    assert result.returncode == 1
-    assert "FAIL babaloo-sea-lng-id-03 can CONNECT to invoicing_prod" in result.stdout
-
-
-def _files(work_dir: Path) -> list[dict]:
-    path = work_dir / "az-calls.jsonl.files"
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
-
-
-def _tool_calls(calls: list[list[str]], tool: str) -> list[list[str]]:
-    return [call for call in calls if call[:1] == [f"__{tool}__"]]
-
-
-# --- Federated credentials follow changed ADO inputs ------------------------------------------
-
-
-def test_stale_federated_credentials_are_updated(work_dir: Path) -> None:
-    result, calls = _run("state-backend.sh", work_dir, FAKE_AZ_FED_STALE="1")
+    # Stale federated credentials are updated.
+    result, calls = _run("state-backend.sh", _case(work_dir, "fed-stale"), FAKE_AZ_FED_STALE="1")
     assert result.returncode == 0, result.stderr
     updates = [call for call in calls if _starts_with(call, ["identity", "federated-credential", "update"])]
     assert len(updates) == 3
@@ -142,7 +113,47 @@ def test_stale_federated_credentials_are_updated(work_dir: Path) -> None:
     assert not any(_starts_with(call, ["identity", "federated-credential", "create"]) for call in calls)
 
 
-# --- PGP key pair guards (step 4b) ---------------------------------------------------------------
+# --- verify-db-isolation.sh ----------------------------------------------------------------------
+
+
+def test_story_1_1_verify_db_isolation(work_dir: Path) -> None:
+    """verify-db-isolation.sh. Covers: cross-env connection refused reports PASS; allowed
+    reports FAIL; privilege check passes when isolated; fails when dev can reach prod; a
+    missing database fails the PUBLIC check."""
+    cross_env = {"CONNECT_AS_LOGIN": "babaloo-sea-lng-id-22", "TARGET_DB": "invoicing_prod"}
+
+    # Cross-env connection refused reports PASS.
+    result, _ = _run("verify-db-isolation.sh", _case(work_dir, "cross-refuse"), **cross_env, FAKE_PSQL_CROSS_ENV="refuse")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS babaloo-sea-lng-id-22 refused by invoicing_prod" in result.stdout
+    assert "FAIL" not in result.stdout
+
+    # Cross-env connection allowed reports FAIL.
+    result, _ = _run("verify-db-isolation.sh", _case(work_dir, "cross-allow"), **cross_env, FAKE_PSQL_CROSS_ENV="allow")
+    assert result.returncode != 0
+    assert "FAIL babaloo-sea-lng-id-22 connected to invoicing_prod" in result.stdout
+
+    # Privilege check passes when isolated.
+    result, _ = _run("verify-db-isolation.sh", _case(work_dir, "priv-refuse"), FAKE_PSQL_CROSS_ENV="refuse")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PASS babaloo-sea-lng-id-03 refused on invoicing_prod" in result.stdout
+    assert "PASS babaloo-sea-lng-id-13 refused on invoicing_dev" in result.stdout
+    assert "All isolation checks passed." in result.stdout
+
+    # Privilege check fails when dev can reach prod.
+    result, _ = _run("verify-db-isolation.sh", _case(work_dir, "priv-allow"), FAKE_PSQL_CROSS_ENV="allow")
+    assert result.returncode == 1
+    assert "FAIL babaloo-sea-lng-id-03 can CONNECT to invoicing_prod" in result.stdout
+
+    # A missing database fails the PUBLIC check.
+    result, _ = _run("verify-db-isolation.sh", _case(work_dir, "missing-db"), FAKE_PSQL_MISSING_DB="invoicing_prod")
+    assert result.returncode == 1
+    assert "FAIL invoicing_prod does not exist" in result.stdout
+    assert "PASS PUBLIC has no CONNECT on invoicing_prod" not in result.stdout
+    assert "PASS PUBLIC has no CONNECT on invoicing_dev" in result.stdout
+
+
+# --- PGP key pair (step 4b) ----------------------------------------------------------------------
 
 
 # The dev vaults and staff-api's secret-scoped role (OCR-129).
@@ -164,44 +175,33 @@ def _role_creates(calls: list[list[str]]) -> list[list[str]]:
     return [call for call in calls if _starts_with(call, ["role", "assignment", "create"])]
 
 
-def test_pgp_both_secrets_exist_does_nothing(work_dir: Path) -> None:
-    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=ENV_PRIVATE)
+def test_ocr_129_pgp_step4b_runs(work_dir: Path) -> None:
+    """pgp-step4b.sh runs that succeed. Covers: both secrets exist (nothing to generate, the
+    staff-api grant exists); a re-run after a missed grant only grants staff-api; a new
+    environment splits the pair across the vaults and then grants staff-api, and leaves no
+    private key behind."""
+    # Both secrets exist: nothing is generated or granted.
+    run_dir = _case(work_dir, "both-exist")
+    result, calls = _run("pgp-step4b.sh", run_dir, FAKE_AZ_NOT_FOUND_MATCH=ENV_PRIVATE)
     assert result.returncode == 0, result.stderr
     assert "nothing to generate" in result.stdout
     _assert_no_key_generation(calls)
     assert _role_creates(calls) == []
     assert f"exists: role 4633458b-17de-408a-b874-0445c86b69e6 for 55555555-5555-5555-5555-555555555555 at {PRIVATE_SECRET_SCOPE}" in result.stdout
 
-
-def test_pgp_rerun_after_a_missed_grant_only_grants_staff_api(work_dir: Path) -> None:
+    # A re-run after a missed grant only grants staff-api.
     result, calls = _run(
-        "pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=ENV_PRIVATE, FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
+        "pgp-step4b.sh", _case(work_dir, "missed-grant"), FAKE_AZ_NOT_FOUND_MATCH=ENV_PRIVATE, FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
     )
     assert result.returncode == 0, result.stderr
     _assert_no_key_generation(calls)
     (grant,) = _role_creates(calls)
     assert grant[grant.index("--scope") + 1] == PRIVATE_SECRET_SCOPE
 
-
-@pytest.mark.parametrize("absent", [ENV_PUBLIC, PK_PRIVATE])
-def test_pgp_only_one_secret_exists_stops(absent: str, work_dir: Path) -> None:
-    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=f"{ENV_PRIVATE}||{absent}")
-    assert result.returncode == 1
-    assert "only one of pgp-public-key (babaloo-sea-lng-kv-01) / pgp-private-key (babaloo-sea-lng-kv-22) exists" in result.stderr
-    _assert_no_key_generation(calls)
-    assert _role_creates(calls) == []
-
-
-def test_pgp_secret_lookup_error_stops_without_generating(work_dir: Path) -> None:
-    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_FAIL_MATCH="keyvault secret show")
-    assert result.returncode == 1
-    assert "lookup failed, and not with NotFound" in result.stderr
-    _assert_no_key_generation(calls)
-
-
-def test_ocr_129_pgp_new_environment_splits_the_pair_and_grants_staff_api(work_dir: Path) -> None:
+    # A new environment: split the pair, then grant staff-api.
+    run_dir = _case(work_dir, "new-env")
     result, calls = _run(
-        "pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="keyvault secret show", FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
+        "pgp-step4b.sh", run_dir, FAKE_AZ_NOT_FOUND_MATCH="keyvault secret show", FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
     )
     assert result.returncode == 0, result.stdout + result.stderr
     sets = [call for call in calls if _starts_with(call, ["keyvault", "secret", "set"])]
@@ -209,7 +209,7 @@ def test_ocr_129_pgp_new_environment_splits_the_pair_and_grants_staff_api(work_d
         ("babaloo-sea-lng-kv-22", "pgp-private-key"),
         ("babaloo-sea-lng-kv-01", "pgp-public-key"),
     ]
-    stored = {entry["args"][entry["args"].index("--vault-name") + 1]: entry["content"] for entry in _files(work_dir)}
+    stored = {entry["args"][entry["args"].index("--vault-name") + 1]: entry["content"] for entry in _files(run_dir)}
     assert "BEGIN PGP PRIVATE KEY BLOCK" in stored["babaloo-sea-lng-kv-22"]
     assert "PRIVATE" not in stored["babaloo-sea-lng-kv-01"]
     (grant,) = _role_creates(calls)
@@ -222,9 +222,29 @@ def test_ocr_129_pgp_new_environment_splits_the_pair_and_grants_staff_api(work_d
     assert not any((REPO_ROOT / ".work" / "bootstrap").glob("tmp.*/private.asc"))
 
 
-def test_ocr_129_pgp_stops_before_writing_when_staff_api_identity_is_missing(work_dir: Path) -> None:
+def test_ocr_129_pgp_step4b_guards(work_dir: Path) -> None:
+    """pgp-step4b.sh runs that must stop without generating a key or granting a role.
+    Covers: only one secret of the pair exists (public absent; private absent); a secret
+    lookup error other than NotFound; the staff-api identity is missing; the private-key vault
+    is missing; a legacy private key in the env vault (kv-22 copy absent; present), never
+    copied."""
+    # Only one secret of the pair exists.
+    for label, absent in (("public-absent", ENV_PUBLIC), ("private-absent", PK_PRIVATE)):
+        result, calls = _run("pgp-step4b.sh", _case(work_dir, label), FAKE_AZ_NOT_FOUND_MATCH=f"{ENV_PRIVATE}||{absent}")
+        assert result.returncode == 1, label
+        assert "only one of pgp-public-key (babaloo-sea-lng-kv-01) / pgp-private-key (babaloo-sea-lng-kv-22) exists" in result.stderr
+        _assert_no_key_generation(calls)
+        assert _role_creates(calls) == []
+
+    # A secret lookup error (not NotFound) stops without generating.
+    result, calls = _run("pgp-step4b.sh", _case(work_dir, "lookup-error"), FAKE_AZ_FAIL_MATCH="keyvault secret show")
+    assert result.returncode == 1
+    assert "lookup failed, and not with NotFound" in result.stderr
+    _assert_no_key_generation(calls)
+
+    # The staff-api identity is missing: stop before writing.
     result, calls = _run(
-        "pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="identity show --name babaloo-sea-lng-id-02"
+        "pgp-step4b.sh", _case(work_dir, "no-identity"), FAKE_AZ_NOT_FOUND_MATCH="identity show --name babaloo-sea-lng-id-02"
     )
     assert result.returncode == 1
     assert "staff-api identity babaloo-sea-lng-id-02 not found in babaloo-sea-lng-rg-01" in result.stderr
@@ -232,24 +252,24 @@ def test_ocr_129_pgp_stops_before_writing_when_staff_api_identity_is_missing(wor
     _assert_no_key_generation(calls)
     assert _role_creates(calls) == []
 
-
-def test_ocr_129_pgp_stops_when_the_private_key_vault_is_missing(work_dir: Path) -> None:
-    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH="keyvault show --name babaloo-sea-lng-kv-22")
+    # The private-key vault is missing.
+    result, calls = _run(
+        "pgp-step4b.sh", _case(work_dir, "no-pk-vault"), FAKE_AZ_NOT_FOUND_MATCH="keyvault show --name babaloo-sea-lng-kv-22"
+    )
     assert result.returncode == 1
     assert "run state-backend.sh (AD-17 step 1) first" in result.stderr
     _assert_no_key_generation(calls)
 
-
-@pytest.mark.parametrize("pk_private", ["absent", "present"])
-def test_ocr_129_pgp_legacy_private_key_in_the_env_vault_stops_without_copying(pk_private: str, work_dir: Path) -> None:
-    not_found = PK_PRIVATE if pk_private == "absent" else ""
-    result, calls = _run("pgp-step4b.sh", work_dir, FAKE_AZ_NOT_FOUND_MATCH=not_found)
-    assert result.returncode == 1
-    assert "pgp-private-key is in babaloo-sea-lng-kv-01" in result.stderr
-    assert "Move it to babaloo-sea-lng-kv-22, then delete and purge it" in result.stderr
-    _assert_no_key_generation(calls)
-    assert _role_creates(calls) == []
-    assert not any(_starts_with(call, ["keyvault", "secret", "download"]) for call in calls)
+    # A legacy private key in the env vault stops without copying, whether or not kv-22 has one.
+    for pk_private in ("absent", "present"):
+        not_found = PK_PRIVATE if pk_private == "absent" else ""
+        result, calls = _run("pgp-step4b.sh", _case(work_dir, f"legacy-{pk_private}"), FAKE_AZ_NOT_FOUND_MATCH=not_found)
+        assert result.returncode == 1, pk_private
+        assert "pgp-private-key is in babaloo-sea-lng-kv-01" in result.stderr
+        assert "Move it to babaloo-sea-lng-kv-22, then delete and purge it" in result.stderr
+        _assert_no_key_generation(calls)
+        assert _role_creates(calls) == []
+        assert not any(_starts_with(call, ["keyvault", "secret", "download"]) for call in calls)
 
 
 # --- Step 5: Dj's load-script rights (OCR-129) -------------------------------------------------
@@ -260,8 +280,13 @@ DEV_VAULT = (
 )
 
 
-def test_ocr_129_database_step5_grants_dj_two_secrets_only(work_dir: Path) -> None:
-    result, calls = _run("database-step5.sh", work_dir, DJ_USER_UPN="dj@example.test", FAKE_AZ_NO_ROLE_ASSIGNMENTS="1")
+def test_ocr_129_database_step5_dj_rights(work_dir: Path) -> None:
+    """database-step5.sh. Covers: Dj is granted the two secrets only (hmac-key and
+    pgp-public-key, Secrets User), nothing deleted; an earlier vault-wide role is removed."""
+    # Grants Dj two secrets only.
+    result, calls = _run(
+        "database-step5.sh", _case(work_dir, "grant"), DJ_USER_UPN="dj@example.test", FAKE_AZ_NO_ROLE_ASSIGNMENTS="1"
+    )
     assert result.returncode == 0, result.stdout + result.stderr
     kv = [call for call in _role_creates(calls) if "Microsoft.KeyVault" in call[call.index("--scope") + 1]]
     assert sorted(call[call.index("--scope") + 1] for call in kv) == [
@@ -271,9 +296,8 @@ def test_ocr_129_database_step5_grants_dj_two_secrets_only(work_dir: Path) -> No
     assert all(call[call.index("--role") + 1] == "4633458b-17de-408a-b874-0445c86b69e6" for call in kv)
     assert not any(_starts_with(call, ["role", "assignment", "delete"]) for call in calls)
 
-
-def test_ocr_129_database_step5_removes_an_earlier_vault_wide_role(work_dir: Path) -> None:
-    result, calls = _run("database-step5.sh", work_dir, DJ_USER_UPN="dj@example.test")
+    # Removes an earlier vault-wide role.
+    result, calls = _run("database-step5.sh", _case(work_dir, "vault-wide"), DJ_USER_UPN="dj@example.test")
     assert result.returncode == 0, result.stdout + result.stderr
     assert _role_creates(calls) == []
     (delete,) = [call for call in calls if _starts_with(call, ["role", "assignment", "delete"])]
@@ -283,12 +307,16 @@ def test_ocr_129_database_step5_removes_an_earlier_vault_wide_role(work_dir: Pat
 # --- App registrations ----------------------------------------------------------------------------
 
 
-def test_missing_app_role_is_added_keeping_existing_ids(work_dir: Path) -> None:
-    result, calls = _run("app-registrations.sh", work_dir, FAKE_AZ_STAFF_ROLES="4")
+def test_story_1_1_app_registrations(work_dir: Path) -> None:
+    """app-registrations.sh. Covers: a missing app role is added keeping the existing role ids;
+    duplicate app registrations stop the script before any update."""
+    # A missing app role is added, keeping existing ids.
+    run_dir = _case(work_dir, "missing-role")
+    result, calls = _run("app-registrations.sh", run_dir, FAKE_AZ_STAFF_ROLES="4")
     assert result.returncode == 0, result.stderr
     role_updates = [call for call in calls if _starts_with(call, ["ad", "app", "update"]) and "--app-roles" in call]
     assert len(role_updates) == 2  # exactly one per environment's staff-api registration
-    role_files = [entry for entry in _files(work_dir) if "--app-roles" in entry["args"]]
+    role_files = [entry for entry in _files(run_dir) if "--app-roles" in entry["args"]]
     assert len(role_files) == 2
     for entry in role_files:
         roles = json.loads(entry["content"])
@@ -299,20 +327,8 @@ def test_missing_app_role_is_added_keeping_existing_ids(work_dir: Path) -> None:
         assert len(added) == 1 and added[0]["id"] != "55555555-5555-5555-5555-555555555555"
         assert added[0]["allowedMemberTypes"] == ["User"] and added[0]["isEnabled"] is True
 
-
-def test_duplicate_app_registrations_stop_the_script(work_dir: Path) -> None:
-    result, calls = _run("app-registrations.sh", work_dir, FAKE_AZ_DUPLICATE_APPS="1")
+    # Duplicate app registrations stop the script.
+    result, calls = _run("app-registrations.sh", _case(work_dir, "duplicates"), FAKE_AZ_DUPLICATE_APPS="1")
     assert result.returncode == 1
     assert "matches 2 app registrations" in result.stderr
     assert not any(_starts_with(call, ["ad", "app", "update"]) for call in calls)
-
-
-# --- verify-db-isolation.sh: a missing database is a failure ------------------------------------
-
-
-def test_missing_database_fails_the_public_check(work_dir: Path) -> None:
-    result, _ = _run("verify-db-isolation.sh", work_dir, FAKE_PSQL_MISSING_DB="invoicing_prod")
-    assert result.returncode == 1
-    assert "FAIL invoicing_prod does not exist" in result.stdout
-    assert "PASS PUBLIC has no CONNECT on invoicing_prod" not in result.stdout
-    assert "PASS PUBLIC has no CONNECT on invoicing_dev" in result.stdout

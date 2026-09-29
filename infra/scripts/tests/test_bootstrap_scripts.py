@@ -12,8 +12,6 @@ import re
 import subprocess
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BOOTSTRAP = REPO_ROOT / "infra" / "bootstrap"
 FAKE_BIN = Path(__file__).resolve().parent / "fake-bin"
@@ -60,28 +58,6 @@ def _run(script: str, *args: str, **env_overrides: str | None) -> subprocess.Com
     )
 
 
-def test_state_backend_plan_matches_ad17() -> None:
-    out = _run("state-backend.sh", "--dry-run").stdout
-    assert "--allow-shared-key-access false" in out
-    assert "sc://test-org/test-project/azure-dev" in out
-    assert "https://vstoken.dev.azure.com/44444444-4444-4444-4444-444444444444" in out
-    # State and deploy identities live in the bootstrap-only rg-22.
-    assert "az storage account create --name babaloosealngst21 --resource-group babaloo-sea-lng-rg-22" in out
-    assert "az identity create --name babaloo-sea-lng-id-21 --resource-group babaloo-sea-lng-rg-22" in out
-    # No deploy identity gets Contributor on rg-22: Contributor goes only to the stack groups.
-    contributor_scopes = re.findall(r"--role b24988ac-6180-42a0-ab88-20f7382dd24c --scope (\S+)", out)
-    assert sorted(scope.rsplit("/", 1)[1] for scope in contributor_scopes) == [
-        "babaloo-sea-lng-rg-01",
-        "babaloo-sea-lng-rg-11",
-        "babaloo-sea-lng-rg-21",
-    ]
-    rg22_roles = [line for line in out.splitlines() if "role assignment create" in line and "resourceGroups/babaloo-sea-lng-rg-22" in line]
-    assert rg22_roles and all("/blobServices/default/containers/" in line for line in rg22_roles)
-    # Conditioned RBAC Administrator for the environment identities only.
-    assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 2
-    assert "ServicePrincipal" in out and "--condition-version 2.0" in out
-
-
 # --- OCR-129: the PGP private key lives in a private-key vault only staff-api reads ------
 
 KV_SECRETS_USER = "4633458b-17de-408a-b874-0445c86b69e6"
@@ -91,112 +67,6 @@ RG22 = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babal
 
 def _role_creates(out: str) -> list[str]:
     return [line for line in out.splitlines() if "az role assignment create" in line]
-
-
-def test_ocr_129_state_backend_creates_the_private_key_vaults_in_rg22() -> None:
-    out = _run("state-backend.sh", "--dry-run").stdout
-    for vault in ("babaloo-sea-lng-kv-22", "babaloo-sea-lng-kv-23"):
-        (create,) = [line for line in out.splitlines() if f"az keyvault create --name {vault} " in line]
-        assert "--resource-group babaloo-sea-lng-rg-22" in create
-        assert "--enable-rbac-authorization true" in create
-        assert "--enable-purge-protection true" in create and "--retention-days 7" in create
-        assert "--public-network-access Enabled" in create
-
-
-def test_ocr_129_nobody_gets_a_role_on_the_private_key_vaults_or_rg22_in_step_1() -> None:
-    out = _run("state-backend.sh", "--dry-run").stdout
-    creates = _role_creates(out)
-    assert creates
-    assert not any("babaloo-sea-lng-kv-22" in line or "babaloo-sea-lng-kv-23" in line for line in creates)
-    # In rg-22 only the container-scoped state roles exist.
-    rg22 = [line for line in creates if f"--scope {RG22}" in line]
-    assert rg22 and all("/blobServices/default/containers/" in line for line in rg22)
-    assert not any(f"--scope {RG22} " in line or line.endswith(f"--scope {RG22}") for line in creates)
-
-
-@pytest.mark.parametrize("script", ["state-backend.sh", "rbac-step3.sh"])
-def test_ocr_129_no_rbac_administrator_reaches_rg22(script: str) -> None:
-    out = _run(script, "--dry-run").stdout
-    admin = [line for line in _role_creates(out) if f"--role {RBAC_ADMIN}" in line]
-    assert admin
-    scopes = [re.search(r"--scope (\S+)", line).group(1) for line in admin]
-    assert not any("babaloo-sea-lng-rg-22" in scope for scope in scopes)
-    if script == "state-backend.sh":
-        # The env deploy identities' conditioned RBAC Administrator: their own group only.
-        assert sorted(scopes) == [
-            "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01",
-            "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11",
-        ]
-
-
-@pytest.mark.parametrize(
-    ("environment", "env_vault", "pk_vault", "staff_identity", "env_rg"),
-    [
-        ("dev", "babaloo-sea-lng-kv-01", "babaloo-sea-lng-kv-22", "babaloo-sea-lng-id-02", "babaloo-sea-lng-rg-01"),
-        ("prod", "babaloo-sea-lng-kv-11", "babaloo-sea-lng-kv-23", "babaloo-sea-lng-id-12", "babaloo-sea-lng-rg-11"),
-    ],
-)
-def test_ocr_129_pgp_step4b_splits_the_pair_and_grants_only_staff_api(
-    environment: str, env_vault: str, pk_vault: str, staff_identity: str, env_rg: str
-) -> None:
-    result = _run("pgp-step4b.sh", "--dry-run", ENVIRONMENT=environment)
-    assert result.returncode == 0, result.stderr
-    out = result.stdout
-    sets = [line for line in out.splitlines() if "az keyvault secret set" in line]
-    assert len(sets) == 2
-    assert f"--vault-name {pk_vault} --name pgp-private-key" in sets[0]  # private first
-    assert f"--vault-name {env_vault} --name pgp-public-key" in sets[1]
-    (grant,) = _role_creates(out)
-    assert f"--assignee-object-id '<principalId-of-{staff_identity}>'" in grant
-    assert f"--role {KV_SECRETS_USER}" in grant and "--assignee-principal-type ServicePrincipal" in grant
-    assert grant.endswith(f"--scope {RG22}/providers/Microsoft.KeyVault/vaults/{pk_vault}/secrets/pgp-private-key")
-    # The identity is looked up in the environment's group, before any write.
-    assert f"az identity show --name {staff_identity} --resource-group {env_rg}" in result.stderr
-    assert out.index("az keyvault secret set") > out.index("==> Check existing secrets")
-
-
-def test_ocr_129_database_step5_gives_dj_two_secrets_and_no_vault_wide_role() -> None:
-    result = _run("database-step5.sh", "--dry-run")
-    assert result.returncode == 0, result.stderr
-    vault = (
-        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01"
-        "/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
-    )
-    kv_grants = [line for line in _role_creates(result.stdout) if KV_SECRETS_USER in line or KV_SECRETS_OFFICER in line]
-    assert sorted(line.rsplit("--scope ", 1)[1] for line in kv_grants) == [
-        f"{vault}/secrets/hmac-key",
-        f"{vault}/secrets/pgp-public-key",
-    ]
-    assert all("--assignee-principal-type User" in line for line in kv_grants)
-    assert "kv-22" not in result.stdout and "kv-23" not in result.stdout
-
-
-def test_rbac_step3_conditions_only_runtime_roles() -> None:
-    out = _run("rbac-step3.sh", "--dry-run").stdout
-    assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 4
-    assert "a97b65f3-24c7-4388-baec-2e87135dc908" in out  # Cognitive Services User
-    assert "Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21" in out
-    assert "Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21" in out
-
-
-def test_database_step5_targets_own_database() -> None:
-    out = _run("database-step5.sh", "--dry-run", ENVIRONMENT="prod").stdout
-    assert "env_db=invoicing_prod" in out and "other_db=invoicing_dev" in out
-    assert "pipeline_login=babaloo-sea-lng-id-13" in out
-    assert "deploy_login=babaloo-sea-lng-id-23" in out
-    assert "sslmode=require" in out
-
-
-def test_verify_db_isolation_connect_mode() -> None:
-    result = _run(
-        "verify-db-isolation.sh",
-        "--dry-run",
-        CONNECT_AS_LOGIN="babaloo-sea-lng-id-22",
-        TARGET_DB="invoicing_prod",
-        PG_ADMIN_USER=None,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "dbname=invoicing_prod user=babaloo-sea-lng-id-22" in result.stdout
 
 
 # --- RBAC Administrator condition content --------------------------------------------
@@ -244,28 +114,6 @@ def _assert_condition_shape(condition: str, expected_roles: set[str]) -> None:
         assert forbidden not in condition
 
 
-def test_state_backend_rbac_condition_allows_only_runtime_roles_for_service_principals() -> None:
-    conditions = _conditions(_run("state-backend.sh", "--dry-run").stdout)
-    assert len(conditions) == 2  # dev and prod deploy identities
-    for condition in conditions:
-        _assert_condition_shape(condition, ENV_RUNTIME_ROLES)
-
-
-def test_rbac_step3_conditions_allow_only_the_shared_resource_roles() -> None:
-    conditions = _conditions(_run("rbac-step3.sh", "--dry-run").stdout)
-    assert len(conditions) == 4  # DI and ACS for dev and prod
-    di_conditions = [c for c in conditions if "a97b65f3-24c7-4388-baec-2e87135dc908" in c]
-    acs_conditions = [c for c in conditions if "<roleId-of-ACS Email Sender>" in c]
-    assert len(di_conditions) == 2 and len(acs_conditions) == 2
-    for condition in di_conditions:
-        _assert_condition_shape(condition, {"a97b65f3-24c7-4388-baec-2e87135dc908"})
-    for condition in acs_conditions:
-        _assert_condition_shape(condition, {"<roleId-of-ACS Email Sender>"})
-
-
-# --- ACS Email Sender content -----------------------------------------------
-
-
 def _json_blocks(output: str) -> list[dict]:
     """JSON documents printed by a dry run (lines from '{' to '}' at column 0)."""
     blocks, current = [], None
@@ -280,7 +128,176 @@ def _json_blocks(output: str) -> list[dict]:
     return blocks
 
 
-def test_acs_email_sender_role_content() -> None:
+def test_story_1_1_state_backend_dry_run_plan() -> None:
+    """state-backend.sh --dry-run (AD-17, OCR-129). Covers, in order:
+    plan matches AD-17 (no shared keys, WIF subject/issuer, rg-22 state and deploy identities,
+    Contributor only on stack groups, conditioned RBAC Administrator); OCR-129 private-key
+    vaults kv-22/kv-23 created in rg-22; nobody gets a role on those vaults or rg-22 in step 1;
+    no RBAC Administrator reaches rg-22; RBAC Administrator conditions allow only runtime roles
+    for service principals.
+    """
+    out = _run("state-backend.sh", "--dry-run").stdout
+
+    # plan matches AD-17
+    assert "--allow-shared-key-access false" in out
+    assert "sc://test-org/test-project/azure-dev" in out
+    assert "https://vstoken.dev.azure.com/44444444-4444-4444-4444-444444444444" in out
+    # State and deploy identities live in the bootstrap-only rg-22.
+    assert "az storage account create --name babaloosealngst21 --resource-group babaloo-sea-lng-rg-22" in out
+    assert "az identity create --name babaloo-sea-lng-id-21 --resource-group babaloo-sea-lng-rg-22" in out
+    # No deploy identity gets Contributor on rg-22: Contributor goes only to the stack groups.
+    contributor_scopes = re.findall(r"--role b24988ac-6180-42a0-ab88-20f7382dd24c --scope (\S+)", out)
+    assert sorted(scope.rsplit("/", 1)[1] for scope in contributor_scopes) == [
+        "babaloo-sea-lng-rg-01",
+        "babaloo-sea-lng-rg-11",
+        "babaloo-sea-lng-rg-21",
+    ]
+    rg22_roles = [line for line in out.splitlines() if "role assignment create" in line and "resourceGroups/babaloo-sea-lng-rg-22" in line]
+    assert rg22_roles and all("/blobServices/default/containers/" in line for line in rg22_roles)
+    # Conditioned RBAC Administrator for the environment identities only.
+    assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 2
+    assert "ServicePrincipal" in out and "--condition-version 2.0" in out
+
+    # OCR-129: the private-key vaults are created in rg-22
+    for vault in ("babaloo-sea-lng-kv-22", "babaloo-sea-lng-kv-23"):
+        (create,) = [line for line in out.splitlines() if f"az keyvault create --name {vault} " in line]
+        assert "--resource-group babaloo-sea-lng-rg-22" in create
+        assert "--enable-rbac-authorization true" in create
+        assert "--enable-purge-protection true" in create and "--retention-days 7" in create
+        assert "--public-network-access Enabled" in create
+
+    # OCR-129: nobody gets a role on the private-key vaults or rg-22 in step 1
+    creates = _role_creates(out)
+    assert creates
+    assert not any("babaloo-sea-lng-kv-22" in line or "babaloo-sea-lng-kv-23" in line for line in creates)
+    # In rg-22 only the container-scoped state roles exist.
+    rg22 = [line for line in creates if f"--scope {RG22}" in line]
+    assert rg22 and all("/blobServices/default/containers/" in line for line in rg22)
+    assert not any(f"--scope {RG22} " in line or line.endswith(f"--scope {RG22}") for line in creates)
+
+    # OCR-129: no RBAC Administrator reaches rg-22; the env deploy identities' conditioned
+    # RBAC Administrator is on their own group only.
+    scopes = _rbac_admin_scopes(out)
+    assert not any("babaloo-sea-lng-rg-22" in scope for scope in scopes)
+    assert sorted(scopes) == [
+        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01",
+        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11",
+    ]
+
+    # RBAC Administrator condition allows only runtime roles for service principals
+    conditions = _conditions(out)
+    assert len(conditions) == 2  # dev and prod deploy identities
+    for condition in conditions:
+        _assert_condition_shape(condition, ENV_RUNTIME_ROLES)
+
+
+def _rbac_admin_scopes(out: str) -> list[str]:
+    admin = [line for line in _role_creates(out) if f"--role {RBAC_ADMIN}" in line]
+    assert admin
+    return [re.search(r"--scope (\S+)", line).group(1) for line in admin]
+
+
+def test_story_1_1_rbac_step3_dry_run_plan() -> None:
+    """rbac-step3.sh --dry-run. Covers: conditions only on runtime roles (4 conditioned RBAC
+    Administrator grants, Cognitive Services User on DI, ACS scope); OCR-129 no RBAC
+    Administrator reaches rg-22; conditions allow only the shared resource roles.
+    """
+    out = _run("rbac-step3.sh", "--dry-run").stdout
+
+    # conditions only on runtime roles
+    assert out.count("--role f58310d9-a9f6-439a-9e8d-f62e7b41a168") == 4
+    assert "a97b65f3-24c7-4388-baec-2e87135dc908" in out  # Cognitive Services User
+    assert "Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21" in out
+    assert "Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21" in out
+
+    # OCR-129: no RBAC Administrator reaches rg-22
+    assert not any("babaloo-sea-lng-rg-22" in scope for scope in _rbac_admin_scopes(out))
+
+    # conditions allow only the shared resource roles
+    conditions = _conditions(out)
+    assert len(conditions) == 4  # DI and ACS for dev and prod
+    di_conditions = [c for c in conditions if "a97b65f3-24c7-4388-baec-2e87135dc908" in c]
+    acs_conditions = [c for c in conditions if "<roleId-of-ACS Email Sender>" in c]
+    assert len(di_conditions) == 2 and len(acs_conditions) == 2
+    for condition in di_conditions:
+        _assert_condition_shape(condition, {"a97b65f3-24c7-4388-baec-2e87135dc908"})
+    for condition in acs_conditions:
+        _assert_condition_shape(condition, {"<roleId-of-ACS Email Sender>"})
+
+
+PGP_ENVIRONMENTS = [
+    ("dev", "babaloo-sea-lng-kv-01", "babaloo-sea-lng-kv-22", "babaloo-sea-lng-id-02", "babaloo-sea-lng-rg-01"),
+    ("prod", "babaloo-sea-lng-kv-11", "babaloo-sea-lng-kv-23", "babaloo-sea-lng-id-12", "babaloo-sea-lng-rg-11"),
+]
+
+
+def test_ocr_129_pgp_step4b_splits_the_pair_and_grants_only_staff_api() -> None:
+    """pgp-step4b.sh --dry-run, for dev and then prod: the private key goes to the private-key
+    vault first, the public key to the env vault, and only staff-api is granted, on the
+    private-key secret, after its identity is looked up in the env group."""
+    for environment, env_vault, pk_vault, staff_identity, env_rg in PGP_ENVIRONMENTS:
+        result = _run("pgp-step4b.sh", "--dry-run", ENVIRONMENT=environment)
+        assert result.returncode == 0, (environment, result.stderr)
+        out = result.stdout
+        sets = [line for line in out.splitlines() if "az keyvault secret set" in line]
+        assert len(sets) == 2, environment
+        assert f"--vault-name {pk_vault} --name pgp-private-key" in sets[0]  # private first
+        assert f"--vault-name {env_vault} --name pgp-public-key" in sets[1]
+        (grant,) = _role_creates(out)
+        assert f"--assignee-object-id '<principalId-of-{staff_identity}>'" in grant
+        assert f"--role {KV_SECRETS_USER}" in grant and "--assignee-principal-type ServicePrincipal" in grant
+        assert grant.endswith(f"--scope {RG22}/providers/Microsoft.KeyVault/vaults/{pk_vault}/secrets/pgp-private-key")
+        # The identity is looked up in the environment's group, before any write.
+        assert f"az identity show --name {staff_identity} --resource-group {env_rg}" in result.stderr
+        assert out.index("az keyvault secret set") > out.index("==> Check existing secrets")
+
+
+def test_ocr_129_database_step5_dry_run_plan() -> None:
+    """database-step5.sh --dry-run. Covers: OCR-129 Dj gets two secrets and no vault-wide role
+    (dev); the prod run targets its own database with the prod logins over TLS; the load-script
+    user is refused as the PostgreSQL admin."""
+    # OCR-129: Dj gets two secrets and no vault-wide role
+    result = _run("database-step5.sh", "--dry-run")
+    assert result.returncode == 0, result.stderr
+    vault = (
+        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01"
+        "/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
+    )
+    kv_grants = [line for line in _role_creates(result.stdout) if KV_SECRETS_USER in line or KV_SECRETS_OFFICER in line]
+    assert sorted(line.rsplit("--scope ", 1)[1] for line in kv_grants) == [
+        f"{vault}/secrets/hmac-key",
+        f"{vault}/secrets/pgp-public-key",
+    ]
+    assert all("--assignee-principal-type User" in line for line in kv_grants)
+    assert "kv-22" not in result.stdout and "kv-23" not in result.stdout
+
+    # targets its own database (prod)
+    out = _run("database-step5.sh", "--dry-run", ENVIRONMENT="prod").stdout
+    assert "env_db=invoicing_prod" in out and "other_db=invoicing_dev" in out
+    assert "pipeline_login=babaloo-sea-lng-id-13" in out
+    assert "deploy_login=babaloo-sea-lng-id-23" in out
+    assert "sslmode=require" in out
+
+    # a separate PostgreSQL admin: the load-script user is refused
+    result = _run("database-step5.sh", "--dry-run", PG_ADMIN_USER="dj@example.test")
+    assert result.returncode == 1
+    assert "PG_ADMIN_USER must be a separate principal from DJ_USER_UPN" in result.stderr
+    assert "[dry-run] psql" not in result.stdout
+
+
+def test_story_1_1_verify_db_isolation_connect_mode() -> None:
+    result = _run(
+        "verify-db-isolation.sh",
+        "--dry-run",
+        CONNECT_AS_LOGIN="babaloo-sea-lng-id-22",
+        TARGET_DB="invoicing_prod",
+        PG_ADMIN_USER=None,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "dbname=invoicing_prod user=babaloo-sea-lng-id-22" in result.stdout
+
+
+def test_story_1_1_acs_email_sender_role_content() -> None:
     result = _run("budget-and-roles.sh", "--dry-run")
     assert result.returncode == 0, result.stderr
     role = _json_blocks(result.stdout)[0]
@@ -294,20 +311,10 @@ def test_acs_email_sender_role_content() -> None:
     assert role["AssignableScopes"] == ["/subscriptions/00000000-0000-0000-0000-000000000000"]
 
 
-# --- Separate PostgreSQL admin ---------------------------------------------------------
-
-
-def test_database_step5_refuses_the_load_script_user_as_admin() -> None:
-    result = _run("database-step5.sh", "--dry-run", PG_ADMIN_USER="dj@example.test")
-    assert result.returncode == 1
-    assert "PG_ADMIN_USER must be a separate principal from DJ_USER_UPN" in result.stderr
-    assert "[dry-run] psql" not in result.stdout
-
-
 # --- lib.sh names agree with infra/modules/naming ---------------------------------------
 
 
-def test_lib_names_match_the_naming_module() -> None:
+def test_story_1_1_lib_names_match_the_naming_module() -> None:
     """Same values as infra/modules/naming/tests and the root tests expect."""
     script = """
 source "$1/lib.sh"

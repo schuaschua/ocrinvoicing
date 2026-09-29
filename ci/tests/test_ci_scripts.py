@@ -62,7 +62,10 @@ def _terraform_calls(work_dir: Path) -> list[list[str]]:
 # --- terraform-plan.sh -----------------------------------------------------------------
 
 
-def test_story_1_2_plan_with_changes_and_tags_hands_the_saved_plan_to_apply(work_dir: Path) -> None:
+def test_story_1_2_terraform_plan_tag_gate(work_dir: Path) -> None:
+    """terraform-plan.sh. Covers: a plan with changes and tags hands the saved plan to apply
+    (and deletes the plan JSON); an untagged resource stops the stack before apply."""
+    # A plan with changes and tags hands the saved plan to apply.
     out = work_dir / "plan-out"
     result = _run(
         "terraform-plan.sh", "dev/foundation", str(out), work_dir=work_dir,
@@ -75,9 +78,8 @@ def test_story_1_2_plan_with_changes_and_tags_hands_the_saved_plan_to_apply(work
     assert "-out=tfplan" in plan_call and "-detailed-exitcode" in plan_call
     assert not (REPO_ROOT / ".work" / "ci" / "dev-foundation.plan.json").exists(), "plan JSON must be deleted"
 
-
-def test_story_1_2_untagged_resource_stops_the_stack_before_apply(work_dir: Path) -> None:
-    out = work_dir / "plan-out"
+    # An untagged resource stops the stack before apply.
+    out = work_dir / "plan-out-untagged"
     result = _run(
         "terraform-plan.sh", "dev/foundation", str(out), work_dir=work_dir,
         FAKE_TF_PLAN_EXIT="2", FAKE_TF_PLAN_JSON=str(FIXTURES / "plan_missing.json"),
@@ -127,7 +129,16 @@ def test_story_1_2_terraform_uses_the_refreshing_ado_oidc_of_the_service_connect
 # --- terraform-apply.sh ----------------------------------------------------------------
 
 
-def test_story_1_2_apply_uses_only_the_saved_plan(work_dir: Path) -> None:
+def test_story_1_2_terraform_apply_only_from_the_saved_plan(work_dir: Path) -> None:
+    """terraform-apply.sh. Covers: an apply without a saved plan is refused (no terraform
+    call); an apply uses only the saved plan, never auto-approve."""
+    # Without a saved plan: refused.
+    result = _run("terraform-apply.sh", "dev/foundation", str(work_dir / "missing"), work_dir=work_dir)
+    assert result.returncode == 1
+    assert "applied only from its saved plan" in result.stderr
+    assert _terraform_calls(work_dir) == []
+
+    # With the saved plan: applies only it.
     plan = work_dir / "tfplan"
     plan.write_text("saved plan\n")
     result = _run("terraform-apply.sh", "dev/foundation", str(plan), work_dir=work_dir)
@@ -137,55 +148,50 @@ def test_story_1_2_apply_uses_only_the_saved_plan(work_dir: Path) -> None:
     assert not any("auto-approve" in arg for arg in apply_call)
 
 
-def test_story_1_2_apply_without_a_saved_plan_is_refused(work_dir: Path) -> None:
-    result = _run("terraform-apply.sh", "dev/foundation", str(work_dir / "missing"), work_dir=work_dir)
-    assert result.returncode == 1
-    assert "applied only from its saved plan" in result.stderr
-    assert _terraform_calls(work_dir) == []
-
-
 # --- migrate.sh -------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("env", "login", "pipeline_role", "staff_api_role"),
-    [
-        ("dev", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-03", "babaloo-sea-lng-id-02"),
-        ("prod", "babaloo-sea-lng-id-23", "babaloo-sea-lng-id-13", "babaloo-sea-lng-id-12"),
-    ],
-)
-def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token(
-    env: str, login: str, pipeline_role: str, staff_api_role: str, work_dir: Path
-) -> None:
-    migrations = work_dir / "migrations"
-    migrations.mkdir()
-    (migrations / "env.py").write_text("# fixture\n")
-    check = _run("migrate.sh", "--check", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations))
-    assert "output: hasWork=true" in check.stdout, check.stderr
+MIGRATE_ENVIRONMENTS = [
+    ("dev", "babaloo-sea-lng-id-22", "babaloo-sea-lng-id-03", "babaloo-sea-lng-id-02"),
+    ("prod", "babaloo-sea-lng-id-23", "babaloo-sea-lng-id-13", "babaloo-sea-lng-id-12"),
+]
 
-    result = _run(
-        "migrate.sh", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations),
-        FAKE_AZ_TOKEN="entra-token-for-postgres", FAKE_AZ_LOG=str(work_dir / "az.log"),
-        FAKE_UV_LOG=str(work_dir / "uv.jsonl"),
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    (call,) = [json.loads(line) for line in (work_dir / "uv.jsonl").read_text().splitlines()]
-    # Story 2.1: the roles the migrations grant to are the environment's app logins (AD-11).
-    assert call["args"] == [
-        "run", "--directory", str(REPO_ROOT / "backend"), "--locked", "--no-dev", "alembic",
-        "-x", f"pipeline_role={pipeline_role}", "-x", f"staff_api_role={staff_api_role}", "upgrade", "head",
-    ]
-    assert call["env"] == {
-        "PGHOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",
-        "PGPORT": "5432",
-        "PGUSER": login,
-        "PGDATABASE": f"invoicing_{env}",
-        "PGSSLMODE": "require",
-        "PGPASSWORD": "entra-token-for-postgres",
-    }
-    az_calls = (work_dir / "az.log").read_text().splitlines()
-    assert az_calls == ["account get-access-token --resource-type oss-rdbms --query accessToken -o tsv"]
-    assert "firewall" not in result.stdout + result.stderr
+
+def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token(work_dir: Path) -> None:
+    """migrate.sh, for dev and then prod: --check finds work; the run uses the env deploy
+    identity's login with an Entra token over TLS, grants to the env's app logins (Story 2.1),
+    asks az for one token and opens no firewall."""
+    for env, login, pipeline_role, staff_api_role in MIGRATE_ENVIRONMENTS:
+        migrations = work_dir / f"migrations-{env}"
+        migrations.mkdir()
+        (migrations / "env.py").write_text("# fixture\n")
+        check = _run("migrate.sh", "--check", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations))
+        assert "output: hasWork=true" in check.stdout, (env, check.stderr)
+
+        az_log, uv_log = work_dir / f"az-{env}.log", work_dir / f"uv-{env}.jsonl"
+        result = _run(
+            "migrate.sh", env, work_dir=work_dir, CI_MIGRATIONS_DIR=str(migrations),
+            FAKE_AZ_TOKEN="entra-token-for-postgres", FAKE_AZ_LOG=str(az_log),
+            FAKE_UV_LOG=str(uv_log),
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        (call,) = [json.loads(line) for line in uv_log.read_text().splitlines()]
+        # Story 2.1: the roles the migrations grant to are the environment's app logins (AD-11).
+        assert call["args"] == [
+            "run", "--directory", str(REPO_ROOT / "backend"), "--locked", "--no-dev", "alembic",
+            "-x", f"pipeline_role={pipeline_role}", "-x", f"staff_api_role={staff_api_role}", "upgrade", "head",
+        ]
+        assert call["env"] == {
+            "PGHOST": "babaloo-sea-lng-psql-21.postgres.database.azure.com",
+            "PGPORT": "5432",
+            "PGUSER": login,
+            "PGDATABASE": f"invoicing_{env}",
+            "PGSSLMODE": "require",
+            "PGPASSWORD": "entra-token-for-postgres",
+        }
+        az_calls = az_log.read_text().splitlines()
+        assert az_calls == ["account get-access-token --resource-type oss-rdbms --query accessToken -o tsv"]
+        assert "firewall" not in result.stdout + result.stderr
 
 
 # --- code-deploy.sh (Story 1.3) --------------------------------------------------------
@@ -237,7 +243,11 @@ def _zip_names(path: Path) -> set[str]:
         return set(archive.namelist())
 
 
-def test_story_1_3_only_git_tracked_package_files_are_shipped(work_dir: Path) -> None:
+def test_story_1_3_code_deploy(work_dir: Path) -> None:
+    """code-deploy.sh. Covers: only git-tracked package files are shipped (no untracked module,
+    no bytecode); the health check retries until the app answers; an unhealthy app fails the
+    deploy. Each run gets its own curl log."""
+    # Only git-tracked package files are shipped.
     result = _deploy(work_dir, "--build-only", "dev")
     assert result.returncode == 0, result.stdout + result.stderr
     for app in APPS:
@@ -245,16 +255,15 @@ def test_story_1_3_only_git_tracked_package_files_are_shipped(work_dir: Path) ->
         assert "invoicing/local_scratch.py" not in names
         assert not any("__pycache__" in name or name.endswith(".pyc") for name in names)
 
-
-def test_story_1_3_health_check_retries_until_the_app_answers(work_dir: Path) -> None:
-    result = _deploy(work_dir, "dev", FAKE_CURL_FAILURES="2")
+    # The health check retries until the app answers.
+    curl_log = work_dir / "curl-retry.log"
+    result = _deploy(work_dir, "dev", FAKE_CURL_FAILURES="2", FAKE_CURL_LOG=str(curl_log))
     assert result.returncode == 0, result.stdout + result.stderr
     assert "supplier-api not healthy yet (attempt 2/3, HTTP 503)" in result.stdout
-    assert len((work_dir / "curl.log").read_text().splitlines()) == 4
+    assert len(curl_log.read_text().splitlines()) == 4
 
-
-def test_story_1_3_an_unhealthy_app_fails_the_deploy(work_dir: Path) -> None:
-    result = _deploy(work_dir, "dev", FAKE_CURL_FAILURES="99")
+    # An unhealthy app fails the deploy.
+    result = _deploy(work_dir, "dev", FAKE_CURL_FAILURES="99", FAKE_CURL_LOG=str(work_dir / "curl-unhealthy.log"))
     assert result.returncode != 0
     assert "attempt 3/3, HTTP 503" in result.stdout
     assert (

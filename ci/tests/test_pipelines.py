@@ -150,17 +150,19 @@ def deploy() -> dict[str, Any]:
 # --- deploy pipeline ------------------------------------------------------------------
 
 
-def test_story_1_2_deploy_triggers_only_on_merge_to_main() -> None:
+def test_story_1_2_deploy_pipeline_structure(deploy: dict[str, Any]) -> None:
+    """The compiled deploy pipeline. Covers: triggers only on merge to main; passes every
+    structural check (gates, service connections, saved plans); shared and prod apply only in
+    their approval environments."""
+    # Triggers only on merge to main.
     raw = load(PIPELINES / "deploy.yml")
     assert raw["trigger"] == {"batch": True, "branches": {"include": ["main"]}}
     assert raw["pr"] == "none"
 
-
-def test_story_1_2_deploy_passes_every_structural_check(deploy: dict[str, Any]) -> None:
+    # Passes every structural check.
     assert all_problems(deploy) == []
 
-
-def test_story_1_2_shared_and_prod_apply_only_in_their_approval_environments(deploy: dict[str, Any]) -> None:
+    # Shared and prod apply only in their approval environments.
     environments = {
         _action(stage): job["environment"]
         for stage in deploy["stages"]
@@ -178,7 +180,11 @@ def test_story_1_2_shared_and_prod_apply_only_in_their_approval_environments(dep
 # --- mutations the checkers must catch ---------------------------------------------------
 
 
-def test_story_1_2_checker_fails_on_a_missing_approval_environment(deploy: dict[str, Any]) -> None:
+def test_story_1_2_checkers_catch_mutations(deploy: dict[str, Any]) -> None:
+    """Mutations of the deploy pipeline the checkers must catch. Covers: a missing approval
+    environment (wrong environment; plain job); an apply without a saved plan (no plan
+    argument; no download); a wrong service connection."""
+    # A missing approval environment.
     mutated = copy.deepcopy(deploy)
     stage = next(s for s in mutated["stages"] if s["stage"] == "prod_foundation")
     stage["jobs"][0]["environment"] = "dev"
@@ -190,8 +196,7 @@ def test_story_1_2_checker_fails_on_a_missing_approval_environment(deploy: dict[
     stage["jobs"] = [{"job": "apply", "steps": steps_of(job)}]  # a plain job: no environment, no approval
     assert any("must be one deployment job" in p for p in gate_problems(mutated))
 
-
-def test_story_1_2_checker_fails_on_an_apply_without_a_saved_plan(deploy: dict[str, Any]) -> None:
+    # An apply without a saved plan.
     mutated = copy.deepcopy(deploy)
     stage = next(s for s in mutated["stages"] if s["stage"] == "dev_foundation")
     (apply_step,) = _azure_cli_steps(stage)
@@ -204,18 +209,21 @@ def test_story_1_2_checker_fails_on_an_apply_without_a_saved_plan(deploy: dict[s
     steps[:] = [s for s in steps if "download" not in s]
     assert any("does not download the saved plan" in p for p in saved_plan_problems(mutated))
 
-
-def test_story_1_2_checker_fails_on_a_wrong_service_connection(deploy: dict[str, Any]) -> None:
+    # A wrong service connection.
     mutated = copy.deepcopy(deploy)
     stage = next(s for s in mutated["stages"] if s["stage"] == "prod_foundation_check")
     _azure_cli_steps(stage)[0]["inputs"]["azureSubscription"] = "azure-dev"
     assert connection_problems(mutated) == ["prod_foundation_check: uses service connection 'azure-dev', expected 'azure-prod'"]
 
 
-# --- scripts behind the deploy stages ---------------------------------------------------
+# --- repo-wide guards: scripts behind the deploy stages, YAML, pinned downloads -----------
 
 
-def test_story_1_2_no_auto_approve_and_apply_only_from_a_saved_plan() -> None:
+def test_story_1_2_repo_guards() -> None:
+    """Repo-wide scans of pipelines/ and ci/. Covers: no auto-approve and apply only from a saved
+    plan; operator steps never run in a pipeline; no GitHub Actions and no secrets, ids or
+    variables in YAML; tool downloads are pinned by checksum."""
+    # No auto-approve; apply only from a saved plan.
     files = [*PIPELINES.rglob("*.yml"), *(REPO_ROOT / "ci").glob("*.sh")]
     for path in files:
         assert "auto-approve" not in path.read_text(encoding="utf-8"), path
@@ -227,8 +235,7 @@ def test_story_1_2_no_auto_approve_and_apply_only_from_a_saved_plan() -> None:
     ]
     assert applies == [("terraform-apply.sh", 'terraform -chdir="$dir" apply -input=false -lock-timeout=5m tfplan')]
 
-
-def test_story_1_2_operator_steps_never_run_in_a_pipeline() -> None:
+    # Operator steps never run in a pipeline.
     operator_scripts = [p.name for p in (REPO_ROOT / "infra" / "bootstrap").glob("*.sh") if p.name != "lib.sh"]
     assert "ado-setup.sh" in operator_scripts
     # Code lines only: comments may name an operator step to explain an order.
@@ -239,8 +246,7 @@ def test_story_1_2_operator_steps_never_run_in_a_pipeline() -> None:
     for name in operator_scripts:
         assert not any(name in text for text in texts), name
 
-
-def test_story_1_2_no_github_actions_and_no_secrets_in_yaml() -> None:
+    # No GitHub Actions and no secrets in YAML.
     assert not (REPO_ROOT / ".github" / "workflows").exists()
     guid = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
     for path in PIPELINES.rglob("*.yml"):
@@ -249,6 +255,10 @@ def test_story_1_2_no_github_actions_and_no_secrets_in_yaml() -> None:
         # Only runtime references like $(System.AccessToken) may follow a secret-like key.
         assert not re.search(r"(?i)(password|secret|pat|token)\s*:\s*(?!\$\()\S", text), path
         assert "variables:" not in text, f"{path}: no pipeline variables (nothing to store)"
+
+    # Tool downloads are pinned by checksum.
+    for name in ("TERRAFORM_SHA256_LINUX_AMD64", "GITLEAKS_SHA256_LINUX_X64", "UV_SHA256_LINUX_X64"):
+        assert re.fullmatch(r"[0-9a-f]{64}", _read_lib_value(name)), name
 
 
 # --- PR build and weekly scan ---------------------------------------------------------------
@@ -264,7 +274,10 @@ def _check_subcommands(pipeline: dict[str, Any]) -> dict[str, str]:
     return found
 
 
-def test_story_1_2_pr_build_runs_every_check_and_scans_the_whole_history() -> None:
+def test_story_1_2_pr_build_and_weekly_scan() -> None:
+    """Covers: the PR build runs every check and scans the whole history; the weekly scan audits
+    main every week."""
+    # The PR build runs every check and scans the whole history.
     pr = compile_pipeline("pr.yml")
     assert pr["trigger"] == "none"
     assert pr["pr"] == {"branches": {"include": ["main"]}}
@@ -273,8 +286,7 @@ def test_story_1_2_pr_build_runs_every_check_and_scans_the_whole_history() -> No
     secrets = next(job for job in pr["jobs"] if job["job"] == "secrets")
     assert {"checkout": "self", "fetchDepth": 0} in secrets["steps"]  # gitleaks scans the whole history
 
-
-def test_story_1_2_weekly_scan_audits_main_every_week() -> None:
+    # The weekly scan audits main every week.
     weekly = compile_pipeline("weekly-scan.yml")
     assert weekly["trigger"] == "none" and weekly["pr"] == "none"
     (schedule,) = weekly["schedules"]
@@ -283,11 +295,3 @@ def test_story_1_2_weekly_scan_audits_main_every_week() -> None:
     minute, hour, dom, month, dow = schedule["cron"].split()
     assert dom == "*" and month == "*" and dow not in ("*",)  # weekly
     assert list(_check_subcommands(weekly).values()) == ["audit"]
-
-
-# --- pinned downloads ------------------------------------------------------------------------
-
-
-def test_story_1_2_tool_downloads_are_pinned_by_checksum() -> None:
-    for name in ("TERRAFORM_SHA256_LINUX_AMD64", "GITLEAKS_SHA256_LINUX_X64", "UV_SHA256_LINUX_X64"):
-        assert re.fullmatch(r"[0-9a-f]{64}", _read_lib_value(name)), name

@@ -44,19 +44,18 @@ def principal_header(name: str = "Priya Tan", *roles: str) -> str:
     return encode(claims)
 
 
-def test_story_2_7_parses_name_and_roles_in_landing_order() -> None:
+def test_story_2_7_parse_principal() -> None:
+    """Covers: name and roles are parsed in landing order; a malformed header is refused
+    without echoing the header."""
+    # Name and roles, in landing order.
     principal = parse_principal(principal_header("Priya Tan", "finance", "admin"))
     assert principal == StaffPrincipal("Priya Tan", (Role.ADMIN, Role.FINANCE))
 
-
-@pytest.mark.parametrize(
-    "header",
-    [base64.b64encode(b'{"auth_typ": "github", "claims": []}').decode()],
-)
-def test_story_2_7_malformed_header_is_refused(header: str) -> None:
-    with pytest.raises(MalformedPrincipalError) as raised:
-        parse_principal(header)
-    assert header not in str(raised.value)
+    # A malformed header is refused.
+    for header in [base64.b64encode(b'{"auth_typ": "github", "claims": []}').decode()]:
+        with pytest.raises(MalformedPrincipalError) as raised:
+            parse_principal(header)
+        assert header not in str(raised.value)
 
 
 # --- the endpoint wrapper ---------------------------------------------------------------
@@ -75,19 +74,11 @@ def call(endpoint: object, headers: dict[str, str]) -> func.HttpResponse:
     return asyncio.run(endpoint(request))  # type: ignore[operator]  # an Endpoint
 
 
-def test_story_2_7_role_guard_403_for_a_role_the_route_does_not_allow() -> None:
-    admin_only = staff_endpoint(whoami, surface=Surface.ADMIN_QUEUE)
-    response = call(admin_only, {PRINCIPAL_HEADER: principal_header("Siti", "finance")})
-    assert response.status_code == 403
-    assert json.loads(response.get_body())["code"] == "FORBIDDEN"
-    # Nor does a user with no app role get in.
-    response = call(admin_only, {PRINCIPAL_HEADER: principal_header("New")})
-    assert response.status_code == 403
-
-
-def test_story_2_7_allowed_role_reaches_the_handler_with_the_callers_trace_id(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_story_2_7_staff_endpoint_guards(caplog: pytest.LogCaptureFixture) -> None:
+    """The staff endpoint wrapper. Covers: an allowed role reaches the handler with the caller's
+    trace id and no header or claim is logged; the role guard gives 403 for a role the route
+    does not allow (and for no app role); auth disabled in Azure fails every call closed."""
+    # An allowed role reaches the handler with the caller's trace id.
     caller = "0192f0c1-7a2b-7c3d-8e4f-0123456789ab"
     endpoint = staff_endpoint(whoami, surface=Surface.INVOICES)
     with caplog.at_level(logging.DEBUG):
@@ -106,8 +97,16 @@ def test_story_2_7_allowed_role_reaches_the_handler_with_the_callers_trace_id(
     for leak in (OID, EMAIL, "Siti"):
         assert leak not in caplog.text
 
+    # Role guard: 403 for a role the route does not allow.
+    admin_only = staff_endpoint(whoami, surface=Surface.ADMIN_QUEUE)
+    response = call(admin_only, {PRINCIPAL_HEADER: principal_header("Siti", "finance")})
+    assert response.status_code == 403
+    assert json.loads(response.get_body())["code"] == "FORBIDDEN"
+    # Nor does a user with no app role get in.
+    response = call(admin_only, {PRINCIPAL_HEADER: principal_header("New")})
+    assert response.status_code == 403
 
-def test_story_2_7_auth_disabled_in_azure_fails_every_call_closed() -> None:
+    # Auth disabled in Azure fails every call closed.
     endpoint = staff_endpoint(whoami, surface=None, platform_auth_trusted=False)
     # Even a well-formed (forgeable) principal is refused.
     response = call(endpoint, {PRINCIPAL_HEADER: principal_header("Priya", "admin")})

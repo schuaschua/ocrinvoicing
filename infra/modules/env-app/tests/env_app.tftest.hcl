@@ -141,9 +141,11 @@ variables {
   }
 }
 
-run "four_apps_one_plan_each" {
+# Covers: four_apps_one_plan_each, runtime_roles_are_exactly_ad17, staff_api_built_in_auth.
+run "story_1_3_env_app_applied" {
   command = apply
 
+  # --- four_apps_one_plan_each
   assert {
     condition     = { for app, fa in output.function_apps : app => fa.host_name } == { for app, names in var.app_names : app => "${names.function_app}.azurewebsites.net" }
     error_message = "host_name must be each app's default host name (defaultHostName)."
@@ -227,79 +229,7 @@ run "four_apps_one_plan_each" {
     condition     = alltrue([for site in module.function_apps : nonsensitive(site.resource.tags) == var.tags])
     error_message = "every app must carry the five P-17 tags."
   }
-}
-
-run "app_settings_hold_no_secrets" {
-  command = plan
-
-  assert {
-    condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
-      supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
-      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI"])
-      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER"])
-      accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
-    }
-    error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
-  }
-  assert {
-    condition = alltrue([
-      for app, settings in local.app_settings :
-      settings.AZURE_CLIENT_ID == var.identities[app].client_id && settings.AzureWebJobsStorage__clientId == var.identities[app].client_id && settings.AzureWebJobsStorage__credential == "managedidentity" && settings.APP_ENVIRONMENT == "dev"
-    ])
-    error_message = "every app must sign in as its own identity, host storage included."
-  }
-  assert {
-    condition = alltrue(flatten([
-      for settings in local.app_settings : [
-        for value in values(settings) : !can(regex("(?i)(accountkey=|sharedaccesssignature|sig=|password|secret)", value))
-      ]
-    ]))
-    error_message = "app settings must hold no keys, SAS tokens, passwords or secrets."
-  }
-}
-
-# Story 2.1: the pipeline signs in to its environment's database as its own identity,
-# with an Entra token (AD-11); no other app gets database settings.
-run "pipeline_database_settings" {
-  command = plan
-
-  assert {
-    condition = (
-      local.app_settings["pipeline"].POSTGRES_HOST == "babaloo-sea-lng-psql-21.postgres.database.azure.com" &&
-      local.app_settings["pipeline"].POSTGRES_DATABASE == "invoicing_dev" &&
-      local.app_settings["pipeline"].POSTGRES_USER == "babaloo-sea-lng-id-03"
-    )
-    error_message = "the pipeline must connect to its environment's database as its own identity's login."
-  }
-  assert {
-    condition = alltrue([
-      for app in ["supplier_api", "staff_api", "accounts_sim"] :
-      length([for key in keys(local.app_settings[app]) : key if startswith(key, "POSTGRES_")]) == 0
-    ])
-    error_message = "only the pipeline gets database settings in Story 2.1 (supplier-api has no login, AD-11)."
-  }
-}
-
-# Story 1.5: every app exports telemetry with Entra auth and samples (AD-17).
-run "telemetry_settings" {
-  command = plan
-
-  assert {
-    condition = alltrue([
-      for app, settings in local.app_settings :
-      settings.APPLICATIONINSIGHTS_AUTHENTICATION_STRING == "ClientId=${var.identities[app].client_id};Authorization=AAD" && settings.TELEMETRY_SAMPLING_RATIO == "0.5"
-    ])
-    error_message = "every app must sign in to Application Insights as its own identity and sample at the configured ratio."
-  }
-  assert {
-    condition     = alltrue([for app in local.apps : local.per_app_role_assignments["${app}/monitoring/appi"].role == "Monitoring Metrics Publisher" && local.per_app_role_assignments["${app}/monitoring/appi"].scope == var.application_insights_id])
-    error_message = "every app identity must be Monitoring Metrics Publisher on its Application Insights."
-  }
-}
-
-run "runtime_roles_are_exactly_ad17" {
-  command = apply
-
+  # --- runtime_roles_are_exactly_ad17
   assert {
     condition = toset([
       for ra in azurerm_role_assignment.runtime : "${ra.principal_id} | ${ra.role_definition_name} | ${ra.scope}"
@@ -357,65 +287,8 @@ run "runtime_roles_are_exactly_ad17" {
     condition     = alltrue([for ra in azurerm_role_assignment.runtime : ra.principal_type == "ServicePrincipal"])
     error_message = "runtime roles are for managed identities (ServicePrincipal)."
   }
-}
-
-# OCR-129: staff-api is told where the private-key vault is; no other app is.
-run "private_key_vault_setting" {
-  command = plan
-
-  assert {
-    condition     = local.app_settings["staff_api"].PGP_PRIVATE_KEY_VAULT_URI == "https://babaloo-sea-lng-kv-22.vault.azure.net/"
-    error_message = "staff-api must get PGP_PRIVATE_KEY_VAULT_URI, the private-key vault's URI."
-  }
-  assert {
-    condition = alltrue([
-      for app in ["supplier_api", "pipeline", "accounts_sim"] : !contains(keys(local.app_settings[app]), "PGP_PRIVATE_KEY_VAULT_URI")
-    ])
-    error_message = "only staff-api may be told where the private key is (OCR-129)."
-  }
-}
-
-run "private_key_vault_uri_must_be_a_vault_uri" {
-  command = plan
-
-  variables {
-    private_key_vault_uri = "http://babaloo-sea-lng-kv-22.vault.azure.net/"
-  }
-
-  expect_failures = [var.private_key_vault_uri]
-}
-
-run "private_key_vault_must_not_be_the_env_vault" {
-  command = plan
-
-  variables {
-    private_key_vault_uri = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
-  }
-
-  expect_failures = [var.private_key_vault_uri]
-}
-
-run "all_four_identities_are_required" {
-  command = plan
-
-  variables {
-    identities = {
-      supplier_api = {
-        name         = "babaloo-sea-lng-id-01"
-        resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-01"
-        principal_id = "10000000-0000-0000-0000-000000000001"
-        client_id    = "20000000-0000-0000-0000-000000000001"
-      }
-    }
-  }
-
-  expect_failures = [var.identities]
-}
-
-# Story 2.7: staff-api signs in with Entra through built-in auth (AD-14).
-run "staff_api_built_in_auth" {
-  command = apply
-
+  # --- staff_api_built_in_auth
+  # Story 2.7: staff-api signs in with Entra through built-in auth (AD-14).
   assert {
     condition = (
       azapi_update_resource.staff_api_auth.type == "Microsoft.Web/sites/config@2025-03-01" &&
@@ -478,6 +351,117 @@ run "staff_api_built_in_auth" {
     }
     error_message = "the staff_api_auth output must report the configured auth."
   }
+}
+
+# Covers: app_settings_hold_no_secrets, pipeline_database_settings, telemetry_settings, private_key_vault_setting.
+run "story_1_3_env_app_settings_plan" {
+  command = plan
+
+  # --- app_settings_hold_no_secrets
+  assert {
+    condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
+      supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
+      staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI"])
+      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER"])
+      accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId"])
+    }
+    error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
+  }
+  assert {
+    condition = alltrue([
+      for app, settings in local.app_settings :
+      settings.AZURE_CLIENT_ID == var.identities[app].client_id && settings.AzureWebJobsStorage__clientId == var.identities[app].client_id && settings.AzureWebJobsStorage__credential == "managedidentity" && settings.APP_ENVIRONMENT == "dev"
+    ])
+    error_message = "every app must sign in as its own identity, host storage included."
+  }
+  assert {
+    condition = alltrue(flatten([
+      for settings in local.app_settings : [
+        for value in values(settings) : !can(regex("(?i)(accountkey=|sharedaccesssignature|sig=|password|secret)", value))
+      ]
+    ]))
+    error_message = "app settings must hold no keys, SAS tokens, passwords or secrets."
+  }
+  # --- pipeline_database_settings
+  # Story 2.1: the pipeline signs in to its environment's database as its own identity,
+  # with an Entra token (AD-11); no other app gets database settings.
+  assert {
+    condition = (
+      local.app_settings["pipeline"].POSTGRES_HOST == "babaloo-sea-lng-psql-21.postgres.database.azure.com" &&
+      local.app_settings["pipeline"].POSTGRES_DATABASE == "invoicing_dev" &&
+      local.app_settings["pipeline"].POSTGRES_USER == "babaloo-sea-lng-id-03"
+    )
+    error_message = "the pipeline must connect to its environment's database as its own identity's login."
+  }
+  assert {
+    condition = alltrue([
+      for app in ["supplier_api", "staff_api", "accounts_sim"] :
+      length([for key in keys(local.app_settings[app]) : key if startswith(key, "POSTGRES_")]) == 0
+    ])
+    error_message = "only the pipeline gets database settings in Story 2.1 (supplier-api has no login, AD-11)."
+  }
+  # --- telemetry_settings
+  # Story 1.5: every app exports telemetry with Entra auth and samples (AD-17).
+  assert {
+    condition = alltrue([
+      for app, settings in local.app_settings :
+      settings.APPLICATIONINSIGHTS_AUTHENTICATION_STRING == "ClientId=${var.identities[app].client_id};Authorization=AAD" && settings.TELEMETRY_SAMPLING_RATIO == "0.5"
+    ])
+    error_message = "every app must sign in to Application Insights as its own identity and sample at the configured ratio."
+  }
+  assert {
+    condition     = alltrue([for app in local.apps : local.per_app_role_assignments["${app}/monitoring/appi"].role == "Monitoring Metrics Publisher" && local.per_app_role_assignments["${app}/monitoring/appi"].scope == var.application_insights_id])
+    error_message = "every app identity must be Monitoring Metrics Publisher on its Application Insights."
+  }
+  # --- private_key_vault_setting
+  # OCR-129: staff-api is told where the private-key vault is; no other app is.
+  assert {
+    condition     = local.app_settings["staff_api"].PGP_PRIVATE_KEY_VAULT_URI == "https://babaloo-sea-lng-kv-22.vault.azure.net/"
+    error_message = "staff-api must get PGP_PRIVATE_KEY_VAULT_URI, the private-key vault's URI."
+  }
+  assert {
+    condition = alltrue([
+      for app in ["supplier_api", "pipeline", "accounts_sim"] : !contains(keys(local.app_settings[app]), "PGP_PRIVATE_KEY_VAULT_URI")
+    ])
+    error_message = "only staff-api may be told where the private key is (OCR-129)."
+  }
+}
+
+run "private_key_vault_uri_must_be_a_vault_uri" {
+  command = plan
+
+  variables {
+    private_key_vault_uri = "http://babaloo-sea-lng-kv-22.vault.azure.net/"
+  }
+
+  expect_failures = [var.private_key_vault_uri]
+}
+
+run "private_key_vault_must_not_be_the_env_vault" {
+  command = plan
+
+  variables {
+    private_key_vault_uri = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
+  }
+
+  expect_failures = [var.private_key_vault_uri]
+}
+
+run "all_four_identities_are_required" {
+  command = plan
+
+  variables {
+    identities = {
+      supplier_api = {
+        name         = "babaloo-sea-lng-id-01"
+        resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-01"
+        principal_id = "10000000-0000-0000-0000-000000000001"
+        client_id    = "20000000-0000-0000-0000-000000000001"
+      }
+    }
+  }
+
+  expect_failures = [var.identities]
 }
 
 run "staff_api_client_id_must_be_a_uuid" {

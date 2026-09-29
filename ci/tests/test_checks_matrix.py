@@ -62,24 +62,27 @@ def _backend(root: Path) -> Path:
     return backend
 
 
-# --- Lint/format failure ---------------------------------------------------------------
+# --- Lint/format failure and coverage below threshold -------------------------------------
 
 
-def test_story_1_2_badly_formatted_python_fails_lint_naming_ruff(root: Path) -> None:
+def test_story_1_2_backend_lint_and_coverage_gates(root: Path) -> None:
+    """ci/checks.sh lint and test on the backend, each in its own fixture tree. Covers: badly
+    formatted Python fails lint naming ruff; passing tests below 80% coverage fail with the
+    measured percent (once a test file exists, the floor applies)."""
     _require("uv")
-    backend = _backend(root)
+    # Lint/format failure.
+    lint_root = root / "lint"
+    lint_root.mkdir()
+    backend = _backend(lint_root)
     (backend / "src" / "invoicing" / "badly_formatted.py").write_text("def f( x ):\n    return  x\n")
-    result = _checks(root, "lint")
+    result = _checks(lint_root, "lint")
     assert result.returncode == 1, result.stdout + result.stderr
     assert "FAILED: ruff format (backend)" in result.stderr
 
-
-# --- Coverage below threshold (also: once a test file exists, the floor applies) ----------
-
-
-def test_story_1_2_passing_tests_below_80_percent_coverage_fail_with_the_measured_percent(root: Path) -> None:
-    _require("uv")
-    backend = _backend(root)
+    # Coverage below threshold.
+    test_root = root / "coverage"
+    test_root.mkdir()
+    backend = _backend(test_root)
     (backend / "src" / "invoicing" / "partly_tested.py").write_text(
         "def covered() -> int:\n    return 1\n\n\n"
         "def uncovered(x: int) -> int:\n    if x > 1:\n        return x * 2\n    if x < 0:\n        return -x\n"
@@ -88,7 +91,7 @@ def test_story_1_2_passing_tests_below_80_percent_coverage_fail_with_the_measure
     (backend / "tests" / "test_partly_tested.py").write_text(
         "from invoicing.partly_tested import covered\n\n\ndef test_covered() -> None:\n    assert covered() == 1\n"
     )
-    result = _checks(root, "test")
+    result = _checks(test_root, "test")
     output = result.stdout + result.stderr
     assert result.returncode == 1, output
     assert "1 passed" in output
@@ -116,18 +119,23 @@ def _repo_with(root: Path, content: str) -> None:
     _git(root, "commit", "--quiet", "-m", "fixture")
 
 
-def test_story_1_2_committed_secret_fails_the_secret_scan(root: Path) -> None:
+def test_story_1_2_secret_scan(root: Path) -> None:
+    """ci/checks.sh secrets on two fixture repos. Covers: a committed secret fails the secret
+    scan; a clean repo passes it."""
     _require("gitleaks")
+    # A committed secret fails the scan.
+    leaky = root / "leaky"
+    leaky.mkdir()
     # Built at run time so this test file itself holds no secret-shaped string.
     fake_token = "ghp_" + "4Rk9TzQm2LxW8vNp3HsYb7JcDf6GtUe1Aa0Z"
-    _repo_with(root, f'GITHUB_TOKEN = "{fake_token}"\n')
-    result = _checks(root, "secrets")
+    _repo_with(leaky, f'GITHUB_TOKEN = "{fake_token}"\n')
+    result = _checks(leaky, "secrets")
     assert result.returncode == 1, result.stdout + result.stderr
     assert "FAILED: gitleaks (git history)" in result.stderr
 
-
-def test_story_1_2_clean_repo_passes_the_secret_scan(root: Path) -> None:
-    _require("gitleaks")
-    _repo_with(root, 'GREETING = "hello"\n')
-    result = _checks(root, "secrets")
+    # A clean repo passes.
+    clean = root / "clean"
+    clean.mkdir()
+    _repo_with(clean, 'GREETING = "hello"\n')
+    result = _checks(clean, "secrets")
     assert result.returncode == 0, result.stdout + result.stderr

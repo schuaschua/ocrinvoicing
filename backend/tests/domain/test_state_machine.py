@@ -19,30 +19,22 @@ S = InvoiceStatus
 INVOICE = UUID("0192f0c1-7a2b-7c3d-8e4f-0123456789ab")
 
 
-@pytest.mark.parametrize(
-    ("from_status", "to_status"),
-    [(S.RECEIVED, S.AWAITING_EXTRACTION)],
-)
-def test_story_2_1_diagram_transitions_are_planned(
-    from_status: InvoiceStatus, to_status: InvoiceStatus
-) -> None:
-    assert is_allowed(from_status, to_status)
-    assert plan_transition(INVOICE, from_status, to_status, "test") == Transition(
-        INVOICE, from_status, to_status, "test"
-    )
+def test_story_2_1_state_machine_transitions() -> None:
+    """Covers: diagram transitions are allowed and planned; other transitions are refused with
+    the attempted pair on the error."""
+    # Diagram transitions are planned.
+    for from_status, to_status in [(S.RECEIVED, S.AWAITING_EXTRACTION)]:
+        assert is_allowed(from_status, to_status)
+        assert plan_transition(INVOICE, from_status, to_status, "test") == Transition(
+            INVOICE, from_status, to_status, "test"
+        )
 
-
-@pytest.mark.parametrize(
-    ("from_status", "to_status"),
-    [(S.RECEIVED, S.POSTED)],
-)
-def test_story_2_1_other_transitions_are_refused(
-    from_status: InvoiceStatus, to_status: InvoiceStatus
-) -> None:
-    assert not is_allowed(from_status, to_status)
-    with pytest.raises(TransitionNotAllowedError) as raised:
-        plan_transition(INVOICE, from_status, to_status, "test")
-    assert (raised.value.from_status, raised.value.to_status) == (
-        from_status,
-        to_status,
-    )
+    # Other transitions are refused.
+    for from_status, to_status in [(S.RECEIVED, S.POSTED)]:
+        assert not is_allowed(from_status, to_status)
+        with pytest.raises(TransitionNotAllowedError) as raised:
+            plan_transition(INVOICE, from_status, to_status, "test")
+        assert (raised.value.from_status, raised.value.to_status) == (
+            from_status,
+            to_status,
+        )

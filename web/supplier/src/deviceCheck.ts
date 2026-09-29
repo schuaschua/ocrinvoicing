@@ -2,7 +2,8 @@
 // EXIF orientation, measured on a downscaled copy (shared/quality), and a PDF's pages
 // are counted. Only the check reads these pixels: the upload still sends the original
 // bytes (AD-6). Anything the page can't check (no decoder, an undecodable file, an
-// error, a check that takes too long) passes; the server checks again either way.
+// error, a check that takes too long, a PDF whose pages can't be counted) is sent
+// marked skipped (AD-5); the server checks again either way.
 
 import {
   type PhotoProblem,
@@ -21,10 +22,12 @@ export type { DeviceCheck } from "@/api/upload";
 
 export type CheckResult =
   | { kind: "passed" }
+  | { kind: "skipped" }
   | { kind: "photo-problem"; problem: PhotoProblem }
   | { kind: "too-many-pages" };
 
 const PASSED: CheckResult = { kind: "passed" };
+const SKIPPED: CheckResult = { kind: "skipped" };
 
 /** Whether this browser can check `file` at all; when it can't, the page skips the check. */
 export function canCheck(file: File): boolean {
@@ -94,17 +97,18 @@ export async function decodePhoto(file: Blob): Promise<Pixels | null> {
 async function run(file: File): Promise<CheckResult> {
   if (isPdf(file)) {
     const pages = countPdfPages(new Uint8Array(await file.arrayBuffer()));
+    if (pages === null) return SKIPPED;
     return tooManyPages(pages) ? { kind: "too-many-pages" } : PASSED;
   }
   const pixels = await decodePhoto(file);
-  if (pixels === null) return PASSED;
+  if (pixels === null) return SKIPPED;
   const problem = photoProblem(pixels);
   return problem === null ? PASSED : { kind: "photo-problem", problem };
 }
 
 /**
- * Check `file` on the device. Never rejects: whatever can't be checked passes, and so
- * does a check still running at the hard cap (`analysis.max_check_ms`; the target is
+ * Check `file` on the device. Never rejects: whatever can't be checked is skipped, and
+ * so is a check still running at the hard cap (`analysis.max_check_ms`; the target is
  * `target_check_ms`).
  */
 export async function checkFile(
@@ -113,10 +117,10 @@ export async function checkFile(
 ): Promise<CheckResult> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<CheckResult>((resolve) => {
-    timer = setTimeout(() => resolve(PASSED), timeoutMs);
+    timer = setTimeout(() => resolve(SKIPPED), timeoutMs);
   });
   try {
-    return await Promise.race([run(file).catch(() => PASSED), timeout]);
+    return await Promise.race([run(file).catch(() => SKIPPED), timeout]);
   } finally {
     clearTimeout(timer);
   }

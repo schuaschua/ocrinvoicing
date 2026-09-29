@@ -229,6 +229,24 @@ def test_story_2_1_overridden_upload_that_fails_is_unreadable(stage: Stage) -> N
     _assert_routed(stage, stage.run(), "UNREADABLE")
 
 
+def test_story_1_9_skipped_upload_that_passes_is_processed_like_passed(
+    stage: Stage,
+) -> None:
+    stage.images.put(SHARP_JPEG, device_check=DeviceCheck.SKIPPED)
+    _assert_advanced(stage, stage.run())
+    assert stage.invoice()["device_check"] == "skipped"
+
+
+def test_story_1_9_skipped_upload_is_still_checked_by_the_server(stage: Stage) -> None:
+    stage.images.put(jpeg(blurred(page())), device_check=DeviceCheck.SKIPPED)
+    _assert_routed(stage, stage.run(), "UNREADABLE")
+
+
+def test_story_1_9_skipped_pdf_over_two_pages_is_unsupported(stage: Stage) -> None:
+    stage.images.put(pdf(3), UploadContentType.PDF, DeviceCheck.SKIPPED)
+    _assert_routed(stage, stage.run(), "UNSUPPORTED_DOCUMENT")
+
+
 def test_story_2_1_pdf_over_two_pages_is_unsupported(stage: Stage) -> None:
     stage.images.put(pdf(3), UploadContentType.PDF)
     _assert_routed(stage, stage.run(), "UNSUPPORTED_DOCUMENT")

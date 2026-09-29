@@ -113,6 +113,8 @@ def test_story_1_8_key_conflict_says_nothing_about_the_other_upload() -> None:
         ("passed", DeviceCheck.PASSED),
         ("overridden", DeviceCheck.OVERRIDDEN),
         (" Overridden ", DeviceCheck.OVERRIDDEN),
+        ("skipped", DeviceCheck.SKIPPED),
+        (" SKIPPED ", DeviceCheck.SKIPPED),
     ],
 )
 def test_story_1_9_the_device_check_header_is_read(
@@ -121,7 +123,9 @@ def test_story_1_9_the_device_check_header_is_read(
     assert parse_device_check(header) is expected
 
 
-@pytest.mark.parametrize("header", ["", "failed", "true", "passed,overridden"])
+@pytest.mark.parametrize(
+    "header", ["", "failed", "true", "passed,overridden", "skip", "skipped,passed"]
+)
 def test_story_1_9_any_other_device_check_is_refused(header: str) -> None:
     with pytest.raises(ValidationFailedError) as refused:
         parse_device_check(header)

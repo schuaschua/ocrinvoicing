@@ -169,7 +169,7 @@ stateDiagram-v2
   - **The intake writer resolves the supplier and nothing changes it afterwards.**
     - For a supplier upload, `supplier-api` takes it from the link registry (AD-6).
     - For a goods-in scan, `staff-api` (role `goods_in`) takes it from `PurchasingPort.get_delivery(delivery_id)`. Goods-in needs the database to be up.
-  - **Blob metadata.** Both writers put the supplier into the blob metadata as `IntakeBlobMetadata{invoice_id, source: link|goods_in, supplier_id, delivery_id?, content_type, uploaded_at, device_check: passed|overridden}` (in `ports/intake.py`).
+  - **Blob metadata.** Both writers put the supplier into the blob metadata as `IntakeBlobMetadata{invoice_id, source: link|goods_in, supplier_id, delivery_id?, content_type, uploaded_at, device_check: passed|overridden|skipped}` (in `ports/intake.py`). `skipped` means the page couldn't run its check; the server treats it like `passed` (Dj, 2026-09-29).
   - **Creating the invoice row.** Only the `quality` stage inserts `intake.invoice`, using `INSERT … ON CONFLICT (id) DO NOTHING`. The one other path is `route_to_admin` with the metadata (AD-4).
 
 ### AD-6: The upload path never touches PostgreSQL [ADOPTED]

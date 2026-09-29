@@ -15,11 +15,15 @@ MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 
 class DeviceCheck(StrEnum):
     """The page's own photo check (CAP-3), stored as `device_check` (AD-5).
-    `overridden` means the supplier chose "Send it anyway" after 2 failed checks; the
-    server's quality stage checks every upload again either way (AD-6)."""
+    `overridden` means the supplier chose "Send it anyway" after 2 failed checks;
+    `skipped` means the page couldn't run the check (no decoder, a failed decode, its
+    time cap, or a PDF whose pages it couldn't count). The server's quality stage
+    checks every upload again either way, so `skipped` is processed like `passed`
+    (AD-6)."""
 
     PASSED = "passed"
     OVERRIDDEN = "overridden"
+    SKIPPED = "skipped"
 
 
 DEVICE_CHECK_MESSAGE = (
@@ -29,8 +33,8 @@ DEVICE_CHECK_MESSAGE = (
 
 def parse_device_check(value: str | None) -> DeviceCheck:
     """The `X-Device-Check` header: absent means `passed` (a page from before Story
-    1.9, or a goods-in scan); `passed` or `overridden` in any case; anything else is
-    refused, never guessed."""
+    1.9, or a goods-in scan); `passed`, `overridden` or `skipped` in any case; anything
+    else is refused, never guessed."""
     if value is None:
         return DeviceCheck.PASSED
     try:

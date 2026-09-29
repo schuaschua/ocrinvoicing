@@ -639,7 +639,11 @@ So that I can retake it instead of having it rejected later.
 
 **Tasks:**
 - React: quality-check module (variance of the Laplacian for blur, mean luminance for darkness, edge detection) in `shared/quality/`, beside `shared/quality-thresholds.json`, so `web/staff` can import it for Story 4.1; Check & send states; the send-anyway flow.
-- Python: accept and store `device_check` in the metadata.
+- Python: accept and store `device_check` (`passed`, `overridden` or `skipped`) in the metadata.
+**Given** a photo the phone can't check (no image decoder, the decode fails, or the check runs past its time limit), or a PDF whose page count can't be read
+**When** it is sent
+**Then** it uploads with `device_check=skipped`, and the server processes it like `passed` (Dj, 2026-09-29)
+
 - Tests: `test_story_1_9_*` for metadata; Vitest with fixture images for blur, dark, cut-off and pass.
 
 ## Epic 2: Invoices are read and checked automatically, and exceptions reach the admin queue

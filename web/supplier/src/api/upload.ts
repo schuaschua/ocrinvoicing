@@ -11,8 +11,11 @@ const CORRELATION_HEADER = "X-Correlation-Id";
 /** Story 1.9: how the page's photo check went (AD-5 `device_check`). */
 export const DEVICE_CHECK_HEADER = "X-Device-Check";
 
-/** "passed", or "overridden" after Send it anyway. */
-export type DeviceCheck = "passed" | "overridden";
+/**
+ * "passed" when the check ran and passed, "overridden" after Send it anyway, "skipped"
+ * when the page couldn't check the file (the server checks it either way).
+ */
+export type DeviceCheck = "passed" | "overridden" | "skipped";
 // R- and 8 Crockford base32 characters (EXPERIENCE.md "Supplier reference").
 const REFERENCE = /^R-[0-9A-HJKMNP-TV-Z]{8}$/;
 
@@ -28,7 +31,7 @@ export interface UploadOptions {
   /** Called with the fraction sent so far, from 0 to 1. */
   onProgress?: (fraction: number) => void;
   signal?: AbortSignal;
-  /** The device check's outcome: "overridden" after Send it anyway. Default "passed". */
+  /** The device check's outcome (see `DeviceCheck`). Default "passed". */
   deviceCheck?: DeviceCheck;
 }
 

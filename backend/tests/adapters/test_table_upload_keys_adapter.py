@@ -273,6 +273,14 @@ def test_story_1_9_the_device_check_is_stored_and_read_back() -> None:
     assert _claim(table, MINE) == (overridden, False)
 
 
+def test_story_1_9_a_skipped_device_check_is_stored_and_read_back() -> None:
+    skipped = replace(MINE, device_check=DeviceCheck.SKIPPED)
+    table = FakeTable()
+    _claim(table, skipped)
+    assert table.created[0]["device_check"] == "skipped"
+    assert _claim(table, MINE) == (skipped, False)
+
+
 def test_story_1_9_the_device_check_is_read_through_the_selected_columns() -> None:
     table = FakeTable({("3f", str(KEY)): _row(THEIRS)})
     stored, _ = _claim(table)

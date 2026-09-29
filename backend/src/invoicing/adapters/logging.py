@@ -26,7 +26,7 @@ ALLOWED_KEYS = frozenset(
         "count",
         # Sweeper counts (Story 2.2).
         "deleted",
-        # passed | overridden: the page's photo check (Story 1.9), a code.
+        # passed | overridden | skipped: the page's photo check (Story 1.9), a code.
         "device_check",
         "duration_ms",
         "failures",

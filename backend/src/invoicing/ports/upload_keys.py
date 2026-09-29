@@ -10,9 +10,9 @@ enqueue was lost and deletes rows older than 24 hours:
   attempt's, so a replay's queue message stays in the upload's trace), `created_at`
   (UTC datetime), and `content_sha256` (lowercase hex) and `content_type` of the file,
   so a key reused for different bytes is refused instead of dropping the new file.
-- `device_check` (Story 1.9): `passed` or `overridden`, as the first attempt sent it. A
-  replay keeps it, whatever the retry sends. A row without it, or with it empty
-  (written before 1.9), reads as `passed`.
+- `device_check` (Story 1.9): `passed`, `overridden` or `skipped`, as the first attempt
+  sent it. A replay keeps it, whatever the retry sends. A row without it, or with it
+  empty (written before 1.9), reads as `passed`.
 - `recovered_at` (Story 2.2): UTC datetime, set by the sweeper once it re-enqueued an
   orphaned upload, so each orphan is recovered once. Absent otherwise.
 

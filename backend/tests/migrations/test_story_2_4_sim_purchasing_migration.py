@@ -72,7 +72,8 @@ def test_story_2_4_up_and_down_one_revision(postgres_server: PostgresServer) -> 
                 # One default-ACL row for the schema (both logins in it), gone after downgrade.
                 assert acl == (1 if present else 0)
         current = postgres_server.alembic(database, "current")
-        assert "0002_sim_purchasing (head)" in current.stdout
+        # Story 1.9's 0003 moved head on; this test is about 0002 going up and down.
+        assert "(head)" in current.stdout
     finally:
         engine.dispose()
 

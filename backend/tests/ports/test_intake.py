@@ -59,7 +59,7 @@ def test_story_1_8_metadata_round_trips_whatever_the_key_case() -> None:
     [
         {"content_type": "image/gif"},
         {"source": "email"},
-        {"device_check": "skipped"},
+        {"device_check": "maybe"},
         {"uploaded_at": "2026-09-29T09:30:00"},  # naive
     ],
 )
@@ -87,3 +87,11 @@ def test_story_1_8_blob_and_key_names_follow_the_storage_contract() -> None:
     key = UUID("3FA85F64-5717-4562-B3FC-2C963F66AFA6")
     assert row_key(key) == "3fa85f64-5717-4562-b3fc-2c963f66afa6"
     assert partition_key(key) == "3f"
+
+
+def test_story_1_9_a_skipped_device_check_round_trips_in_the_metadata() -> None:
+    skipped = _metadata(device_check="skipped")
+    assert skipped.device_check is DeviceCheck.SKIPPED
+    blob = skipped.to_blob_metadata()
+    assert blob["device_check"] == "skipped"
+    assert IntakeBlobMetadata.from_blob_metadata(blob) == skipped

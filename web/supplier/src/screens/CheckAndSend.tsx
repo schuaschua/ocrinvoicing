@@ -49,7 +49,9 @@ function problemMessage(problem: PhotoProblem): string {
  * the problem (`role="alert"`) and offers Take again, which reopens the camera or
  * picker the photo came from. From the 2nd failed check of the same upload
  * (`previousFailures` counts the earlier ones), Send it anyway sends the photo marked
- * `overridden`. A PDF of more than 2 pages is refused here; any other PDF is sent.
+ * `overridden`. A PDF of more than 2 pages is refused here; any other PDF is sent. A
+ * file the page can't check (no decoder, a failed decode, the time cap, a PDF whose
+ * pages can't be counted) is sent marked `skipped` (AD-5); one that passed, `passed`.
  *
  * While sending, a progress bar and "Sending…" (`role="status"`), Send disabled, and
  * leaving the page asks for confirmation. A failed send keeps the file and says so
@@ -76,9 +78,12 @@ export function CheckAndSend({
   onRetake: (file: File) => void;
 }) {
   const heading = usePageHeading(strings.checkAndSend.pageTitle);
+  const [checkable] = useState(() => canCheck(file));
   const [phase, setPhase] = useState<Phase>(() =>
-    canCheck(file) ? { kind: "checking" } : { kind: "ready" },
+    checkable ? { kind: "checking" } : { kind: "ready" },
   );
+  // Whether the check couldn't run on this device: then the file is sent "skipped".
+  const [skipped, setSkipped] = useState(!checkable);
   const sending = phase.kind === "sending";
   const controller = useRef<AbortController | null>(null);
   // Set synchronously, so a second tap before the re-render sends nothing.
@@ -97,7 +102,10 @@ export function CheckAndSend({
     void checkFile(file).then((result) => {
       if (!current) return;
       if (result.kind === "passed") setPhase({ kind: "ready" });
-      else if (result.kind === "too-many-pages") {
+      else if (result.kind === "skipped") {
+        setSkipped(true);
+        setPhase({ kind: "ready" });
+      } else if (result.kind === "too-many-pages") {
         setPhase({
           kind: "refused",
           message: strings.checkAndSend.tooManyPages,
@@ -232,7 +240,11 @@ export function CheckAndSend({
             className={CAPTURE}
             data-capture
             disabled={sending}
-            onClick={() => void send(overridden ? "overridden" : "passed")}
+            onClick={() =>
+              void send(
+                overridden ? "overridden" : skipped ? "skipped" : "passed",
+              )
+            }
           >
             {strings.checkAndSend.send}
           </Button>

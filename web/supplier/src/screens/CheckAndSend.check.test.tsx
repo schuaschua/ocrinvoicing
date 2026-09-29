@@ -248,12 +248,42 @@ describe("1.9 on-device photo check", () => {
     expect(FakeXhr.last().headers["X-Device-Check"]).toBe("passed");
   });
 
-  it("a browser that can't check goes straight to Send", () => {
+  it("a browser that can't check goes straight to Send, marked skipped", () => {
     check.canCheck.mockReturnValue(false);
     renderCheck();
     expect(check.checkFile).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
     expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
+  });
+
+  it("a photo the check couldn't finish is sent marked skipped, with no failure", async () => {
+    renderCheck();
+    await answer({ kind: "skipped" });
+    expect(screen.getByRole("alert")).toBeEmptyDOMElement();
+    expect(screen.queryByRole("button", { name: "Take again" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
+  });
+
+  it("a skipped check stays skipped on Send again after a failed send", async () => {
+    renderCheck();
+    await answer({ kind: "skipped" });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await act(async () => FakeXhr.last().fail());
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(FakeXhr.requests).toHaveLength(2);
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
+  });
+
+  it("a PDF whose pages can't be counted is sent marked skipped", async () => {
+    renderCheck({
+      file: new File(["%PDF-"], "inv.pdf", { type: "application/pdf" }),
+    });
+    await answer({ kind: "skipped" });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
   });
 
   it("a check that ends after the screen is gone changes nothing", async () => {

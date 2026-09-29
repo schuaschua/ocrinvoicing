@@ -157,7 +157,7 @@ def image_reason(
 ) -> ReasonCode | None:
     """The admin reason for an image, or None to go on to extraction. `measures` is
     None when the bytes could not be decoded. An upload whose device check was
-    overridden is judged the same way (AD-6)."""
+    overridden or skipped is judged the same way (AD-6)."""
     if measures is None or photo_problem(measures, thresholds) is not None:
         return ReasonCode.UNREADABLE
     return None

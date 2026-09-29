@@ -119,7 +119,7 @@ describe("1.9 device check of a chosen file", () => {
     });
   });
 
-  it("passes a photo it can't decode, without failing", async () => {
+  it("skips a photo it can't decode, without failing", async () => {
     vi.stubGlobal(
       "createImageBitmap",
       vi.fn(async () => {
@@ -127,10 +127,10 @@ describe("1.9 device check of a chosen file", () => {
       }),
     );
     await expect(decodePhoto(jpeg())).resolves.toBeNull();
-    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "passed" });
+    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
   });
 
-  it("passes when the canvas gives no context or fails to draw", async () => {
+  it("skips when the canvas gives no context or fails to draw", async () => {
     const { getContext, bitmap } = stubDecoder(page());
     getContext.mockReturnValue(null);
     await expect(decodePhoto(jpeg())).resolves.toBeNull();
@@ -139,9 +139,17 @@ describe("1.9 device check of a chosen file", () => {
     });
     await expect(decodePhoto(jpeg())).resolves.toBeNull();
     expect(bitmap.close).toHaveBeenCalledTimes(2);
+    getContext.mockReturnValue(null);
+    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
   });
 
-  it("passes a photo whose check is still running at the hard cap", async () => {
+  it("skips a photo whose check hits an unexpected error", async () => {
+    // Decoded, but the pixels are short, so the measurement throws.
+    stubDecoder({ width: 1024, height: 768, data: new Uint8ClampedArray(4) });
+    await expect(checkFile(jpeg())).resolves.toEqual({ kind: "skipped" });
+  });
+
+  it("skips a photo whose check is still running at the hard cap", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "createImageBitmap",
@@ -155,7 +163,7 @@ describe("1.9 device check of a chosen file", () => {
     await vi.advanceTimersByTimeAsync(THRESHOLDS.maxCheckMs - 1);
     expect(settled).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    await expect(result).resolves.toEqual({ kind: "passed" });
+    await expect(result).resolves.toEqual({ kind: "skipped" });
     expect(THRESHOLDS.maxCheckMs).toBeGreaterThan(THRESHOLDS.targetCheckMs);
   });
 
@@ -170,7 +178,7 @@ describe("1.9 device check of a chosen file", () => {
     expect(decode).not.toHaveBeenCalled();
   });
 
-  it("sends a PDF whose pages can't be counted (the server decides)", async () => {
+  it("skips a PDF whose pages can't be counted (the server decides)", async () => {
     const file = new File(
       ["%PDF-1.7\n5 0 obj\n<< /Type /ObjStm >>\nendobj"],
       "x.pdf",
@@ -178,13 +186,13 @@ describe("1.9 device check of a chosen file", () => {
         type: "application/pdf",
       },
     );
-    await expect(checkFile(file)).resolves.toEqual({ kind: "passed" });
+    await expect(checkFile(file)).resolves.toEqual({ kind: "skipped" });
   });
 
-  it("passes a PDF it can't read", async () => {
+  it("skips a PDF it can't read", async () => {
     const file = pdf(3);
     vi.spyOn(file, "arrayBuffer").mockRejectedValue(new Error("gone"));
-    await expect(checkFile(file)).resolves.toEqual({ kind: "passed" });
+    await expect(checkFile(file)).resolves.toEqual({ kind: "skipped" });
   });
 
   it("knows when this browser can check a file", () => {

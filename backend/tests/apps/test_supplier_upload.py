@@ -667,7 +667,12 @@ def test_story_1_8_the_accepted_log_names_the_outcome_type_and_size(
 
 @pytest.mark.parametrize(
     ("header", "stored"),
-    [(None, "passed"), ("passed", "passed"), ("overridden", "overridden")],
+    [
+        (None, "passed"),
+        ("passed", "passed"),
+        ("overridden", "overridden"),
+        ("skipped", "skipped"),
+    ],
 )
 def test_story_1_9_the_device_check_is_stored_in_the_blob_metadata(
     header: str | None, stored: str, call: Call, storage: Storage
@@ -678,7 +683,7 @@ def test_story_1_9_the_device_check_is_stored_in_the_blob_metadata(
     assert storage.keys[UUID(KEY)].device_check == stored
 
 
-@pytest.mark.parametrize("header", ["", "failed", "OVERRIDE"])
+@pytest.mark.parametrize("header", ["", "failed", "OVERRIDE", "skip"])
 def test_story_1_9_any_other_device_check_is_a_400_and_writes_nothing(
     header: str, call: Call, storage: Storage
 ) -> None:

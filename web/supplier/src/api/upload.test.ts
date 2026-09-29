@@ -57,6 +57,11 @@ describe("1.8 upload call", () => {
     expect(FakeXhr.last().headers["X-Device-Check"]).toBe("overridden");
   });
 
+  it("1.9 sends X-Device-Check skipped when the page couldn't check the file", () => {
+    void uploadInvoice(jpeg(), UPLOAD_ID, { deviceCheck: "skipped" });
+    expect(FakeXhr.last().headers["X-Device-Check"]).toBe("skipped");
+  });
+
   it("labels a file with no type as octet-stream; the server reads the bytes", () => {
     void uploadInvoice(new File([new Uint8Array([1])], "x"), UPLOAD_ID);
     expect(FakeXhr.last().headers["Content-Type"]).toBe(

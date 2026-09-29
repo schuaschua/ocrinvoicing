@@ -11,7 +11,8 @@ A retry with the same key replays steps 2 and 3, so a failed attempt is complete
 a second invoice is never created; a duplicate message is harmless (AD-2).
 
 `X-Device-Check` (Story 1.9) says how the page's photo check went: `passed` (the
-default when absent) or `overridden` ("Send it anyway"); anything else is a 400. It is
+default when absent), `overridden` ("Send it anyway") or `skipped` (the page couldn't
+check the file); anything else is a 400. It is
 bound to the key with the invoice, so a replay keeps the first attempt's value.
 
 The body is the raw file (not multipart), stored exactly as sent. The file type comes

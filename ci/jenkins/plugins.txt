@@ -1,5 +1,6 @@
-# Story 1.2: the Jenkins plugins, every one pinned. The first seven are the ones the
-# CI/CD needs (casc.yaml, Jenkinsfile) and the stage graph on each build (Dj, 2026-09-30);
+# Story 1.2: the Jenkins plugins, every one pinned. The first eight are the ones the
+# CI/CD needs (casc.yaml, Jenkinsfile), the stage graph on each build and the Stage View
+# table on each branch's page (Dj, 2026-09-30);
 # the rest is their dependency set as resolved for Jenkins 2.568.3 on 2026-09-29 and
 # 2026-09-30, pinned too so a rebuild installs exactly the same.
 # To upgrade: bump a version, re-resolve with jenkins-plugin-cli --list, rebuild the image.
@@ -10,6 +11,7 @@ credentials-binding:728.v902a_273b_8947
 configuration-as-code:2130.v3ef02f16a_34b_
 job-dsl:3732.v9a_c49a_61a_313
 pipeline-graph-view:1041.v107d70db_b_1a_f
+pipeline-stage-view:2.41
 
 # Dependencies
 antisamy-markup-formatter:173.v680e3a_b_69ff3
@@ -44,12 +46,14 @@ mailer:534.v1b_36f5864073
 mina-sshd-api-common:2.19.0-192.v2b_a_7b_2c1dc71
 mina-sshd-api-core:2.19.0-192.v2b_a_7b_2c1dc71
 pipeline-build-step:601.v6d4c6d1a_9dc7
+pipeline-graph-analysis:231.v56354571a_da_0
 pipeline-groovy-lib:806.v408277b_33d1d
 pipeline-input-step:560.v56198a_642157
 pipeline-milestone-step:152.v6e22b_8cfc66c
 pipeline-model-api:2.2293.v6e7193cec599
 pipeline-model-definition:2.2293.v6e7193cec599
 pipeline-model-extensions:2.2293.v6e7193cec599
+pipeline-rest-api:2.41
 pipeline-stage-step:345.va_96187909426
 pipeline-stage-tags-metadata:2.2293.v6e7193cec599
 plain-credentials:199.v9f8e1f741799

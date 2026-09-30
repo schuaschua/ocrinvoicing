@@ -45,6 +45,8 @@ class ErrorCode(StrEnum):
     # accounts-sim's failure mode answered instead of storing (Story 3.1); its HTTP
     # status is the one the operator set (sim_accounts.failure_mode).
     SIMULATED_FAILURE = "SIMULATED_FAILURE"
+    # A goods-in scan for a delivery purchasing doesn't know (Story 4.1, AD-5): HTTP 404.
+    DELIVERY_NOT_FOUND = "DELIVERY_NOT_FOUND"
 
 
 class DomainError(Exception):
@@ -188,6 +190,16 @@ class ImageDeletedError(DomainError):
 
     def __init__(self) -> None:
         super().__init__(ErrorCode.IMAGE_DELETED, "Image deleted after 30 days.")
+
+
+class DeliveryNotFoundError(DomainError):
+    """A goods-in scan names a delivery purchasing doesn't know (Story 4.1)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            ErrorCode.DELIVERY_NOT_FOUND,
+            "This delivery can't be found. Choose it again from the list.",
+        )
 
 
 class XmlInvalidError(DomainError):

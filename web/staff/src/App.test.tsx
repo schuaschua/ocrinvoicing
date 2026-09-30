@@ -38,7 +38,10 @@ function signedInAs(...roles: string[]) {
           total: 0,
           page_usage: null,
         })
-      : answer(200, { name: "Priya Tan", roles }),
+      : // Story 4.1: goods-in lists today's deliveries; none here.
+        String(input).startsWith("/api/goods-in/")
+        ? answer(200, { today: "2026-09-29", items: [] })
+        : answer(200, { name: "Priya Tan", roles }),
   );
 }
 

@@ -16,10 +16,14 @@ from invoicing.adapters.postgres.admin_item import PostgresAdminItemReader
 from invoicing.adapters.postgres.admin_queue import PostgresAdminQueueReader
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.postgres.invoice_search import PostgresInvoiceSearchReader
+from invoicing.adapters.postgres.suppliers import PostgresSupplierDirectory
+from invoicing.adapters.purchasing_factory import purchasing_port
 from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.static import spa_endpoint
+from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import health_endpoint, load_settings, start_telemetry
 from invoicing.apps.staff_api.actions import action_endpoints
+from invoicing.apps.staff_api.goods_in import goods_in_endpoints
 from invoicing.apps.staff_api.invoices import invoices_endpoints
 from invoicing.apps.staff_api.item import item_endpoints
 from invoicing.apps.staff_api.me import me_endpoint
@@ -94,6 +98,9 @@ async def admin_queue(req: func.HttpRequest) -> func.HttpResponse:
 # streamed same-origin (no SAS). pgp-private-key is read from the private-key vault on
 # the first bank value an admin opens, then kept in this process only (AD-11).
 _identity = str(settings.azure_client_id)
+_account = settings.storage_account_name
+# Reads the admin item's image; writes goods-in scans (Story 4.1).
+images = BlobImageStore.with_managed_identity(_account, _identity)
 item_api, item_image_api, bank_reveal_api, duplicate_image_api = item_endpoints(
     PostgresAdminItemReader(
         engine,
@@ -102,7 +109,7 @@ item_api, item_image_api, bank_reveal_api, duplicate_image_api = item_endpoints(
             lambda: ManagedIdentityCredential(client_id=_identity),
         ),
     ),
-    BlobImageStore.with_managed_identity(settings.storage_account_name, _identity),
+    images,
     platform_auth_trusted=settings.platform_auth_trusted,
 )
 
@@ -134,7 +141,6 @@ async def admin_bank_reveal(req: func.HttpRequest) -> func.HttpResponse:
 
 # Story 2.10: the admin actions. Each commits first; the stage queue message (as
 # staff-api's identity, Queue Data Message Sender) and the corrections blob follow.
-_account = settings.storage_account_name
 queue_sender = StorageQueueSender.with_managed_identity(_account, _identity)
 corrections = BlobCorrectionsStore.with_managed_identity(_account, _identity)
 correct_api, reextract_api, retry_intake_api, reject_api, approve_api = (
@@ -201,6 +207,34 @@ async def invoice_detail(req: func.HttpRequest) -> func.HttpResponse:
     """One invoice's current fields, lines, history and accounts reference (admin and
     finance): 200, 401, 404 or 503."""
     return await invoice_detail_api(req)
+
+
+# Story 4.1: goods-in scan. The supplier comes from the delivery (AD-10 purchasing
+# port, chosen by PURCHASING_ADAPTER), and the upload follows the AD-6 key, blob,
+# q-quality order through the same intake as supplier uploads.
+upload_keys = TableUploadKeyStore.with_managed_identity(_account, _identity)
+goods_in_deliveries_api, goods_in_upload_api = goods_in_endpoints(
+    purchasing_port(settings.purchasing_adapter, engine),
+    PostgresSupplierDirectory(engine),
+    lambda: upload_keys,
+    lambda: images,
+    lambda: queue_sender,
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/goods-in/deliveries", methods=["GET"])
+async def goods_in_deliveries(req: func.HttpRequest) -> func.HttpResponse:
+    """Today's deliveries, or those matching `q` by PO or supplier (goods_in only):
+    200, 400, 401, 403 or 503."""
+    return await goods_in_deliveries_api(req)
+
+
+@app.route(route="api/goods-in/deliveries/{delivery_id}/upload", methods=["POST"])
+async def goods_in_upload(req: func.HttpRequest) -> func.HttpResponse:
+    """A paper invoice scanned against a delivery (goods_in only): 200, 400, 401, 403,
+    404, 409, 413, 415 or 503."""
+    return await goods_in_upload_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

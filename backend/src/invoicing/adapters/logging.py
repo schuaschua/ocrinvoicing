@@ -28,6 +28,8 @@ ALLOWED_KEYS = frozenset(
         "count",
         # Sweeper counts (Story 2.2).
         "deleted",
+        # A goods-in scan's delivery (Story 4.1): a purchasing record id.
+        "delivery_id",
         # passed | overridden | skipped: the page's photo check (Story 1.9), a code.
         "device_check",
         "duration_ms",
@@ -43,6 +45,8 @@ ALLOWED_KEYS = frozenset(
         "routing_id",
         "run_id",
         "size_bytes",
+        # link | goods_in: who wrote an upload (AD-5), a code.
+        "source",
         "stage",
         "status",
         "to_status",

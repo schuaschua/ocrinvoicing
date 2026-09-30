@@ -3,6 +3,7 @@ loser reading the winner, error mapping, and no key in logs or spans."""
 
 import asyncio
 from collections.abc import AsyncIterator, Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
@@ -13,6 +14,7 @@ from azure.core.exceptions import (
 
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.domain.upload import DeviceCheck, UploadContentType
+from invoicing.ports.intake import IntakeSource
 from invoicing.ports.upload_keys import UploadKey, UploadKeyStore
 
 KEY = UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6")
@@ -102,11 +104,14 @@ def test_story_1_8_claiming_a_key_inserts_once_returns_the_stored_upload_and_sur
         "PartitionKey": "3f",
         "RowKey": str(KEY),
         **_row(MINE),
+        # Story 4.1: who wrote it; no delivery property for a supplier upload.
+        "source": "link",
     }
     # No read when the insert wins.
     assert table.queries == []
 
     # --- Story 1.8: an existing key returns the stored upload and writes nothing
+    # (a row from before Story 4.1, with no source, reads as a supplier upload).
     table = FakeTable({("3f", str(KEY)): _row(THEIRS)})
     assert _claim(table) == (THEIRS, False)
     assert table.created == []
@@ -114,6 +119,17 @@ def test_story_1_8_claiming_a_key_inserts_once_returns_the_stored_upload_and_sur
     # The key is a parameter, never pasted into the filter text.
     assert str(KEY) not in query_filter
     assert kwargs["parameters"] == {"pk": "3f", "rk": str(KEY)}
+
+    # --- Story 4.1: a goods-in key keeps its source and delivery through a replay.
+    table = FakeTable()
+    scan = replace(
+        MINE,
+        source=IntakeSource.GOODS_IN,
+        delivery_id=UUID("01a0c450-aa80-72d5-bb5c-e21dfa7e05aa"),
+    )
+    assert _claim(table, scan) == (scan, True)
+    assert table.created[0]["delivery_id"] == str(scan.delivery_id)
+    assert _claim(table, MINE) == (scan, False)
 
     # --- Story 1.8: two racing claims get the same upload
     table = FakeTable()

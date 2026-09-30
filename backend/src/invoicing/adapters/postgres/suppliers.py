@@ -269,3 +269,34 @@ class PostgresSupplierReader:
                 )
             ).one_or_none()
         return None if row is None else SupplierFacts(name=row.name, tax_id=row.tax_id)
+
+
+class PostgresSupplierDirectory:
+    """`SupplierDirectory` over `master.supplier` (Story 4.1): staff-api's SELECT
+    grant, on a worker thread (coding-style.md rule 11)."""
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    async def names(self, supplier_ids: Iterable[UUID]) -> dict[UUID, str]:
+        wanted = list(supplier_ids)
+        return await asyncio.to_thread(self._names, wanted)
+
+    async def matching(self, text: str) -> dict[UUID, str]:
+        return await asyncio.to_thread(self._matching, text)
+
+    def _names(self, supplier_ids: list[UUID]) -> dict[UUID, str]:
+        if not supplier_ids:
+            return {}
+        with open_connection(self._engine) as connection:
+            return supplier_names(connection, supplier_ids)
+
+    def _matching(self, text: str) -> dict[UUID, str]:
+        with open_connection(self._engine) as connection:
+            rows = connection.execute(
+                select(supplier.c.id, supplier.c.name).where(
+                    # A bound parameter with LIKE's wildcards escaped.
+                    supplier.c.name.icontains(text, autoescape=True)
+                )
+            )
+            return {row.id: row.name for row in rows}

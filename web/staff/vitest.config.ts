@@ -8,8 +8,8 @@ export default mergeConfig(
   defineConfig({
     test: {
       environment: "jsdom",
-      // shared/quality/'s tests run in web/supplier, the app that uses it; add them here
-      // when the staff app does (Story 4.1).
+      // shared/quality/'s tests run once, in web/supplier: the staff app's goods-in
+      // scan (Story 4.1) uses the same module and the same copied device check.
       include: ["src/**/*.test.{ts,tsx}", "*.test.ts"],
       setupFiles: ["./src/test/setup.ts"],
       coverage: {

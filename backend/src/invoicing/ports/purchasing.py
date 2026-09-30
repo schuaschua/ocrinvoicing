@@ -106,6 +106,21 @@ class PurchasingPort(Protocol):
         """The delivery with its PO and supplier, or None when it is unknown."""
         ...
 
+    async def list_deliveries(self, on: date) -> tuple[Delivery, ...]:
+        """The deliveries dated `on`, by PO number then delivery number (Story 4.1:
+        goods-in's list of today's deliveries)."""
+        ...
+
+    async def search_deliveries(self, text: str, since: date) -> tuple[Delivery, ...]:
+        """The deliveries dated `since` or later whose PO number starts with `text`
+        in any case, or does so with a leading "PO" and any spaces or hyphens
+        removed from both ("45012" and "po 45012" find "PO-45012"); an empty
+        `text` matches every PO. Newest first, then by PO
+        number and delivery number (Story 4.1: goods-in's search for a late
+        delivery). Purchasing holds no supplier names; goods-in matches those against
+        the master itself."""
+        ...
+
     async def list_overdue_pos(self, as_of: date) -> tuple[OverduePo, ...]:
         """Every PO whose earliest line `expected_date` is before `as_of`, by that
         date then PO number, whatever has been delivered or received: overdue means

@@ -91,3 +91,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-2-9-admin-item-crop-fields-bank-change.md`
   summary: Invoices extracted before migration 0008 have no page sizes and show no flag boxes; a Re-extract (2.10) restores them.
   evidence: extraction_page is filled only by runs after this story.
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-1-goods-in-scans-paper-invoice.md`
+  summary: Update AD-10 in the architecture spine to list PurchasingPort's two new methods, list_deliveries and search_deliveries.
+  evidence: AD-10 lists five methods; Story 4.1 added two (ports/purchasing.py).
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-1-goods-in-scans-paper-invoice.md`
+  summary: Decide whether a goods-in scan should record which staff member scanned it (key row, blob metadata or log).
+  evidence: Unverified, medium if required. The principal is not stored anywhere; settle it by checking the spine's audit requirements for staff-originated invoices.

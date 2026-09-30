@@ -17,6 +17,7 @@ from uuid import UUID
 import pytest
 
 from invoicing.ports.purchasing import (
+    Delivery,
     GoodsReceipt,
     PurchaseOrder,
     PurchasingPort,
@@ -32,6 +33,10 @@ LINE_12_1 = UUID("01a0c450-8370-7ad0-8b7e-e79b9256c746")
 LINE_12_2 = UUID("01a0c450-8758-7c9d-8bc2-3f4db6df5878")
 DELIVERY_12_1 = UUID("01a0c450-9ec8-75d6-8da5-5adc523d9350")
 DELIVERY_12_2 = UUID("01a0c450-a2b0-75b9-9eac-12e4d657f199")
+# Story 4.1: the other deliveries, by date (PO-45013 9-07, PO-45017 9-26, PO-45016 9-29).
+DELIVERY_13_1 = UUID("01a0c450-a698-7572-8c2a-c08ca96f7ab9")
+DELIVERY_16_1 = UUID("01a0c450-aa80-72d5-bb5c-e21dfa7e05aa")
+DELIVERY_17_1 = UUID("01a0c450-c1f0-7569-b3aa-76f1c8cc87a8")
 
 
 def run[T](call: Coroutine[Any, Any, T]) -> T:
@@ -87,3 +92,31 @@ class PurchasingContract:
         assert receipts[0].receipt_id != receipts[1].receipt_id
         # Story 2.5: each receipt names its delivery, so a goods-in scan finds its own.
         assert [r.delivery_id for r in receipts] == [DELIVERY_12_1, DELIVERY_12_2]
+
+        # --- Story 4.1: a delivery with its PO's supplier, the day's deliveries, and
+        # the search by PO prefix (any case, wildcards literal), newest first.
+        second = Delivery(
+            DELIVERY_12_2, SUPPLIER_ALPHA, PO_TWO_PARTS, 2, date(2026, 9, 14)
+        )
+        assert run(purchasing.get_delivery(DELIVERY_12_2)) == second
+        assert run(purchasing.list_deliveries(date(2026, 9, 14))) == (second,)
+        assert run(purchasing.list_deliveries(date(2026, 9, 15))) == ()
+
+        def found(text: str, since: date) -> list[UUID]:
+            return [
+                d.delivery_id for d in run(purchasing.search_deliveries(text, since))
+            ]
+
+        assert found("po-4501", date(2026, 9, 7)) == [
+            DELIVERY_16_1,
+            DELIVERY_17_1,
+            DELIVERY_12_2,
+            DELIVERY_13_1,
+        ]
+        assert found("PO-45012", date(2026, 9, 1)) == [DELIVERY_12_2, DELIVERY_12_1]
+        assert found("", date(2026, 9, 20)) == [DELIVERY_16_1, DELIVERY_17_1]
+        assert found("%", date(2026, 1, 1)) == []
+        # As goods-in shows it: without "PO", or with a space.
+        for said in ("45012", "po 45012", "PO45012"):
+            assert found(said, date(2026, 1, 1)) == [DELIVERY_12_2, DELIVERY_12_1]
+        assert found("%5012", date(2026, 1, 1)) == []

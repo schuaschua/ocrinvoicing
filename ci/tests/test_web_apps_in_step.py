@@ -14,12 +14,14 @@ SUPPLIER = REPO_ROOT / "web" / "supplier"
 # Files that must be the same in both apps. App-specific: package.json, the lock file
 # (name), playwright.config.ts (port), e2e/screens.ts (each app's screens),
 # src/App*.tsx, src/strings*.ts, src/main.tsx, and each app's own screens and API
-# calls (e.g. the supplier page's src/screens/, src/link*.ts, src/upload*.ts,
-# src/api/link*.ts, src/api/upload*.ts and src/test/fakeXhr.ts; the staff app's
-# src/api/me*.ts, src/api/queue*.ts, src/surfaces*.ts, src/router*.ts, src/shell/, its
-# other screens, and the shadcn table, badge and alert only it uses so far, Story 2.8).
-# vitest.config.ts differs too: only web/supplier runs shared/quality's tests, until
-# the staff app uses shared/quality (Story 4.1).
+# calls (e.g. the supplier page's other src/screens/, src/link*.ts, src/api/link*.ts;
+# src/upload.test.ts; each app's own src/api/upload*.ts; the staff app's
+# src/api/me*.ts, src/api/queue*.ts, src/api/goodsIn.ts, src/surfaces*.ts,
+# src/router*.ts, src/shell/, its other screens, and the shadcn table, badge and alert
+# only it uses so far, Story 2.8). Story 4.1: src/upload.ts, src/deviceCheck.ts,
+# src/screens/capture.ts and src/test/fakeXhr.ts are shared (below).
+# vitest.config.ts differs too: only web/supplier runs shared/quality's tests, though
+# both apps use it.
 SHARED_FILES = [
     ".npmrc",
     ".prettierignore",
@@ -48,6 +50,12 @@ SHARED_FILES = [
     "src/screens/usePageHeading.ts",
     "src/lib/utils.ts",
     "src/test/setup.ts",
+    # Story 4.1: goods-in reuses the supplier page's file rules, device check and
+    # capture button (each app keeps its own src/api/upload.ts).
+    "src/upload.ts",
+    "src/deviceCheck.ts",
+    "src/screens/capture.ts",
+    "src/test/fakeXhr.ts",
 ]
 
 

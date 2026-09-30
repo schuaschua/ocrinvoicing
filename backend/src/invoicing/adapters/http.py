@@ -70,6 +70,7 @@ STATUS_BY_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.ACTION_NOT_ALLOWED: 409,
     ErrorCode.CHECKS_REQUIRED: 400,
     ErrorCode.XML_INVALID: 400,
+    ErrorCode.DELIVERY_NOT_FOUND: 404,
     # accounts-sim sets the actual status per call (apps/accounts_sim/invoices.py).
     ErrorCode.SIMULATED_FAILURE: 503,
 }

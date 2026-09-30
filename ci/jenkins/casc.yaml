@@ -95,9 +95,11 @@ jobs:
             interval('5m')
           }
         }
+        // A branch's job goes as soon as its branch is deleted (PRs complete with "delete
+        // source branch"), so the page lists only main and open work (Dj, 2026-09-30).
         orphanedItemStrategy {
           discardOldItems {
-            numToKeep(20)
+            numToKeep(0)
           }
         }
       }

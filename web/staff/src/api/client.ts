@@ -3,19 +3,23 @@
 
 import { strings } from "@/strings";
 
-/** Fired on `apiEvents` when the API answers 401: the sign-in has expired. */
+/** Fired on `apiEvents` when the sign-in has expired: a 401, or built-in auth's empty
+ * 403 (see apiRequest). */
 export const SESSION_EXPIRED = "session-expired";
-/** Fired on `apiEvents` on the first successful call after a 401: signed in again. */
+/** Fired on `apiEvents` on the first successful call after an expired sign-in. */
 export const SESSION_RESTORED = "session-restored";
 /** Fired on `apiEvents` when the API answers 503 `DB_OFFLINE` (AD-12). */
 export const OFFLINE = "offline";
 export type ApiEventType =
   typeof SESSION_EXPIRED | typeof SESSION_RESTORED | typeof OFFLINE;
 
-// Whether the last answer was a 401, so the next success is a new sign-in.
+// Whether the sign-in expired since the last success, so the next success is a new
+// sign-in.
 let expired = false;
 
-function sessionExpired(): void {
+/** Raise `SESSION_EXPIRED` and remember it, so the next success raises
+ * `SESSION_RESTORED`. For callers in src/api/ that can't use `apiRequest` (XHR). */
+export function sessionExpired(): void {
   expired = true;
   apiEvents.dispatchEvent(new Event(SESSION_EXPIRED));
 }
@@ -55,7 +59,8 @@ export function setUploadToken(token: string | null): void {
 export function apiHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: "application/json",
-    // CSRF defence (security.md rule 24); built-in auth answers 401, not a redirect.
+    // CSRF defence (security.md rule 24); with it, built-in auth answers an expired
+    // session with 401 or an empty 403, never a redirect.
     "X-Requested-With": "XMLHttpRequest",
   };
   if (uploadToken !== null) {
@@ -97,14 +102,26 @@ interface ErrorBody {
   correlation_id?: unknown;
 }
 
-async function readErrorBody(response: Response): Promise<ErrorBody | null> {
+/** The error answer's JSON object (null when it has none), and whether it is empty. */
+async function readErrorBody(
+  response: Response,
+): Promise<{ body: ErrorBody | null; empty: boolean }> {
+  let raw: string;
   try {
-    const body: unknown = await response.json();
-    return body !== null && typeof body === "object"
-      ? (body as ErrorBody)
-      : null;
+    raw = await response.text();
   } catch {
-    return null;
+    return { body: null, empty: false };
+  }
+  if (raw.trim() === "") return { body: null, empty: true };
+  try {
+    const body: unknown = JSON.parse(raw);
+    return {
+      body:
+        body !== null && typeof body === "object" ? (body as ErrorBody) : null,
+      empty: false,
+    };
+  } catch {
+    return { body: null, empty: false };
   }
 }
 
@@ -177,7 +194,19 @@ export async function apiRequest<T>(
     }
   }
 
-  const body = await readErrorBody(response);
+  const { body, empty } = await readErrorBody(response);
+  // Built-in auth answers an expired staff session with an empty 403, not a 401 (seen
+  // in Dev, 2026-09-30). Every 403 of our own carries a JSON body, and the platform's
+  // other 403 pages (site stopped, quota) carry HTML, so only an empty one means this.
+  if (response.status === 403 && empty) {
+    sessionExpired();
+    throw new ApiError(
+      strings.errors.generic,
+      401,
+      null,
+      response.headers.get(CORRELATION_HEADER),
+    );
+  }
   const code = text(body?.code);
   const error = new ApiError(
     text(body?.message) ?? strings.errors.generic,

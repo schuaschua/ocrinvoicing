@@ -8,9 +8,9 @@ import { strings } from "@/strings";
 import {
   ApiError,
   OFFLINE,
-  SESSION_EXPIRED,
   apiEvents,
   apiHeaders,
+  sessionExpired,
 } from "./client";
 
 const IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
@@ -59,8 +59,9 @@ function field(body: unknown, name: string): string | null {
  * Send `file` against the delivery once under `key`. A retry with the same key never
  * creates a second invoice (AD-6), so after any failure the caller may send it again
  * with that key. Rejects with an `ApiError` (status 0 for a network failure or
- * timeout; a 401 or 503 `DB_OFFLINE` also raises the shell's event, as every API call
- * does), or with the signal's reason when `signal` aborts.
+ * timeout; a 401, built-in auth's empty 403 (rejected as a 401) or a 503 `DB_OFFLINE`
+ * also raises the shell's event, as every API call does), or with the signal's reason
+ * when `signal` aborts.
  */
 export function uploadGoodsIn(
   deliveryId: string,
@@ -125,15 +126,19 @@ export function uploadGoodsIn(
       }
       const code = field(body, "code");
       // The same shell events as every other API call (api/client.ts).
-      if (xhr.status === 401) {
-        apiEvents.dispatchEvent(new Event(SESSION_EXPIRED));
+      // Built-in auth's empty 403 on an expired session means 401 (see api/client.ts).
+      const signedOut =
+        xhr.status === 401 ||
+        (xhr.status === 403 && xhr.responseText.trim() === "");
+      if (signedOut) {
+        sessionExpired();
       } else if (xhr.status === 503 && code === "DB_OFFLINE") {
         apiEvents.dispatchEvent(new Event(OFFLINE));
       }
       reject(
         new ApiError(
           field(body, "message") ?? strings.errors.generic,
-          xhr.status,
+          signedOut ? 401 : xhr.status,
           code,
           correlationId,
         ),

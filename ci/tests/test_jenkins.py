@@ -45,16 +45,23 @@ def _lib_value(name: str) -> str:
 
 
 def _jenkinsfile_guards() -> None:
-    """The Jenkinsfiles and image. Covers: every checks.sh subcommand on every branch and the
-    audit weekly; the AD-17 stage order on main; an input step (Dj only) on shared and nowhere
+    """The Jenkinsfiles and image. Covers: every checks.sh subcommand on every branch but
+    main (its PR build ran them), terraform beside the app checks, and the audit weekly; the AD-17 stage order on main; an input step (Dj only) on shared and nowhere
     else; no Prod stage or identity; each stack applies its own saved plan; sign-in only through
     the deploy identity; status posted to the PR with the token from the credential; the image
     pins the tools of ci/lib.sh and Terraform matches the plugin tool."""
     text = _code(JENKINSFILE)
     stages = re.findall(r"stage\('([^']+)'\)", text)
 
-    # Every check on every branch; the audit weekly.
+    # Every check on every branch but main; terraform beside the app checks; the audit
+    # weekly.
     assert re.findall(r"sh 'ci/checks\.sh (\w+)'", text) == ["lint", "test", "audit", "secrets", "terraform"]
+    checks = text[text.index("stage('Checks')") : text.index("stage('Deploy (AD-17)')")]
+    assert "when { not { branch 'main' } }" in checks[:600]
+    assert "parallel {" in checks and checks.index("stage('terraform')") > checks.index("parallel {")
+    assert "TF_PLUGIN_CACHE_DIR = '/var/jenkins_home/" in text
+    # Branch workspaces and the tests' leftover volumes are removed after the checks.
+    assert "cleanup {" in checks and "deleteDir()" in checks and "docker volume prune --force" in checks
     weekly = _code(WEEKLY)
     assert re.findall(r"ci/checks\.sh (\w+)", weekly) == ["audit"]
     casc = (JENKINS_DIR / "casc.yaml").read_text(encoding="utf-8")

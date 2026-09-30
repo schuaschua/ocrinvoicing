@@ -259,7 +259,40 @@ const INVOICE_DETAIL: Record<string, ApiAnswer> = {
   },
 };
 
+/** Story 4.1: goods-in's delivery picker (synthetic), on a phone-width dock device. */
+const GOODS_IN: Record<string, ApiAnswer> = {
+  "/api/goods-in/deliveries": {
+    status: 200,
+    body: {
+      today: "2026-09-29",
+      items: [
+        {
+          delivery_id: "01a0c450-aa80-72d5-bb5c-e21dfa7e05aa",
+          po_number: "PO-45016",
+          delivery_no: 1,
+          delivery_date: "2026-09-29",
+          supplier_name: "Synthetic Gamma Construction Materials",
+        },
+        {
+          delivery_id: "01a0c450-c1f0-7569-b3aa-76f1c8cc87a8",
+          po_number: "PO-45017",
+          delivery_no: 1,
+          delivery_date: "2026-09-29",
+          supplier_name: null,
+        },
+      ],
+    },
+  },
+};
+
 export const SCREENS: Screen[] = [
+  {
+    story: "4.1",
+    name: "goods-in scan lists today's deliveries",
+    path: "/goods-in",
+    api: { ...me("goods_in"), ...GOODS_IN },
+    ready: "Synthetic Gamma Construction Materials",
+  },
   {
     story: "2.9",
     name: "admin item with a bank change and its actions",

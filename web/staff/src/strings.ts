@@ -1,6 +1,8 @@
 // All user-facing copy for the staff app (coding-style.md rule 18, UX-DR2),
 // worded as EXPERIENCE.md's Voice and Tone sets it. Components never hold copy.
 
+import type { Side } from "@shared/quality/measure";
+
 /** AD-4 admin-queue reason codes. */
 export type ReasonCode =
   | "UNREADABLE"
@@ -79,6 +81,19 @@ export function statusLabel(
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** A file's size, as the supplier page shows it: "850 KB" or "1.2 MB". */
+export function fileSize(bytes: number): string {
+  // Rounded first, so 1,048,000 bytes reads "1.0 MB", never "1024 KB".
+  const kb = Math.max(1, Math.round(bytes / 1024));
+  if (kb < 1024) return `${kb} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** A PO number as people say it: "PO 45016" for "PO-45016" or "45016". */
+export function poLabel(poNumber: string): string {
+  return `PO ${poNumber.replace(/^PO[-\s]*/i, "")}`;
 }
 
 /** A page title: the page's own words, then the company name (UX-DR21). */
@@ -443,6 +458,61 @@ export const strings = {
       swift: "SWIFT code",
     };
     return `${names[kind] ?? kind} (payment ${payment})`;
+  },
+  /** Why a chosen file can't be sent (AD-6: JPEG, PNG or PDF, 4 MB or less); the
+   * same words as the supplier page (src/upload.ts is shared with it). */
+  fileRefused: {
+    tooLarge:
+      "This file is over 4 MB. Choose a smaller photo, or a PDF under 4 MB.",
+    wrongType: "This file can't be sent. Choose a JPEG or PNG photo, or a PDF.",
+    empty: "This file is empty. Choose the invoice again.",
+  },
+  /** Story 4.1: Goods-in scan (EXPERIENCE.md Delivery picker, Capture button, Quality
+   * check, Flow 4 and the goods-in "Database stopped" state). */
+  goodsIn: {
+    today: "Today's deliveries",
+    results: "Search results",
+    search: "Search",
+    searchLabel: "PO number or supplier",
+    searchHint: "For a late delivery: at least 2 characters.",
+    showToday: "Show today's deliveries",
+    listLabel: "Deliveries",
+    noneToday: "No deliveries today. Search by PO number or supplier.",
+    noMatch: "No deliveries in the last 60 days match this search.",
+    badSearch: "Enter at least 2 characters of a PO number or supplier.",
+    unknownSupplier: "Unknown supplier",
+    delivery: (n: number) => `Delivery ${n}`,
+    scanFor: (po: string) => `Scan the invoice for ${po}`,
+    otherDelivery: "Choose another delivery",
+    takePhoto: "Take photo",
+    chooseFile: "Choose file",
+    cameraUnavailable:
+      "Camera not available here. Tap Choose file to pick a photo, or open this page in your device's browser.",
+    checkHeading: "Check & send",
+    photo: "Photo",
+    pdf: "PDF",
+    send: "Send",
+    chooseAgain: "Choose another file",
+    sending: "Sending…",
+    progressLabel: "Upload progress",
+    failed: "Couldn't send. Check your connection and tap Send again.",
+    checking: "Checking photo…",
+    checkingPdf: "Checking PDF…",
+    takeAgain: "Take again",
+    sendAnyway: "Send it anyway",
+    tooDark: "The photo is too dark. Move to better light and take it again.",
+    blurry: "The photo is blurry. Hold the device still and take it again.",
+    cutOff: (side: Side) =>
+      `The ${side} edge is cut off. Fit the whole invoice in the photo and take it again.`,
+    tooManyPages: "This PDF has more than 2 pages. Send a PDF of 1 or 2 pages.",
+    deliveryGone:
+      "This delivery can't be found. Choose it again from the list.",
+    received: (po: string, supplier: string) =>
+      `Received for ${po}, ${supplier}.`,
+    scanAnother: "Scan another invoice",
+    unavailableHeading: "Scanning unavailable",
+    unavailable:
+      "Scanning is unavailable until the system is back (weekdays 9am). Keep the paper invoice with the delivery.",
   },
   /** Screens not built yet show their heading and this line. */
   placeholder: "This page isn't ready yet.",

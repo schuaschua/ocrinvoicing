@@ -1,14 +1,7 @@
 """`POST /api/upload` (AD-6): a supplier sends one invoice file and gets its reference.
-Table Storage, blob storage and `q-quality` only, never PostgreSQL, in this order:
-
-1. `Idempotency-Key -> invoice_id` into `uploadkeys`, unless the key is stored already;
-   then the stored invoice is used.
-2. The original bytes to `images/<invoice_id>` with `IntakeBlobMetadata`, unless the
-   blob exists.
-3. A `QueueMessage` on `q-quality`, then `{invoice_id, reference}`.
-
-A retry with the same key replays steps 2 and 3, so a failed attempt is completed and
-a second invoice is never created; a duplicate message is harmless (AD-2).
+The link decides the supplier; the key, blob and `q-quality` steps, in that order and
+never PostgreSQL, are the shared intake (`apps/intake_upload.py`), so a retry never
+creates a second invoice.
 
 `X-Device-Check` (Story 1.9) says how the page's photo check went: `passed` (the
 default when absent), `overridden` ("Send it anyway") or `skipped` (the page couldn't
@@ -20,8 +13,6 @@ from its bytes, never from the request's Content-Type. Never log the token, the 
 the file name or its bytes.
 """
 
-import hashlib
-import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
 from uuid import UUID
@@ -29,43 +20,18 @@ from uuid import UUID
 import azure.functions as func
 
 from invoicing.adapters.http import Endpoint, http_endpoint, json_response
-from invoicing.adapters.logging import log_event
+from invoicing.apps.intake_upload import UploadOwner, accept_upload, checked_upload
 from invoicing.apps.supplier_api.link import current_link
-from invoicing.domain.errors import (
-    IdempotencyKeyConflictError,
-    ValidationFailedError,
-)
-from invoicing.domain.ids import new_uuid7, parse_uuid
 from invoicing.domain.reference import supplier_reference
-from invoicing.domain.upload import (
-    check_declared_length,
-    check_upload,
-    parse_device_check,
-)
 from invoicing.ports.blobs import ImageStore
-from invoicing.ports.intake import IntakeBlobMetadata, IntakeSource
+from invoicing.ports.intake import IntakeSource
 from invoicing.ports.links import SupplierLinkRegistry
-from invoicing.ports.messages import QueueMessage
-from invoicing.ports.queue import QueueName, QueueSender
-from invoicing.ports.upload_keys import UploadKey, UploadKeyStore
-
-IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
-DEVICE_CHECK_HEADER = "X-Device-Check"
-KEY_MESSAGE = "This upload has no valid key. Reload the page and send the file again."
-
-_logger = logging.getLogger("invoicing.upload")
+from invoicing.ports.queue import QueueSender
+from invoicing.ports.upload_keys import UploadKeyStore
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
-
-
-def upload_key(req: func.HttpRequest) -> UUID:
-    """The request's Idempotency-Key: a UUID the page makes once per chosen file."""
-    key = parse_uuid(req.headers.get(IDEMPOTENCY_KEY_HEADER))
-    if key is None or key.int == 0:
-        raise ValidationFailedError(KEY_MESSAGE)
-    return key
 
 
 def upload_endpoint(
@@ -83,78 +49,14 @@ def upload_endpoint(
 
     async def upload(req: func.HttpRequest, correlation_id: UUID) -> func.HttpResponse:
         link = await current_link(req, registry())
-        key = upload_key(req)
-        device_check = parse_device_check(req.headers.get(DEVICE_CHECK_HEADER))
-        # An early refusal when the client declared a length over the limit.
-        check_declared_length(req.headers.get("Content-Length"))
-        body = req.get_body()
-        content_type = check_upload(body)
-        content_sha256 = hashlib.sha256(body).hexdigest()
-        now = (clock or _now)()
-
-        # Step 1: the key decides the invoice.
-        stored, inserted = await keys().claim(
-            key,
-            UploadKey(
-                invoice_id=new_uuid7(),
-                supplier_id=link.supplier_id,
-                correlation_id=correlation_id,
-                created_at=now,
-                content_sha256=content_sha256,
-                content_type=content_type,
-                device_check=device_check,
-            ),
-        )
-        # A key is one file of one supplier: another supplier's key, or the same key
-        # with other bytes, would otherwise return that upload and drop this file.
-        if stored.supplier_id != link.supplier_id or (
-            stored.content_sha256,
-            stored.content_type,
-        ) != (content_sha256, content_type):
-            log_event(_logger, "upload.key_conflict", code="IDEMPOTENCY_KEY_CONFLICT")
-            raise IdempotencyKeyConflictError()
-        # A retry that reports another device check keeps the stored one; say so.
-        if stored.device_check != device_check:
-            log_event(
-                _logger,
-                "upload.device_check_mismatch",
-                invoice_id=stored.invoice_id,
-                code="DEVICE_CHECK_MISMATCH",
-                device_check=stored.device_check,
-            )
-
-        # Step 2: the original bytes, once.
-        written = await images().put_if_absent(
-            body,
-            IntakeBlobMetadata(
-                invoice_id=stored.invoice_id,
-                source=IntakeSource.LINK,
-                supplier_id=link.supplier_id,
-                content_type=content_type,
-                uploaded_at=stored.created_at,
-                # The first attempt's value: a replay never changes it.
-                device_check=stored.device_check,
-            ),
-        )
-
-        # Step 3: the quality stage's message, in the first attempt's trace and with
-        # its time, so a replay's message matches the first one.
-        await queue().send(
-            QueueName.QUALITY,
-            QueueMessage.first(
-                stored.invoice_id, stored.correlation_id, stored.created_at
-            ),
-        )
-        log_event(
-            _logger,
-            "upload.accepted",
-            invoice_id=stored.invoice_id,
-            # "existing": a retry, or the loser of a race on the same key.
-            status="new" if inserted else "existing",
-            blob_written=written,
-            content_type=content_type,
-            device_check=stored.device_check,
-            size_bytes=len(body),
+        stored = await accept_upload(
+            checked_upload(req),
+            UploadOwner(supplier_id=link.supplier_id, source=IntakeSource.LINK),
+            correlation_id=correlation_id,
+            now=(clock or _now)(),
+            keys=keys(),
+            images=images(),
+            queue=queue(),
         )
         return json_response(
             {

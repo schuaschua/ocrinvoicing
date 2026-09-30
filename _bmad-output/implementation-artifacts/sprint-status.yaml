@@ -68,8 +68,8 @@ development_status:
   3-4-search-all-invoices: review
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-goods-in-scans-a-paper-invoice-against-a-delivery: backlog
+  epic-4: in-progress
+  4-1-goods-in-scans-a-paper-invoice-against-a-delivery: review
   4-2-overdue-po-list: backlog
   4-3-suppliers-see-weekly-reminders-on-their-upload-page: backlog
   4-4-suppliers-list-and-supplier-page: backlog

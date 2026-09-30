@@ -5,6 +5,7 @@ import { getMe, type Me } from "@/api/me";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui/button";
 import { navigate, useNotAllowed, usePath } from "@/router";
+import { GoodsInScreen } from "@/screens/GoodsInScreen";
 import { LoadError } from "@/screens/LoadError";
 import { InvoiceDetailScreen } from "@/screens/InvoiceDetailScreen";
 import { InvoicesScreen } from "@/screens/InvoicesScreen";
@@ -162,6 +163,11 @@ export function App() {
   }, [attempt]);
 
   const route = session.kind === "ready" ? routeFor(session.me, path) : null;
+  // EXPERIENCE.md State Patterns: the goods-in scan has its own "Database stopped"
+  // words (keep the paper with the delivery), every other page the system's.
+  const goodsIn =
+    route?.kind === "page" && route.surface.id === "goods_in_scan";
+  const offlineText = goodsIn ? strings.goodsIn.unavailable : strings.offline;
 
   const redirectTo = route?.kind === "redirect" ? route.to.path : null;
   const redirectNotAllowed = route?.kind === "redirect" && route.notAllowed;
@@ -187,7 +193,14 @@ export function App() {
 
   let content;
   if (offline) {
-    content = <Offline onRetry={retry} />;
+    content = (
+      <Offline
+        heading={
+          goodsIn ? strings.goodsIn.unavailableHeading : strings.offlineHeading
+        }
+        onRetry={retry}
+      />
+    );
   } else if (session.kind === "loading") {
     content = <Loading />;
   } else if (session.kind === "signed-out") {
@@ -202,6 +215,8 @@ export function App() {
       content = <QueueScreen key={path} />;
     } else if (route.surface.id === "admin_item") {
       content = <ItemScreen key={path} invoiceId={itemIdFrom(path)} />;
+    } else if (route.surface.id === "goods_in_scan") {
+      content = <GoodsInScreen key={path} />;
     } else if (route.surface.id === "invoices") {
       content = <InvoicesScreen key={path} />;
     } else if (route.surface.id === "invoice_detail") {
@@ -260,7 +275,7 @@ export function App() {
           <div role="alert" data-testid="shell-notice">
             {offline ? (
               <p className="max-w-prose rounded-md border px-4 py-3">
-                {strings.offline}
+                {offlineText}
               </p>
             ) : notice?.kind === "alert" ? (
               <p className="max-w-prose rounded-md border border-destructive px-4 py-3">

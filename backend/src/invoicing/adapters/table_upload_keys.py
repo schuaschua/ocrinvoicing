@@ -19,6 +19,7 @@ from invoicing.adapters.logging import log_event
 from invoicing.adapters.storage_errors import raise_unavailable
 from invoicing.domain.errors import ServiceUnavailableError
 from invoicing.domain.upload import DeviceCheck, UploadContentType
+from invoicing.ports.intake import IntakeSource
 from invoicing.ports.upload_keys import (
     UPLOAD_KEYS_TABLE,
     AgedUploadKey,
@@ -38,6 +39,8 @@ _SELECT = [
     "content_sha256",
     "content_type",
     "device_check",
+    "source",
+    "delivery_id",
 ]
 # The sweeper's listing (Story 2.2): a table scan on `created_at`, which is small (keys
 # live 24 hours). The keys come back as properties, never in a URL.
@@ -242,7 +245,7 @@ class TableUploadKeyStore:
 
 
 def _entity(key: UUID, value: UploadKey) -> dict[str, Any]:
-    return {
+    entity: dict[str, Any] = {
         "PartitionKey": partition_key(key),
         "RowKey": row_key(key),
         "invoice_id": str(value.invoice_id),
@@ -252,7 +255,12 @@ def _entity(key: UUID, value: UploadKey) -> dict[str, Any]:
         "content_sha256": value.content_sha256,
         "content_type": value.content_type.value,
         "device_check": value.device_check.value,
+        "source": value.source.value,
     }
+    # Only a goods-in scan has a delivery; the property is absent otherwise.
+    if value.delivery_id is not None:
+        entity["delivery_id"] = str(value.delivery_id)
+    return entity
 
 
 def _uuid(entity: Mapping[str, Any], name: str) -> UUID:
@@ -312,7 +320,23 @@ def _upload_key(entity: Mapping[str, Any]) -> UploadKey:
         content_sha256=_sha256(entity.get("content_sha256")),
         content_type=_content_type(entity.get("content_type")),
         device_check=_device_check(entity.get("device_check")),
+        source=_source(entity.get("source")),
+        delivery_id=(
+            None
+            if entity.get("delivery_id") in (None, "")
+            else _uuid(entity, "delivery_id")
+        ),
     )
+
+
+def _source(value: object) -> IntakeSource:
+    # A row written before Story 4.1 has none: all were supplier-link uploads.
+    if value is None or value == "":
+        return IntakeSource.LINK
+    try:
+        return IntakeSource(str(value))
+    except ValueError:
+        raise _CorruptRowError("BAD_SOURCE") from None
 
 
 def _sha256(value: object) -> str:

@@ -13,6 +13,10 @@ enqueue was lost and deletes rows older than 24 hours:
 - `device_check` (Story 1.9): `passed`, `overridden` or `skipped`, as the first attempt
   sent it. A replay keeps it, whatever the retry sends. A row without it, or with it
   empty (written before 1.9), reads as `passed`.
+- `source` (Story 4.1): `link` or `goods_in`, and `delivery_id` (a UUID string) for a
+  goods-in scan, so a key reused for another delivery or by another intake writer is
+  refused. A row without `source` (written before 4.1) reads as `link` with no
+  delivery; `delivery_id` is absent when there is none.
 - `recovered_at` (Story 2.2): UTC datetime, set by the sweeper once it re-enqueued an
   orphaned upload, so each orphan is recovered once. Absent otherwise.
 
@@ -25,6 +29,7 @@ from typing import Protocol
 from uuid import UUID
 
 from invoicing.domain.upload import DeviceCheck, UploadContentType
+from invoicing.ports.intake import IntakeSource
 
 UPLOAD_KEYS_TABLE = "uploadkeys"
 PARTITION_KEY_LENGTH = 2
@@ -42,7 +47,8 @@ def partition_key(key: UUID) -> str:
 
 @dataclass(frozen=True)
 class UploadKey:
-    """What a key maps to: the invoice it created, and for whom."""
+    """What a key maps to: the invoice it created, for whom, and who wrote it (a
+    supplier link, or goods-in against `delivery_id`)."""
 
     invoice_id: UUID
     supplier_id: UUID
@@ -51,6 +57,8 @@ class UploadKey:
     content_sha256: str
     content_type: UploadContentType
     device_check: DeviceCheck
+    source: IntakeSource = IntakeSource.LINK
+    delivery_id: UUID | None = None
 
 
 class UploadKeyStore(Protocol):
@@ -59,8 +67,8 @@ class UploadKeyStore(Protocol):
     async def claim(self, key: UUID, candidate: UploadKey) -> tuple[UploadKey, bool]:
         """Store `candidate` under `key` unless the key is already stored. Returns what
         is stored under it and whether this call inserted it: `(candidate, True)`, or
-        the earlier entry and False (whoever holds it; the caller checks the supplier
-        and the content). Two concurrent claims return the same entry, and only one
+        the earlier entry and False (whoever holds it; the caller checks the supplier,
+        the source, the delivery and the content). Two concurrent claims return the same entry, and only one
         of them True. Raises `ServiceUnavailableError` when the store can't answer."""
         ...
 

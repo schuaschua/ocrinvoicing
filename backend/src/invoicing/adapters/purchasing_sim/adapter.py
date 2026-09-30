@@ -7,12 +7,14 @@ thread, so the Functions event loop is never blocked (coding-style.md rule 11).
 """
 
 import asyncio
+import re
 from collections.abc import Callable
 from datetime import date
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Connection, Engine, func, select
+from sqlalchemy import ColumnElement, Connection, Engine, Row, func, or_, select
 
 from invoicing.adapters.postgres.engine import open_connection
 from invoicing.adapters.purchasing_sim.schema import (
@@ -32,6 +34,39 @@ from invoicing.ports.purchasing import (
     PurchaseOrder,
 )
 
+# A delivery with its PO's supplier (the delivery table has none of its own).
+_DELIVERIES = select(
+    delivery.c.delivery_id,
+    purchase_order.c.supplier_id,
+    delivery.c.po_number,
+    delivery.c.delivery_no,
+    delivery.c.delivery_date,
+).join(purchase_order, purchase_order.c.po_number == delivery.c.po_number)
+
+
+def _delivery(row: Row[Any]) -> Delivery:
+    return Delivery(
+        delivery_id=row.delivery_id,
+        supplier_id=row.supplier_id,
+        po_number=row.po_number,
+        delivery_no=row.delivery_no,
+        delivery_date=row.delivery_date,
+    )
+
+
+# A PO number without a leading "PO" and without spaces or hyphens (Story 4.1).
+_PO_PREFIX = r"^\s*po"
+_SEPARATORS = r"[\s-]+"
+
+
+def _po_key(text: str) -> str:
+    return re.sub(_SEPARATORS, "", re.sub(_PO_PREFIX, "", text, flags=re.IGNORECASE))
+
+
+def _po_digits(column: ColumnElement[str]) -> ColumnElement[str]:
+    unprefixed = func.regexp_replace(column, _PO_PREFIX, "", "i")
+    return func.regexp_replace(unprefixed, _SEPARATORS, "", "g")
+
 
 class PurchasingSimAdapter:
     """The purchasing simulation, through SQLAlchemy Core with bound parameters."""
@@ -47,6 +82,14 @@ class PurchasingSimAdapter:
 
     async def get_delivery(self, delivery_id: UUID) -> Delivery | None:
         return await asyncio.to_thread(self._read, self._get_delivery, delivery_id)
+
+    async def list_deliveries(self, on: date) -> tuple[Delivery, ...]:
+        return await asyncio.to_thread(self._read, self._deliveries_on, on)
+
+    async def search_deliveries(self, text: str, since: date) -> tuple[Delivery, ...]:
+        return await asyncio.to_thread(
+            self._read, self._search_deliveries, (text, since)
+        )
 
     async def list_overdue_pos(self, as_of: date) -> tuple[OverduePo, ...]:
         return await asyncio.to_thread(self._read, self._overdue, as_of)
@@ -147,25 +190,42 @@ class PurchasingSimAdapter:
     @staticmethod
     def _get_delivery(connection: Connection, delivery_id: UUID) -> Delivery | None:
         row = connection.execute(
-            select(
-                delivery.c.delivery_id,
-                purchase_order.c.supplier_id,
+            _DELIVERIES.where(delivery.c.delivery_id == delivery_id)
+        ).one_or_none()
+        return None if row is None else _delivery(row)
+
+    @staticmethod
+    def _deliveries_on(connection: Connection, on: date) -> tuple[Delivery, ...]:
+        rows = connection.execute(
+            _DELIVERIES.where(delivery.c.delivery_date == on).order_by(
+                delivery.c.po_number, delivery.c.delivery_no
+            )
+        ).all()
+        return tuple(_delivery(row) for row in rows)
+
+    @staticmethod
+    def _search_deliveries(
+        connection: Connection, query: tuple[str, date]
+    ) -> tuple[Delivery, ...]:
+        text, since = query
+        rows = connection.execute(
+            _DELIVERIES.where(
+                delivery.c.delivery_date >= since,
+                # Bound parameters with LIKE's wildcards escaped: "%" is a character.
+                or_(
+                    delivery.c.po_number.istartswith(text, autoescape=True),
+                    # As people say it: "45012" or "PO 45012" for "PO-45012".
+                    _po_digits(delivery.c.po_number).istartswith(
+                        _po_key(text), autoescape=True
+                    ),
+                ),
+            ).order_by(
+                delivery.c.delivery_date.desc(),
                 delivery.c.po_number,
                 delivery.c.delivery_no,
-                delivery.c.delivery_date,
             )
-            .join(purchase_order, purchase_order.c.po_number == delivery.c.po_number)
-            .where(delivery.c.delivery_id == delivery_id)
-        ).one_or_none()
-        if row is None:
-            return None
-        return Delivery(
-            delivery_id=row.delivery_id,
-            supplier_id=row.supplier_id,
-            po_number=row.po_number,
-            delivery_no=row.delivery_no,
-            delivery_date=row.delivery_date,
-        )
+        ).all()
+        return tuple(_delivery(row) for row in rows)
 
     @staticmethod
     def _overdue(connection: Connection, as_of: date) -> tuple[OverduePo, ...]:

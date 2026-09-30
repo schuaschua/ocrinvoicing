@@ -95,6 +95,8 @@ describe("1.4 app shell", () => {
 });
 
 describe("2.7 staff sign in and see only their surfaces", () => {
+  // One merged test for the whole story (the 200-case cap); on the shared B2s CI VM it
+  // outgrows Vitest's 5 s default when builds overlap.
   it("signs staff in through /api/me, lands and guards each role, navigates, and handles session end, errors and offline", async () => {
     // --- asks /api/me who is signed in, then lands an admin and finance user on the admin queue with the union of surfaces
     {
@@ -499,5 +501,5 @@ describe("2.7 staff sign in and see only their surfaces", () => {
       ).toBeInTheDocument();
       expect(screen.queryByRole("navigation")).toBeNull();
     }
-  });
+  }, 20_000);
 });

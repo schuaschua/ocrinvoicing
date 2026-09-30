@@ -17,7 +17,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from invoicing import __version__
 from invoicing.adapters.http import http_endpoint, json_response
-from invoicing.adapters.telemetry import TelemetryConfig, configure_telemetry
+from invoicing.adapters.telemetry import (
+    TelemetryConfig,
+    configure_telemetry,
+    quiet_sdk_http_logging,
+)
 
 # Setting types: an empty or malformed value fails at start-up like a missing one.
 # A storage account name is 3-24 lowercase letters and digits (Azure's rule).
@@ -146,6 +150,7 @@ def telemetry_config(settings: AppSettings, service_name: str) -> TelemetryConfi
 
 def start_telemetry(settings: AppSettings, service_name: str) -> bool:
     """Configure telemetry once for this app (AD-17); returns whether it is on."""
+    quiet_sdk_http_logging()
     return configure_telemetry(telemetry_config(settings, service_name))
 
 

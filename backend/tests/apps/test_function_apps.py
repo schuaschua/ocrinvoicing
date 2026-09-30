@@ -3,6 +3,7 @@ setting", and the host.json values AD-2 fixes. Story 1.4: the SPA route."""
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
 from types import ModuleType
 from uuid import UUID
@@ -13,6 +14,7 @@ import pytest
 import invoicing
 from conftest import APP_ONLY_SETTINGS
 from invoicing.adapters.http import CORRELATION_HEADER
+from invoicing.adapters.telemetry import SDK_HTTP_LOGGER
 from invoicing.apps.common import SettingsError
 
 
@@ -33,7 +35,11 @@ def _route(fn: func.decorators.function_app.Function) -> dict[str, object]:
 def test_story_1_3_health_returns_200_with_the_package_version(
     app: str, app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
 ) -> None:
+    sdk_http = logging.getLogger(SDK_HTTP_LOGGER)
+    sdk_http.setLevel(logging.NOTSET)
     module = load_app(app)
+    # Follow-up 5: the SDK's per-request INFO lines never reach Application Insights.
+    assert sdk_http.level == logging.WARNING
     health = _functions(module)["health"]
     trigger = _route(health)
     # host.json's empty routePrefix (Story 1.4): the route spells out api/, the URL is unchanged.

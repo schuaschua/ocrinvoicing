@@ -80,9 +80,9 @@ from and why.
 - **Applies to:** The supplier upload page.
 
 ### P-9 Document Intelligence as the only AI
-- **Rule:** The only AI service is Azure AI Document Intelligence. Use its prebuilt invoice model first, and add custom models only where CAP-10 needs them. No other AI service, and no models trained or hosted by us. Any extracted field below 98% confidence goes to the admin queue.
+- **Rule:** The only AI service is Azure AI Document Intelligence. Use its prebuilt invoice model first, and add custom models only where CAP-10 needs them. No other AI service, and no models trained or hosted by us. Any extracted field below 90% confidence goes to the admin queue (Dj, 2026-09-30; was 98%).
 - **Why:** The organisation is new to AI, and one managed service keeps cost and risk bounded. A human reviews every uncertain result. Cost optimization (1), security (2).
-- **Source:** Context row 10; CAP-4, CAP-10; `SPEC.md §Constraints` (98% threshold).
+- **Source:** Context row 10; CAP-4, CAP-10; `SPEC.md §Constraints` (90% threshold).
 - **Applies to:** Extraction and learning from corrections.
 - **Known risk:** CAP-6 requires detecting "visually the same document" (a re-photographed invoice). Document Intelligence does not compare images, so this must be met without AI (for example a perceptual image hash) or the AD must name P-9 and say why.
 
@@ -133,7 +133,7 @@ Accepted by Dj on 2026-09-28. Each is recorded in the architecture spine (`_bmad
 | --- | --- | --- |
 | P-2 | The solution costs about US $11–12 a month, mostly PostgreSQL B1ms, even though Dj stops it by hand at night and at weekends. Document Intelligence stays at $0 on F0, with the PoC capped at 500 pages a month. A budget alert fires at $8. | AD-8, AD-12 |
 | P-8 | Upload links are issued and revoked by an operator-run supplier load script, and Dj sends each new link by WhatsApp or SMS. There is no automatic issuing. | AD-6 |
-| P-9 | Only a defined set of key fields is checked against the 98% threshold. Other extracted fields are stored but never send an invoice to the admin queue. | AD-18 |
+| P-9 | Only a defined set of key fields is checked against the 90% threshold. Other extracted fields are stored but never send an invoice to the admin queue. | AD-18 |
 | P-13 | Dev and Prod share one PostgreSQL server (separate databases and identities), one Document Intelligence F0 resource (per-environment page caps) and one ACS Email resource (per-environment send limits). | AD-8, AD-12, AD-16 |
 | P-19 | MFA comes from Entra Security Defaults (Entra ID Free), which prompts on risk rather than at every sign-in. | AD-14 |
 

@@ -26,7 +26,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
 - **FR1 (CAP-1):** A supplier submits an invoice photo or PDF from their phone through a personal upload link, and the link identifies the supplier. An upload is recorded against the link's supplier, whatever supplier ID is printed on the invoice. The supplier can't edit extracted data. Links are issued and revoked only by the operator-run supplier load script (`--replace-link`, `--revoke`), an accepted departure from P-8 (AD-6).
 - **FR2 (CAP-2):** Paper invoices arriving with goods are captured at warehouse goods-in and linked to that delivery and supplier. They enter the same intake as uploads.
 - **FR3 (CAP-3):** A blurred, dark or cropped photo is refused before submission with a retake prompt. After 2 refusals, the supplier may send it anyway. The server re-checks it with the same thresholds: if it passes, it is processed normally, and if it fails, it goes to the admin queue as `UNREADABLE` (AD-6).
-- **FR4 (CAP-4):** Invoice fields are extracted from any supplier layout, handwriting included, without per-supplier setup. Each field carries a confidence score, and any checked field (AD-18) below 98% sends the invoice to the admin queue. Other fields are stored but not checked, an accepted departure from P-9.
+- **FR4 (CAP-4):** Invoice fields are extracted from any supplier layout, handwriting included, without per-supplier setup. Each field carries a confidence score, and any checked field (AD-18) below 90% sends the invoice to the admin queue. Other fields are stored but not checked, an accepted departure from P-9.
 - **FR5 (CAP-5):** An invoice whose pre-tax sub-total differs from the PO price × the quantity received and not yet invoiced, by more than the larger of 1% and 1.00 (AD-19), goes to the admin queue, not to the accounts system.
 - **FR6 (CAP-6):** A duplicate goes to the admin queue. A duplicate is the same supplier, number, amount and date, or a document that looks visually the same (for example, a re-photographed copy).
 - **FR7 (CAP-7):** When the photo was taken before the PO's latest goods-received date or more than 30 days after it, the invoice goes to the admin queue, and the supplier is not notified. A PDF or scan with no photo date also goes to the admin queue.
@@ -54,7 +54,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
 - **NFR6 (P-6):** Every call uses TLS and an authenticated caller.
 - **NFR7 (P-7):** Bank details are encrypted at rest wherever they appear, and only the admin role can read them. A changed bank account never auto-posts.
 - **NFR8 (P-8):** Upload links are unguessable (256 random bits) and per supplier. They are issued and revoked by the operator-run load script, an accepted departure from P-8 (AD-6).
-- **NFR9 (P-9):** Document Intelligence is the only AI, starting with its prebuilt invoice model. The confidence threshold is 98% on the AD-18 checked fields only, an accepted departure from P-9.
+- **NFR9 (P-9):** Document Intelligence is the only AI, starting with its prebuilt invoice model. The confidence threshold is 90% (Dj, 2026-09-30; was 98%) on the AD-18 checked fields only, an accepted departure from P-9.
 - **NFR10 (P-10):** Analytics read only from pre-computed summary tables.
 - **NFR11 (P-11):** Images and raw corrections are deleted after 1 month by platform lifecycle rules.
 - **NFR12 (P-12):** RTO and RPO of 24 h, using platform backups only.
@@ -206,7 +206,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
   - a placeholder when the image has been deleted;
   - reduced-motion support.
 - **UX-DR11:** Field list:
-  - value, confidence badge below 98% ("Confidence 91%") and flag state;
+  - value, confidence badge below 90% ("Confidence 84%") and flag state;
   - Correct mode edits fields and marks them "Corrected";
   - bank fields are never editable.
 - **UX-DR12:** Admin actions:
@@ -842,7 +842,7 @@ So that wrong amounts and impersonated suppliers never auto-post.
 **When** any check reads them
 **Then** they come from one domain function: the rows of the latest `extraction_run`, overlaid by the `source=admin` rows carrying that `run_id`, with the newest row winning per field or line (AD-18)
 
-**Given** a checked field below 0.98 confidence, or missing (counted as 0):
+**Given** a checked field below 0.90 confidence, or missing (counted as 0):
 - `vendor_name`, `invoice_number`, `invoice_date`, `sub_total` and `invoice_total`;
 - for every line, `product_code`, `quantity`, `unit_price` and `amount`;
 - `purchase_order`, for supplier uploads;
@@ -1019,7 +1019,7 @@ So that I can decide quickly without hunting through the photo.
 
 **Given** the field list
 **When** it shows
-**Then** each field shows its current value (the AD-18 current-value rule), a confidence badge below 98% (announced as "Confidence 91%") and its flag state; the flagged fields are the `field_ids` of the open reasons
+**Then** each field shows its current value (the AD-18 current-value rule), a confidence badge below 90% (announced as "Confidence 84%") and its flag state; the flagged fields are the `field_ids` of the open reasons
 **And** flag boxes and crops are drawn from each row's `page` and `polygon`
 **And** selecting a field highlights its box, and the reverse (UX-DR11)
 

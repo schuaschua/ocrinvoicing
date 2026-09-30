@@ -5,7 +5,7 @@ is off, the global meter records nothing and costs nothing."""
 import logging
 import math
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from opentelemetry import metrics
 from opentelemetry.metrics import Meter
@@ -14,6 +14,10 @@ from invoicing.adapters.logging import LogValue, log_event, safe_fields
 from invoicing.ports.metrics import ALLOWED_DIMENSIONS, MetricName
 
 METER_NAME = "invoicing"
+# The meter provider's flush deadline (see OpenTelemetryMetrics). The Azure Monitor
+# exporter ignores it and applies its own 10 s network timeout, so one flush can take
+# that long when Application Insights is slow.
+FLUSH_TIMEOUT_MS = 5_000
 
 # poison_message counts events, so it is a counter; the other two are levels.
 COUNTERS = frozenset({MetricName.POISON_MESSAGE})
@@ -59,10 +63,31 @@ def safe_dimensions(
     return safe_fields(dimensions, allowed=ALLOWED_DIMENSIONS[metric])
 
 
-class OpenTelemetryMetrics:
-    """Records the AD-17 custom metrics on one meter."""
+def _flush_global_provider() -> bool:
+    """Export what the global meter provider holds now; False when the export failed.
+    The no-op provider (telemetry off) has nothing to flush."""
+    flush = getattr(metrics.get_meter_provider(), "force_flush", None)
+    if flush is None:
+        return True
+    return bool(flush(timeout_millis=FLUSH_TIMEOUT_MS))
 
-    def __init__(self, meter: Meter | None = None) -> None:
+
+class OpenTelemetryMetrics:
+    """Records the AD-17 custom metrics on one meter, each exported at once."""
+
+    def __init__(
+        self,
+        meter: Meter | None = None,
+        flush: Callable[[], bool] | None = None,
+    ) -> None:
+        # Flex Consumption runs each function group on short-lived instances that stop
+        # soon after an invocation, before the 60 s periodic metric export. So each
+        # metric is flushed when recorded: they are rare (one per poison message, per
+        # 15-minute sweep, per extraction), and a flush is a single small request. It
+        # is synchronous, so it holds the worker's event loop while it sends; each
+        # pipeline function runs alone on its own instance, one message at a time
+        # (host.json batchSize 1), so nothing else waits on it.
+        self._flush = flush or _flush_global_provider
         meter = meter or metrics.get_meter(METER_NAME)
         self._counters = {
             name: meter.create_counter(name.value, unit=UNITS[name])
@@ -97,6 +122,20 @@ class OpenTelemetryMetrics:
             self._counters[metric].add(amount, attributes=kept)
         else:
             self._gauges[metric].set(amount, attributes=kept)
+        # A failed export must never fail the stage that recorded the metric; the
+        # periodic export sends it later if the instance lives long enough. The exporter
+        # reports a failed send as False rather than raising.
+        try:
+            exported = self._flush()
+        except Exception:  # noqa: BLE001
+            exported = False
+        if not exported:
+            log_event(
+                _logger,
+                "metrics.flush_failed",
+                level=logging.WARNING,
+                code=metric.value,
+            )
 
 
 _default: OpenTelemetryMetrics | None = None

@@ -36,6 +36,9 @@ class ErrorCode(StrEnum):
     IMAGE_DELETED = "IMAGE_DELETED"
     # An admin action the invoice's open reasons don't allow (Story 2.10): HTTP 409.
     ACTION_NOT_ALLOWED = "ACTION_NOT_ALLOWED"
+    # An Approve of `BANK_CHANGED` without both call-back checks (Story 3.3, AD-11):
+    # HTTP 400.
+    CHECKS_REQUIRED = "CHECKS_REQUIRED"
     # An accounts XML document that is malformed or not valid against invoice-v1.xsd
     # (AD-10, Story 3.1): HTTP 400.
     XML_INVALID = "XML_INVALID"
@@ -171,6 +174,13 @@ class ConflictError(DomainError):
             if code is ErrorCode.CONFLICT
             else ACTION_NOT_ALLOWED_MESSAGE,
         )
+
+
+class ChecksRequiredError(DomainError):
+    """An Approve of changed bank details without both call-back checks (AD-11)."""
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.CHECKS_REQUIRED, "Tick both checks to approve.")
 
 
 class ImageDeletedError(DomainError):

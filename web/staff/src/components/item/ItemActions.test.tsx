@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -8,6 +9,9 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "@/App";
+import { AccountsErrorPanel } from "@/components/item/AccountsErrorPanel";
+import { navigate } from "@/router";
+import { setShortcutsEnabled } from "@/shell/shortcuts";
 import { strings } from "@/strings";
 
 const fetchMock = vi.fn<typeof fetch>();
@@ -352,5 +356,220 @@ describe("2.10 admin actions", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/queue"));
     expect(screen.getByTestId("shell-notice")).toHaveTextContent(a.notAllowed);
     expect(posted(2).path).toBe(`/api/admin/items/${ID}/retry-intake`);
+  });
+});
+
+describe("3.3 admin approves exceptions", () => {
+  it("gates Approve on both call-back checks, confirms a summary, compares a duplicate, shows the accounts error, and opens with a", async () => {
+    const b = strings.item.bank;
+    const d = strings.item.duplicate;
+    const e = strings.item.accountsError;
+    const THIRD = "0192f0c1-7a2b-7c3d-8e4f-000000000003";
+    setShortcutsEnabled(true);
+    serve(
+      {
+        // DUPLICATE alone, its matching invoice unreadable.
+        [THIRD]: item(THIRD, {
+          reasons: [{ code: "DUPLICATE", field_ids: [], detail: {} }],
+          bank_changes: [],
+          allowed_actions: ["approve", "reject"],
+          duplicate_of: null,
+        }),
+        [ID]: item(ID, {
+          supplier_phone: "+65 6000 0110",
+          allowed_actions: ["correct", "approve", "reject"],
+        }),
+        [NEXT]: item(NEXT, {
+          image_available: true,
+          reasons: [
+            {
+              code: "DUPLICATE",
+              field_ids: [],
+              detail: { invoice_id: ID, basis: "fingerprint" },
+            },
+            {
+              code: "ACCOUNTS_API_ERROR",
+              field_ids: [],
+              detail: { status: 503, code: "SIMULATED_FAILURE" },
+            },
+          ],
+          bank_changes: [],
+          allowed_actions: ["approve", "reject"],
+          duplicate_of: {
+            invoice_id: ID,
+            received_at: "2026-08-28T02:00:00+00:00",
+            content_type: "image/jpeg",
+            supplier_name: "Synthetic Kowloon Soles",
+            invoice_total: "1248.50",
+            currency: "SGD",
+            image_available: false,
+          },
+        }),
+      },
+      [
+        answer({ invoice_id: ID, status: "ready_to_post" }),
+        answer({ invoice_id: NEXT, status: "ready_to_post" }),
+      ],
+    );
+    try {
+      render(<App />);
+      const bar = await screen.findByRole("region", { name: a.label });
+      expect(
+        within(bar)
+          .getAllByRole("button")
+          .map((button) => button.textContent),
+      ).toEqual([a.correct, a.approve, a.reject]);
+
+      // Bank change: Approve waits for both checks, and says why; a does nothing.
+      const approve = within(bar).getByRole("button", { name: a.approve });
+      expect(approve).toBeDisabled();
+      expect(approve).toHaveAccessibleDescription(a.tickBoth);
+      fireEvent.keyDown(document.body, { key: "a" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+      const panel = screen.getByRole("region", { name: b.heading });
+      fireEvent.click(
+        within(panel).getByRole("checkbox", { name: b.calledNumber }),
+      );
+      expect(approve).toBeDisabled();
+      fireEvent.click(
+        within(panel).getByRole("checkbox", { name: b.supplierConfirmed }),
+      );
+      expect(approve).toBeEnabled();
+      expect(bar).not.toHaveTextContent(a.tickBoth);
+
+      // a opens the same dialog as the button: the summary, then a reason.
+      fireEvent.keyDown(document.body, { key: "a" });
+      const dialog = await screen.findByRole("dialog", {
+        name: a.approveDialog.heading,
+      });
+      expect(dialog).toHaveTextContent(
+        `${a.approveDialog.supplier}Synthetic Kowloon Soles`,
+      );
+      expect(dialog).toHaveTextContent(`${a.approveDialog.amount}SGD 109.00`);
+      const confirm = within(dialog).getByRole("button", {
+        name: a.approveDialog.confirm,
+      });
+      fireEvent.click(confirm);
+      expect(within(dialog).getByRole("alert")).toHaveTextContent(
+        a.approveDialog.required,
+      );
+      expect(fetchMock.mock.calls.some(([, i]) => i?.method === "POST")).toBe(
+        false,
+      );
+      fireEvent.change(within(dialog).getByLabelText(a.approveDialog.reason), {
+        target: { value: "Confirmed new account by phone with Ms Chan" },
+      });
+      fireEvent.click(confirm);
+      await waitFor(() =>
+        expect(window.location.pathname).toBe(`/queue/${NEXT}`),
+      );
+      expect(screen.getByTestId("shell-toast")).toHaveTextContent(a.approved);
+      expect(posted(0)).toEqual({
+        path: `/api/admin/items/${ID}/approve`,
+        body: {
+          routing_id: ROUTING,
+          reason: "Confirmed new account by phone with Ms Chan",
+          checks: { called_number_on_file: true, supplier_confirmed: true },
+        },
+      });
+
+      // Duplicate: the matching invoice side by side; its image is gone.
+      const compare = await screen.findByRole("region", { name: d.heading });
+      const [mine, theirs] = within(compare).getAllByRole("heading", {
+        level: 3,
+      });
+      expect([mine?.textContent, theirs?.textContent]).toEqual([
+        d.thisInvoice,
+        d.matching,
+      ]);
+      expect(compare).toHaveTextContent(`${d.total}SGD 1,248.50`);
+      expect(compare).toHaveTextContent(`${d.total}SGD 109.00`);
+      expect(
+        within(compare).getByRole("link", {
+          name: strings.item.viewer.openPdf,
+        }),
+      ).toHaveAttribute("href", `/api/admin/items/${NEXT}/image`);
+      expect(
+        within(compare).getAllByText(strings.item.viewer.deleted),
+      ).toHaveLength(1);
+      // The accounts error as stored: status and code.
+      expect(
+        screen.getByRole("region", {
+          name: strings.item.accountsError.heading,
+        }),
+      ).toHaveTextContent(
+        "The accounts system answered with status 503 (SIMULATED_FAILURE).",
+      );
+      expect(screen.getByText(e.retry)).toBeInTheDocument();
+      // No bank change: no checklist. Another reason is open besides DUPLICATE,
+      // so Approve says Approve, not "Not a duplicate".
+      expect(screen.queryByRole("checkbox")).toBeNull();
+      const next = screen.getByRole("region", { name: a.label });
+      expect(
+        within(next)
+          .getAllByRole("button")
+          .map((button) => button.textContent),
+      ).toEqual([a.approve, a.reject]);
+      fireEvent.click(within(next).getByRole("button", { name: a.approve }));
+      const again = await screen.findByRole("dialog", {
+        name: a.approveDialog.heading,
+      });
+      // Each dialog starts with its own empty reason.
+      expect(within(again).getByLabelText(a.approveDialog.reason)).toHaveValue(
+        "",
+      );
+      fireEvent.change(within(again).getByLabelText(a.approveDialog.reason), {
+        target: { value: "Different delivery" },
+      });
+      fireEvent.click(
+        within(again).getByRole("button", { name: a.approveDialog.confirm }),
+      );
+      await waitFor(() =>
+        expect(window.location.pathname).toBe(`/queue/${ID}`),
+      );
+      expect(posted(1).body).toEqual({
+        routing_id: ROUTING,
+        reason: "Different delivery",
+        checks: { called_number_on_file: false, supplier_confirmed: false },
+      });
+
+      // DUPLICATE alone: "Not a duplicate"; with no matching invoice to show, the
+      // duplicate is still flagged, with a note instead of the comparison.
+      act(() => navigate(`/queue/${THIRD}`));
+      const alone = await screen.findByRole("region", { name: d.heading });
+      expect(alone).toHaveTextContent(d.unavailable);
+      expect(within(alone).queryByText(d.matching)).toBeNull();
+      expect(
+        within(screen.getByRole("region", { name: a.label }))
+          .getAllByRole("button")
+          .map((button) => button.textContent),
+      ).toEqual([a.notDuplicate, a.reject]);
+    } finally {
+      setShortcutsEnabled(false);
+    }
+
+    // The accounts error without a status (timeout) or a code, and without Approve.
+    const reason = (detail: Record<string, unknown>) => ({
+      code: "ACCOUNTS_API_ERROR",
+      fieldIds: [],
+      detail,
+    });
+    const { rerender } = render(
+      <AccountsErrorPanel
+        reason={reason({ status: null, code: "TIMEOUT" })}
+        approvable
+      />,
+    );
+    const error = screen.getByRole("region", { name: e.heading });
+    expect(error).toHaveTextContent(e.noAnswer("TIMEOUT"));
+    expect(error).toHaveTextContent(e.retry);
+    rerender(
+      <AccountsErrorPanel
+        reason={reason({ status: 503 })}
+        approvable={false}
+      />,
+    );
+    expect(error).toHaveTextContent(e.unknown);
+    expect(error).not.toHaveTextContent(e.retry);
   });
 });

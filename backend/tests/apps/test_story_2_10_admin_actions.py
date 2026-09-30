@@ -122,6 +122,10 @@ class _Spy:
         self.calls += 1
         return await self.actions.reject(*args)
 
+    async def approve(self, *args: Any) -> ActionResult:
+        self.calls += 1
+        return await self.actions.approve(*args)
+
 
 def _seed(owner: Engine, public_key: str) -> dict[str, UUID]:
     """One queued invoice per action path (plus a posted-to-accounts one)."""
@@ -353,14 +357,14 @@ def test_story_2_10_admin_actions(
     queue = FakeQueue()
     container = _Container()
     spy = _Spy(PostgresAdminActions(staff, currency="SGD"))
-    correct_api, reextract_api, retry_api, reject_api = action_endpoints(
+    correct_api, reextract_api, retry_api, reject_api, _ = action_endpoints(
         spy,
         lambda: queue,
         lambda: BlobCorrectionsStore(container),
         platform_auth_trusted=True,
         clock=lambda: NOW,
     )
-    item_api, _, _ = item_endpoints(
+    item_api, _, _, _ = item_endpoints(
         PostgresAdminItemReader(staff, lambda: keys.private_key),
         _NoImages(),
         platform_auth_trusted=True,
@@ -435,11 +439,12 @@ def test_story_2_10_admin_actions(
     try:
         # --- Guard: the item lists what the open reasons allow; phone for UNREADABLE.
         expected = {
-            "correct": ["correct", "reject"],
+            # Story 3.3: LOW_CONFIDENCE and BANK_CHANGED both allow Approve.
+            "correct": ["correct", "approve", "reject"],
             "reextract": ["reextract", "reject"],
             "retry": ["retry_intake", "reject"],
             "unreadable": ["reject"],
-            "accounts": [],
+            "accounts": ["approve"],
             "unsupported": ["reject"],
         }
         for key, actions in expected.items():

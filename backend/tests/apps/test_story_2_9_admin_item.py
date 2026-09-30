@@ -329,7 +329,7 @@ def test_story_2_9_admin_item(
     banked, pdf, posted = _seed(owner, keys.public_key)
     key = _Key(keys.private_key)
     spy = _Spy(PostgresAdminItemReader(staff, key))
-    item_api, image_api, reveal_api = item_endpoints(
+    item_api, image_api, reveal_api, _ = item_endpoints(
         spy, _Images({banked: JPEG}), platform_auth_trusted=True
     )
 
@@ -473,8 +473,8 @@ def test_story_2_9_admin_item(
                 # 4 characters or fewer: on file and read, but no digits.
                 {"field_id": "payment[0].swift", "on_file": "", "new": ""},
             ],
-            # Story 2.10: LOW_CONFIDENCE allows Correct; BANK_CHANGED only Reject here.
-            "allowed_actions": ["correct", "reject"],
+            # Story 2.10: LOW_CONFIDENCE allows Correct; Story 3.3: both allow Approve.
+            "allowed_actions": ["correct", "approve", "reject"],
             "routing_id": str(_routing(2)),
             "addable_fields": [
                 "invoice_number",
@@ -482,6 +482,7 @@ def test_story_2_9_admin_item(
                 "purchase_order",
                 "vendor_tax_id",
             ],
+            "duplicate_of": None,
         }
         # Only masks leave the server by default (AD-11).
         for value in (NEW_IBAN, ON_FILE_IBAN, NEW_SWIFT, ON_FILE_SWIFT):
@@ -577,7 +578,7 @@ def test_story_2_9_admin_item(
 
         # --- A wrong key or an unreadable one: 503, and no value.
         for other in (make_test_key_pair().private_key, None):
-            wrong_item, _, wrong_reveal = item_endpoints(
+            wrong_item, _, wrong_reveal, _ = item_endpoints(
                 PostgresAdminItemReader(staff, _Key(other)),
                 _Images({}),
                 platform_auth_trusted=True,

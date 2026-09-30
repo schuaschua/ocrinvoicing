@@ -99,6 +99,16 @@ Each story: plan, coding agent, edge-case and verification-gap reviews run one a
 - **Review:** 12 findings patched, including one high: money could have been silently rounded.
 - **To confirm on Dev:** built-in auth accepting the pipeline's managed-identity token. For Prod, `accounts_sim_client_id` still needs filling in.
 
+### 3.2 Clean invoices post automatically (`6cd1bdc`, OCR-67), build #14
+- **The `post` stage:**
+  - It is gated on `next_attempt_at`; an early message is re-delayed.
+  - It builds the XML from the current values and posts it with the pipeline's token.
+  - It saves `accounts_ref` before `posted`, and reuses a saved ref without calling the accounts system again.
+- **Failures:** any accounts-side failure backs off 1, 5, 15 and 60 minutes from `post_failures`; the 5th routes `ACCOUNTS_API_ERROR`. The count resets when an invoice re-enters `ready_to_post`.
+- **Tests:** the end-to-end test goes from upload to posted, in-process.
+- The contract's `total_tax` and line description are now optional, so common invoices aren't stalled.
+- **To confirm on Dev:** the real pipeline → accounts-sim HTTP call and token.
+
 ### Test merge (`3c275d2`)
 Backend tests were merged to free room under the cap, 198 → 163 cases, with every assertion kept.
 

@@ -68,6 +68,7 @@ STATUS_BY_CODE: Mapping[ErrorCode, int] = {
     ErrorCode.IDEMPOTENCY_KEY_CONFLICT: 409,
     ErrorCode.IMAGE_DELETED: 404,
     ErrorCode.ACTION_NOT_ALLOWED: 409,
+    ErrorCode.CHECKS_REQUIRED: 400,
     ErrorCode.XML_INVALID: 400,
     # accounts-sim sets the actual status per call (apps/accounts_sim/invoices.py).
     ErrorCode.SIMULATED_FAILURE: 503,

@@ -1,4 +1,4 @@
-"""`AdminActions` over PostgreSQL (Story 2.10, AD-3, AD-4, AD-18).
+"""`AdminActions` over PostgreSQL (Stories 2.10 and 3.3, AD-3, AD-4, AD-11, AD-18).
 
 Each action is one transaction: the invoice row is locked, the `domain/actions.py`
 guard is re-checked on its open reasons (the latest `routing_id`), then the
@@ -7,7 +7,9 @@ transition_in`: zero rows means another admin acted first, and nothing is writte
 then the action's rows and its `audit.event` row. Admin rows are always new
 `source=admin` rows on the latest run, never updates (AD-18; the grants allow only
 INSERT). The audit detail holds ids and the admin's object id, never a field value;
-Reject's reason is the only free text, and it is written only there. SQLAlchemy Core
+Reject's and Approve's reasons are the only free text, and they are written only
+there. Approve's call-back checks are re-checked on the open reasons, before the
+transition, and recorded with it (AD-11). SQLAlchemy Core
 with bound parameters (security.md rule 21).
 """
 
@@ -29,12 +31,14 @@ from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
 from invoicing.adapters.postgres.schema import invoice, invoice_field, invoice_line
 from invoicing.adapters.postgres.suppliers import write_audit
 from invoicing.domain.actions import (
+    APPROVE_CHECKS,
     AUDIT_ACTION,
     TARGET_STATUS,
     AdminAction,
     Correction,
     LineEdits,
     allowed_actions,
+    checks_missing,
     plan_correction,
 )
 from invoicing.domain.current_values import ADMIN_SOURCE
@@ -57,6 +61,8 @@ class _Abort(Exception):
 
 # An action's own rows; returns its audit detail (plus Correct's `correction`).
 type _Work = Callable[[Connection], dict[str, object]]
+# An action's own refusal on the open reason codes, before anything is written.
+type _Gate = Callable[[list[str]], Outcome | None]
 
 
 class PostgresAdminActions:
@@ -136,6 +142,36 @@ class PostgresAdminActions:
             self._act, AdminAction.REJECT, invoice_id, admin_oid, routing_id, work
         )
 
+    async def approve(
+        self,
+        invoice_id: UUID,
+        reason: str,
+        checks: Mapping[str, bool],
+        admin_oid: str,
+        routing_id: UUID | None,
+    ) -> ActionResult:
+        confirmed = {check: checks.get(check) is True for check in APPROVE_CHECKS}
+
+        def gate(codes: list[str]) -> Outcome | None:
+            # AD-11: enforced here, not only by the screen's checklist.
+            if checks_missing(codes, confirmed):
+                return Outcome.CHECKS_REQUIRED
+            return None
+
+        def work(connection: Connection) -> dict[str, object]:
+            # UX-DR12: the reason is audited, and never logged.
+            return {"reason": reason, "checks": confirmed}
+
+        return await asyncio.to_thread(
+            self._act,
+            AdminAction.APPROVE,
+            invoice_id,
+            admin_oid,
+            routing_id,
+            work,
+            gate,
+        )
+
     # --- one transaction ------------------------------------------------------------
 
     def _act(
@@ -145,11 +181,12 @@ class PostgresAdminActions:
         admin_oid: str,
         routing_id: UUID | None,
         work: _Work,
+        gate: _Gate | None = None,
     ) -> ActionResult:
         try:
             with open_connection(self._engine) as connection, connection.begin():
                 return self._in_transaction(
-                    connection, action, invoice_id, admin_oid, routing_id, work
+                    connection, action, invoice_id, admin_oid, routing_id, work, gate
                 )
         except _Abort as abort:
             # Raised inside the transaction, so everything it wrote is rolled back.
@@ -163,6 +200,7 @@ class PostgresAdminActions:
         admin_oid: str,
         routing_id: UUID | None,
         work: _Work,
+        gate: _Gate | None,
     ) -> ActionResult:
         # Locked, so the open reasons can't change under the guard: a routing moves the
         # invoice row too (AD-4).
@@ -183,13 +221,17 @@ class PostgresAdminActions:
         if latest_routing_id(connection, invoice_id) != routing_id:
             # Routed again since the admin opened it: their page is stale.
             return ActionResult(Outcome.CONFLICT)
+        codes = [reason.code for reason in open_reasons(connection, invoice_id)]
         allowed = allowed_actions(
-            [reason.code for reason in open_reasons(connection, invoice_id)],
+            codes,
             accounts_ref=head.accounts_ref is not None,
             quality_done=quality_done(connection, invoice_id),
         )
         if action not in allowed:
             return ActionResult(Outcome.NOT_ALLOWED)
+        refused = None if gate is None else gate(codes)
+        if refused is not None:
+            return ActionResult(refused)
         plan = plan_transition(
             invoice_id,
             InvoiceStatus.IN_ADMIN_QUEUE,

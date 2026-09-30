@@ -1,4 +1,4 @@
-"""The admin actions (Story 2.10, AD-3, AD-4, AD-18, UX-DR12):
+"""The admin actions (Stories 2.10 and 3.3, AD-3, AD-4, AD-11, AD-18, UX-DR12):
 
 - `POST api/admin/items/{invoice_id}/correct` `{fields: {field_id: value}, lines:
   [{line_no, <column>: value}]}`: admin rows on the latest run, then `q-validate`.
@@ -6,6 +6,11 @@
 - `POST .../retry-intake`: to `received`, then `q-quality`.
 - `POST .../reject` `{reason}`: to `rejected`; the reason (500 characters at most) is
   audited and never logged.
+- `POST .../approve` `{reason, checks?: {called_number_on_file, supplier_confirmed}}`:
+  to `ready_to_post` (its posting count and backoff reset), then `q-post`; the reason
+  is required like Reject's, and with `BANK_CHANGED` open both checks must be true, or
+  400 `CHECKS_REQUIRED` (AD-11). Reason and checks are audited, never logged. With an
+  `accounts_ref` it is the only action: the re-post returns the same reference (AD-3).
 
 Every body carries the `routing_id` the admin saw (the item's, or null): a newer
 routing means the page is stale, answered like another admin's action (409).
@@ -38,12 +43,14 @@ from invoicing.adapters.principal import (
 )
 from invoicing.apps.staff_api.item import invoice_id_of
 from invoicing.domain.actions import (
-    MAX_REJECT_REASON,
+    APPROVE_CHECKS,
+    MAX_REASON,
     TARGET_STATUS,
     AdminAction,
     Correction,
 )
 from invoicing.domain.errors import (
+    ChecksRequiredError,
     ConflictError,
     DomainError,
     ErrorCode,
@@ -67,6 +74,7 @@ MAX_LINES = 200
 # The stage queue each action feeds after its commit (AD-2); Reject feeds none.
 NEXT_QUEUE: Mapping[AdminAction, QueueName] = {
     AdminAction.CORRECT: QueueName.VALIDATE,
+    AdminAction.APPROVE: QueueName.POST,
     AdminAction.REEXTRACT: QueueName.EXTRACT,
     AdminAction.RETRY_INTAKE: QueueName.QUALITY,
 }
@@ -147,15 +155,31 @@ def _routing_id(body: Mapping[str, Any]) -> UUID | None:
     return routing_id
 
 
-def _reject_reason(body: Mapping[str, Any]) -> str:
+def _reason(body: Mapping[str, Any]) -> str:
+    """Reject's or Approve's reason, trimmed: 1 to 500 characters (UX-DR12)."""
     reason = body.get("reason")
     if not isinstance(reason, str) or not reason.strip():
         raise ValidationFailedError("A reason is required.")
-    if len(reason.strip()) > MAX_REJECT_REASON:
+    if len(reason.strip()) > MAX_REASON:
         raise ValidationFailedError(
-            f"The reason can be at most {MAX_REJECT_REASON} characters."
+            f"The reason can be at most {MAX_REASON} characters."
         )
     return reason.strip()
+
+
+def _checks(body: Mapping[str, Any]) -> dict[str, bool]:
+    """Approve's call-back checks (AD-11): an optional object of the two checks, each
+    true or false; a missing one counts as not done."""
+    checks = body.get("checks", {})
+    if checks is None:
+        checks = {}
+    if not isinstance(checks, dict) or not set(checks) <= set(APPROVE_CHECKS):
+        raise ValidationFailedError(
+            "checks must be an object of called_number_on_file and supplier_confirmed."
+        )
+    if not all(isinstance(value, bool) for value in checks.values()):
+        raise ValidationFailedError("Each check must be true or false.")
+    return {check: checks.get(check) is True for check in APPROVE_CHECKS}
 
 
 def _checked(result: ActionResult) -> ActionResult:
@@ -165,6 +189,8 @@ def _checked(result: ActionResult) -> ActionResult:
         raise ConflictError(ErrorCode.CONFLICT)
     if result.outcome is Outcome.NOT_ALLOWED:
         raise ConflictError(ErrorCode.ACTION_NOT_ALLOWED)
+    if result.outcome is Outcome.CHECKS_REQUIRED:
+        raise ChecksRequiredError()
     return result
 
 
@@ -211,8 +237,8 @@ def action_endpoints(
     *,
     platform_auth_trusted: bool,
     clock: Clock = _now,
-) -> tuple[Endpoint, Endpoint, Endpoint, Endpoint]:
-    """(correct, reextract, retry-intake, reject). `queue` and `corrections` are
+) -> tuple[Endpoint, Endpoint, Endpoint, Endpoint, Endpoint]:
+    """(correct, reextract, retry-intake, reject, approve). `queue` and `corrections` are
     called after a commit only. `platform_auth_trusted` has no default: the wiring
     must always pass the setting (AD-14: fail closed)."""
 
@@ -313,12 +339,28 @@ def action_endpoints(
     ) -> func.HttpResponse:
         invoice_id = invoice_id_of(req)
         body = _json(req)
-        reason = _reject_reason(body)
+        reason = _reason(body)
         routing_id = _routing_id(body)
         _checked(
             await actions.reject(invoice_id, reason, admin_of(principal), routing_id)
         )
         return respond(AdminAction.REJECT, invoice_id, correlation_id)
+
+    async def approve(
+        req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
+    ) -> func.HttpResponse:
+        invoice_id = invoice_id_of(req)
+        body = _json(req)
+        reason = _reason(body)
+        checks = _checks(body)
+        routing_id = _routing_id(body)
+        result = _checked(
+            await actions.approve(
+                invoice_id, reason, checks, admin_of(principal), routing_id
+            )
+        )
+        await after_commit(AdminAction.APPROVE, invoice_id, result)
+        return respond(AdminAction.APPROVE, invoice_id, correlation_id)
 
     def guarded(handler: StaffHandler) -> Endpoint:
         return staff_endpoint(
@@ -328,4 +370,10 @@ def action_endpoints(
             hide_from_others=True,
         )
 
-    return guarded(correct), guarded(reextract), guarded(retry_intake), guarded(reject)
+    return (
+        guarded(correct),
+        guarded(reextract),
+        guarded(retry_intake),
+        guarded(reject),
+        guarded(approve),
+    )

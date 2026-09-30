@@ -131,6 +131,7 @@ export const strings = {
       { key: "k", action: "Previous invoice in the queue" },
       { key: "Enter", action: "Open the chosen invoice" },
       { key: "c", action: "Correct the fields" },
+      { key: "a", action: "Approve the invoice" },
       { key: "r", action: "Reject the invoice" },
       { key: "n", action: "Next flag on the image" },
       { key: "p", action: "Previous flag on the image" },
@@ -254,6 +255,34 @@ export const strings = {
       warning: "The account number hides in 10 seconds.",
       hidden: "The account number is hidden again.",
       failed: "Couldn't show the account number. Try again.",
+      /** Story 3.3: the call-back checklist Approve needs (EXPERIENCE.md). */
+      checklist: "Before you approve",
+      calledNumber: "Called the number on file",
+      supplierConfirmed: "Supplier confirmed the new account",
+    },
+    /** Story 3.3: DUPLICATE's side-by-side comparison (EXPERIENCE.md). */
+    duplicate: {
+      heading: "Possible duplicate",
+      intro: "Compare it with the earlier invoice it matches.",
+      thisInvoice: "This invoice",
+      matching: "Matching invoice",
+      received: "Received",
+      supplier: "Supplier",
+      total: "Total",
+      imageAlt: (which: string) => `${which}: the invoice image`,
+      noImage: "No image",
+      /** DUPLICATE is open but its matching invoice can't be read. */
+      unavailable: "Matching invoice unavailable.",
+    },
+    /** Story 3.3: ACCOUNTS_API_ERROR; Story 3.2 keeps only the status and code. */
+    accountsError: {
+      heading: "Couldn't post to accounts",
+      answered: (status: number, code: string) =>
+        `The accounts system answered with status ${status} (${code}).`,
+      noAnswer: (code: string) =>
+        `The accounts system didn't answer (${code}).`,
+      unknown: "The accounts system's answer wasn't kept.",
+      retry: "Approve to try posting again.",
     },
     /** Story 2.10: UNREADABLE and UNSUPPORTED_DOCUMENT (EXPERIENCE.md). */
     resend: {
@@ -264,19 +293,25 @@ export const strings = {
     actions: {
       label: "Actions",
       correct: "Correct",
+      approve: "Approve",
+      /** Approve, when the open reason is a possible duplicate. */
+      notDuplicate: "Not a duplicate",
+      /** Beside a disabled Approve until both call-back checks are ticked. */
+      tickBoth: "Tick both checks to approve.",
       reextract: "Re-extract",
       retryIntake: "Retry intake",
       reject: "Reject",
       cancel: "Cancel",
       working: "Working…",
-      /** An invoice with an accounts reference: only Approve (Story 3.3). */
-      none: "This invoice is already in the accounts system, so it can only be approved.",
+      /** No action is offered (the server's guard allows none). */
+      none: "No action is available for this invoice.",
       alreadyHandled: "Already handled by another admin.",
       notAllowed: "That action isn't allowed for this invoice any more.",
       sentForRecheck: "Sent for re-check",
       sentForExtraction: "Sent for extraction again",
       sentForIntake: "Sent through the quality check again",
       rejected: "Invoice rejected",
+      approved: "Invoice approved and sent for posting",
       reextractDialog: {
         heading: "Extract this invoice again?",
         body: "It is read again and uses pages from this month's limit. Earlier corrections are dropped.",
@@ -295,6 +330,16 @@ export const strings = {
           `${left} ${left === 1 ? "character" : "characters"} left`,
         required: "Enter a reason to reject.",
         confirm: "Reject invoice",
+      },
+      /** WCAG 3.3.4: a summary before the admin confirms (EXPERIENCE.md). */
+      approveDialog: {
+        heading: "Approve this invoice?",
+        body: "It is sent to the accounts system for payment. The reason is kept in the audit log.",
+        supplier: "Supplier",
+        amount: "Amount",
+        reason: "Reason",
+        required: "Enter a reason to approve.",
+        confirm: "Approve invoice",
       },
     },
     /** Story 2.10: Correct mode (EXPERIENCE.md Field list). */

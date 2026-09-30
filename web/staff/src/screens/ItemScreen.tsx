@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ApiError, SESSION_EXPIRED, SESSION_RESTORED, onApiEvent } from "@/api";
-import { getItem, type AdminItem } from "@/api/item";
+import { getItem, type AdminItem, type ApproveChecks } from "@/api/item";
+import { AccountsErrorPanel } from "@/components/item/AccountsErrorPanel";
 import { BankChangePanel } from "@/components/item/BankChangePanel";
 import { fieldLabel, flagBoxes } from "@/components/item/boxes";
 import { CorrectForm } from "@/components/item/CorrectForm";
@@ -12,12 +13,14 @@ import {
   saveDraft,
   type Draft,
 } from "@/components/item/draft";
+import { DuplicatePanel } from "@/components/item/DuplicatePanel";
 import { FieldList, LineTable } from "@/components/item/FieldList";
 import { ImageViewer } from "@/components/item/ImageViewer";
 import { ItemActions } from "@/components/item/ItemActions";
 import { ReasonChip } from "@/components/ReasonChip";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { amountText, dateTimeText } from "@/lib/format";
 import { navigate } from "@/router";
 import { useShortcuts } from "@/shell/shortcuts";
 import { pageTitle, strings } from "@/strings";
@@ -35,16 +38,10 @@ const QUEUE_PATH = "/queue";
 // EXPERIENCE.md "Allowed actions by reason": ask the supplier for a new copy.
 const RESEND_REASONS = new Set(["UNREADABLE", "UNSUPPORTED_DOCUMENT"]);
 
-function two(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-/** The received time in the browser's time zone, as YYYY-MM-DD HH:mm. */
-function receivedText(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return iso;
-  return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}`;
-}
+const NO_CHECKS: ApproveChecks = {
+  calledNumberOnFile: false,
+  supplierConfirmed: false,
+};
 
 /**
  * The admin item (Story 2.9, EXPERIENCE.md Admin item): the image zoomed to the first
@@ -52,7 +49,9 @@ function receivedText(iso: string): string {
  * the bank details changed, the fields linked to their boxes, and the lines. Below
  * 1024px the image stacks above the fields. One live region announces selections and
  * the masked values' changes (4.1.3). Story 2.10: the action bar the open reasons
- * allow, and Correct mode, whose unsaved edits survive a sign-in after a 401.
+ * allow, and Correct mode, whose unsaved edits survive a sign-in after a 401. Story
+ * 3.3: Approve, the bank-change checklist it needs, the duplicate comparison and the
+ * accounts error.
  */
 export function ItemScreen({ invoiceId }: { invoiceId: string }) {
   const title = strings.surfaces.admin_item;
@@ -72,6 +71,15 @@ export function ItemScreen({ invoiceId }: { invoiceId: string }) {
   // After a 401 the edits are kept for the sign-in, whatever unmounts this screen.
   const expired = useRef(false);
   const [cancelled, setCancelled] = useState(false);
+  // Story 3.3: the call-back checklist, for this invoice only (never carried over).
+  const [ticked, setTicked] = useState<{
+    invoiceId: string;
+    checks: ApproveChecks;
+  } | null>(null);
+  const checks =
+    ticked !== null && ticked.invoiceId === invoiceId
+      ? ticked.checks
+      : NO_CHECKS;
 
   const state: State =
     result !== null && result.key === attempt
@@ -194,6 +202,12 @@ export function ItemScreen({ invoiceId }: { invoiceId: string }) {
   });
 
   const f = strings.item.fields;
+  const canApprove = item?.allowedActions.includes("approve") ?? false;
+  const bankChanged =
+    item?.reasons.some((r) => r.code === "BANK_CHANGED") ?? false;
+  const accountsError =
+    item?.reasons.find((r) => r.code === "ACCOUNTS_API_ERROR") ?? null;
+  const total = item?.fields.find((field) => field.fieldId === "invoice_total");
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -250,7 +264,7 @@ export function ItemScreen({ invoiceId }: { invoiceId: string }) {
               )}
             </p>
             <p className="numeric text-sm">
-              {strings.item.received(receivedText(item.receivedAt))}
+              {strings.item.received(dateTimeText(item.receivedAt))}
             </p>
           </div>
           <section aria-label={strings.item.reasons}>
@@ -285,7 +299,28 @@ export function ItemScreen({ invoiceId }: { invoiceId: string }) {
               allowed={item.allowedActions}
               onCorrect={() => setDraft(initialDraft(item))}
               focusCorrect={cancelled}
+              summary={{
+                supplier: item.supplierName ?? strings.queue.unknownSupplier,
+                amount: amountText(
+                  total?.value ?? null,
+                  total?.currency ?? null,
+                ),
+              }}
+              duplicate={
+                item.reasons.length === 1 &&
+                item.reasons[0]?.code === "DUPLICATE"
+              }
+              checks={bankChanged ? checks : null}
             />
+          ) : null}
+          {accountsError !== null ? (
+            <AccountsErrorPanel
+              reason={accountsError}
+              approvable={canApprove}
+            />
+          ) : null}
+          {item.reasons.some((r) => r.code === "DUPLICATE") ? (
+            <DuplicatePanel item={item} duplicate={item.duplicateOf} />
           ) : null}
           <div className="grid gap-6 lg:grid-cols-[11fr_9fr]">
             <ImageViewer
@@ -306,12 +341,16 @@ export function ItemScreen({ invoiceId }: { invoiceId: string }) {
               }
             />
             <div className="flex min-w-0 flex-col gap-4">
-              {item.bankChanges.length > 0 ? (
+              {item.bankChanges.length > 0 || bankChanged ? (
                 <BankChangePanel
                   invoiceId={item.invoiceId}
                   phone={item.supplierPhone}
                   changes={item.bankChanges}
                   announce={announce}
+                  checks={canApprove ? checks : undefined}
+                  onChecks={(next) =>
+                    setTicked({ invoiceId: item.invoiceId, checks: next })
+                  }
                 />
               ) : null}
               {draft !== null ? (

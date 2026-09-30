@@ -7,6 +7,10 @@
   `Cache-Control: no-store`; 404 `IMAGE_DELETED` once the 30-day rule deleted it.
 - `POST api/admin/items/{invoice_id}/bank/reveal` `{field_id, which}`: one full bank
   value, after its audit entry is written (UX-DR14).
+- `GET api/admin/items/{invoice_id}/duplicate/image` (Story 3.3): the image of the
+  matching invoice an open `DUPLICATE` names, only while that reason is open on the
+  queued invoice; 404 `IMAGE_DELETED` once it was deleted. The item body carries that
+  invoice's comparison facts as `duplicate_of`.
 
 Admins only. Anyone else, an unknown invoice or one not in `in_admin_queue` gets 404
 (never 403, so its existence isn't revealed, security.md rule 5), before anything is
@@ -33,7 +37,12 @@ from invoicing.domain.errors import (
 from invoicing.domain.extraction import is_bank_field_id
 from invoicing.domain.ids import parse_uuid
 from invoicing.domain.roles import StaffPrincipal, Surface
-from invoicing.ports.admin_item import AdminItem, AdminItemReader, RevealWhich
+from invoicing.ports.admin_item import (
+    AdminItem,
+    AdminItemReader,
+    DuplicateOf,
+    RevealWhich,
+)
 from invoicing.ports.blobs import ImageNotFoundError, ImageReader
 
 # A reveal body is two short strings; anything bigger is refused unread.
@@ -52,7 +61,26 @@ def _number(value: Any) -> str | None:
     return None if value is None else str(value)
 
 
-def _body(item: AdminItem, image_available: bool) -> dict[str, object]:
+def _duplicate(
+    duplicate: DuplicateOf | None, image_available: bool
+) -> dict[str, object] | None:
+    if duplicate is None:
+        return None
+    return {
+        "invoice_id": str(duplicate.invoice_id),
+        "received_at": duplicate.received_at.astimezone(UTC).isoformat(),
+        "content_type": duplicate.content_type,
+        "supplier_name": duplicate.supplier_name,
+        # coding-style.md rule 4: an exact amount as a string.
+        "invoice_total": duplicate.invoice_total,
+        "currency": duplicate.currency,
+        "image_available": image_available,
+    }
+
+
+def _body(
+    item: AdminItem, image_available: bool, duplicate_image: bool
+) -> dict[str, object]:
     return {
         "invoice_id": str(item.invoice_id),
         "received_at": item.received_at.astimezone(UTC).isoformat(),
@@ -102,6 +130,7 @@ def _body(item: AdminItem, image_available: bool) -> dict[str, object]:
         "allowed_actions": list(item.allowed_actions),
         "routing_id": None if item.routing_id is None else str(item.routing_id),
         "addable_fields": list(item.addable_fields),
+        "duplicate_of": _duplicate(item.duplicate_of, duplicate_image),
     }
 
 
@@ -132,8 +161,8 @@ def item_endpoints(
     images: ImageReader,
     *,
     platform_auth_trusted: bool,
-) -> tuple[Endpoint, Endpoint, Endpoint]:
-    """(item, image, reveal). `platform_auth_trusted` has no default: the wiring must
+) -> tuple[Endpoint, Endpoint, Endpoint, Endpoint]:
+    """(item, image, reveal, duplicate image). `platform_auth_trusted` has no default: the wiring must
     always pass the setting (AD-14: fail closed)."""
 
     async def admin_item(
@@ -144,19 +173,18 @@ def item_endpoints(
         if item is None:
             raise NotFoundError(NOT_FOUND_MESSAGE)
         available = await images.exists(invoice_id)
+        duplicate_image = item.duplicate_of is not None and await images.exists(
+            item.duplicate_of.invoice_id
+        )
         return json_response(
-            _body(item, available), status=200, correlation_id=correlation_id
+            _body(item, available, duplicate_image),
+            status=200,
+            correlation_id=correlation_id,
         )
 
-    async def admin_item_image(
-        req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
-    ) -> func.HttpResponse:
-        invoice_id = invoice_id_of(req)
-        content_type = await reader.content_type(invoice_id)
-        if content_type is None:
-            raise NotFoundError(NOT_FOUND_MESSAGE)
+    async def stream(image_id: UUID, content_type: str) -> func.HttpResponse:
         try:
-            stored = await images.get(invoice_id)
+            stored = await images.get(image_id)
         except ImageNotFoundError:
             raise ImageDeletedError() from None
         # The type saved at intake (AD-6 checked the bytes), never the blob's own; the
@@ -166,6 +194,25 @@ def item_endpoints(
             status_code=200,
             headers={"Content-Type": content_type, "Content-Disposition": "inline"},
         )
+
+    async def admin_item_image(
+        req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
+    ) -> func.HttpResponse:
+        invoice_id = invoice_id_of(req)
+        content_type = await reader.content_type(invoice_id)
+        if content_type is None:
+            raise NotFoundError(NOT_FOUND_MESSAGE)
+        return await stream(invoice_id, content_type)
+
+    async def admin_duplicate_image(
+        req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
+    ) -> func.HttpResponse:
+        invoice_id = invoice_id_of(req)
+        # Authorised by the open DUPLICATE reason alone (Story 3.3).
+        found = await reader.duplicate_content_type(invoice_id)
+        if found is None:
+            raise NotFoundError(NOT_FOUND_MESSAGE)
+        return await stream(*found)
 
     async def admin_bank_reveal(
         req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
@@ -193,4 +240,9 @@ def item_endpoints(
             hide_from_others=True,
         )
 
-    return guarded(admin_item), guarded(admin_item_image), guarded(admin_bank_reveal)
+    return (
+        guarded(admin_item),
+        guarded(admin_item_image),
+        guarded(admin_bank_reveal),
+        guarded(admin_duplicate_image),
+    )

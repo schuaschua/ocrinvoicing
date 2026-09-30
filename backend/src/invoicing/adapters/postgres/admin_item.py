@@ -2,8 +2,9 @@
 
 `read` is one read-only snapshot: the queued invoice, its open reasons (the latest
 `routing_id`, AD-4), its current fields and lines through the one AD-18 rule
-(`domain/current_values.py`), its run's page sizes, and, when `BANK_CHANGED` is open,
-the supplier's phone and the masks of each changed bank field.
+(`domain/current_values.py`), its run's page sizes, when `BANK_CHANGED` is open, the
+supplier's phone and the masks of each changed bank field, and when `DUPLICATE` is
+open, the matching invoice it names (Story 3.3).
 
 Bank values are decrypted only here, in SQL, with the `pgp-private-key` bound as a
 parameter (the engine hides parameters from errors and logs, AD-11). The item read
@@ -61,12 +62,14 @@ from invoicing.domain.current_values import (
 )
 from invoicing.domain.errors import ServiceUnavailableError
 from invoicing.domain.extraction import PageSize, is_bank_field_id
+from invoicing.domain.ids import parse_uuid
 from invoicing.domain.reasons import ReasonCode
 from invoicing.domain.status import InvoiceStatus
-from invoicing.domain.validation import bare_bank_field_id
+from invoicing.domain.validation import INVOICE_TOTAL, bare_bank_field_id
 from invoicing.ports.admin_item import (
     AdminItem,
     BankChange,
+    DuplicateOf,
     ItemField,
     ItemLine,
     ItemReason,
@@ -168,6 +171,43 @@ def _bank_field_ids(reasons: Iterable[ItemReason]) -> tuple[str, ...]:
         if reason.code == ReasonCode.BANK_CHANGED.value
         for field_id in reason.field_ids
         if is_bank_field_id(field_id)
+    )
+
+
+def _duplicate_id(reasons: Iterable[ItemReason]) -> UUID | None:
+    """The matching invoice an open `DUPLICATE` names (`check_duplicate`'s detail
+    `invoice_id`), None without one."""
+    for reason in reasons:
+        if reason.code == ReasonCode.DUPLICATE.value:
+            value = reason.detail.get("invoice_id")
+            return parse_uuid(value) if isinstance(value, str) else None
+    return None
+
+
+def _duplicate_of(connection: Connection, invoice_id: UUID) -> DuplicateOf | None:
+    """The matching invoice's comparison facts; never a bank value (AD-11)."""
+    head = connection.execute(
+        select(
+            invoice.c.created_at,
+            invoice.c.content_type,
+            supplier.c.name,
+        )
+        .select_from(
+            invoice.outerjoin(supplier, supplier.c.id == invoice.c.supplier_id)
+        )
+        .where(invoice.c.id == invoice_id)
+    ).one_or_none()
+    if head is None:
+        return None
+    values = current_of(connection, invoice_id, INVOICE_TOTAL)
+    total = None if values is None else values.fields.get(INVOICE_TOTAL)
+    return DuplicateOf(
+        invoice_id=invoice_id,
+        received_at=head.created_at,
+        content_type=head.content_type,
+        supplier_name=head.name,
+        invoice_total=None if total is None else shown(total),
+        currency=None if total is None else total.currency,
     )
 
 
@@ -314,6 +354,9 @@ class PostgresAdminItemReader:
     async def content_type(self, invoice_id: UUID) -> str | None:
         return await asyncio.to_thread(self._content_type, invoice_id)
 
+    async def duplicate_content_type(self, invoice_id: UUID) -> tuple[UUID, str] | None:
+        return await asyncio.to_thread(self._duplicate_content_type, invoice_id)
+
     async def reveal(
         self,
         invoice_id: UUID,
@@ -365,6 +408,23 @@ class PostgresAdminItemReader:
                 select(invoice.c.content_type).where(*_queued(invoice_id))
             ).scalar_one_or_none()
         return value
+
+    def _duplicate_content_type(self, invoice_id: UUID) -> tuple[UUID, str] | None:
+        with open_connection(self._engine) as connection:
+            queued = connection.execute(
+                select(invoice.c.id).where(*_queued(invoice_id))
+            ).scalar_one_or_none()
+            if queued is None:
+                return None
+            # Only the invoice an open DUPLICATE names: the item image rule (queued
+            # invoices only) is unchanged for every other invoice.
+            other = _duplicate_id(open_reasons(connection, invoice_id))
+            if other is None:
+                return None
+            content_type: str | None = connection.execute(
+                select(invoice.c.content_type).where(invoice.c.id == other)
+            ).scalar_one_or_none()
+        return None if content_type is None else (other, content_type)
 
     def _read(self, invoice_id: UUID) -> AdminItem | None:
         with open_connection(self._engine) as connection:
@@ -424,6 +484,7 @@ class PostgresAdminItemReader:
             changes = self._bank_changes(connection, head.supplier_id, bank_ids, values)
         codes = [reason.code for reason in reasons]
         call_back = any(code in _PHONE_REASONS for code in codes)
+        duplicate_id = _duplicate_id(reasons)
         actions = allowed_actions(
             codes,
             accounts_ref=head.accounts_ref is not None,
@@ -446,6 +507,9 @@ class PostgresAdminItemReader:
             allowed_actions=tuple(action.value for action in actions),
             routing_id=latest_routing_id(connection, invoice_id),
             addable_fields=addable_fields(values),
+            duplicate_of=None
+            if duplicate_id is None
+            else _duplicate_of(connection, duplicate_id),
         )
 
     def _bank_changes(

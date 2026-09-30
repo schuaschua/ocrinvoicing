@@ -92,7 +92,7 @@ async def admin_queue(req: func.HttpRequest) -> func.HttpResponse:
 # streamed same-origin (no SAS). pgp-private-key is read from the private-key vault on
 # the first bank value an admin opens, then kept in this process only (AD-11).
 _identity = str(settings.azure_client_id)
-item_api, item_image_api, bank_reveal_api = item_endpoints(
+item_api, item_image_api, bank_reveal_api, duplicate_image_api = item_endpoints(
     PostgresAdminItemReader(
         engine,
         PrivateKeyLoader(
@@ -117,6 +117,13 @@ async def admin_item_image(req: func.HttpRequest) -> func.HttpResponse:
     return await item_image_api(req)
 
 
+@app.route(route="api/admin/items/{invoice_id}/duplicate/image", methods=["GET"])
+async def admin_duplicate_image(req: func.HttpRequest) -> func.HttpResponse:
+    """The image of the invoice an open DUPLICATE names (Story 3.3), no-store: 200,
+    401 or 404 (IMAGE_DELETED)."""
+    return await duplicate_image_api(req)
+
+
 @app.route(route="api/admin/items/{invoice_id}/bank/reveal", methods=["POST"])
 async def admin_bank_reveal(req: func.HttpRequest) -> func.HttpResponse:
     """One changed bank value in full, audited: 200, 400, 401, 403, 404 or 503."""
@@ -128,11 +135,13 @@ async def admin_bank_reveal(req: func.HttpRequest) -> func.HttpResponse:
 _account = settings.storage_account_name
 queue_sender = StorageQueueSender.with_managed_identity(_account, _identity)
 corrections = BlobCorrectionsStore.with_managed_identity(_account, _identity)
-correct_api, reextract_api, retry_intake_api, reject_api = action_endpoints(
-    PostgresAdminActions(engine, currency=settings.invoice_currency),
-    lambda: queue_sender,
-    lambda: corrections,
-    platform_auth_trusted=settings.platform_auth_trusted,
+correct_api, reextract_api, retry_intake_api, reject_api, approve_api = (
+    action_endpoints(
+        PostgresAdminActions(engine, currency=settings.invoice_currency),
+        lambda: queue_sender,
+        lambda: corrections,
+        platform_auth_trusted=settings.platform_auth_trusted,
+    )
 )
 
 
@@ -159,6 +168,14 @@ async def admin_retry_intake(req: func.HttpRequest) -> func.HttpResponse:
 async def admin_reject(req: func.HttpRequest) -> func.HttpResponse:
     """Reject the invoice with a reason: 200, 400, 401, 403, 404, 409 or 503."""
     return await reject_api(req)
+
+
+# Story 3.3: Approve moves the invoice to ready_to_post, then q-post.
+@app.route(route="api/admin/items/{invoice_id}/approve", methods=["POST"])
+async def admin_approve(req: func.HttpRequest) -> func.HttpResponse:
+    """Approve the invoice with a reason (and, for a bank change, both call-back
+    checks): 200, 400, 401, 403, 404, 409 or 503."""
+    return await approve_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

@@ -1,4 +1,5 @@
 """Story 2.10: the admin action guard and the Correct plan (domain/actions.py), pure.
+Story 3.3 adds Approve to the guard matrix and its checklist rule (no new case).
 
 One test (the 200-case cap, coding-style.md rule 20 exception): the multi-reason
 matrix on open reasons, with `accounts_ref` and the quality stage's completion, then
@@ -10,7 +11,12 @@ from uuid import UUID
 
 import pytest
 
-from invoicing.domain.actions import AdminAction, addable_fields, plan_correction
+from invoicing.domain.actions import (
+    AdminAction,
+    addable_fields,
+    checks_missing,
+    plan_correction,
+)
 from invoicing.domain.actions import allowed_actions as guard
 from invoicing.domain.current_values import (
     CurrentValues,
@@ -19,8 +25,9 @@ from invoicing.domain.current_values import (
 )
 from invoicing.domain.errors import ValidationFailedError
 
-C, X, I, R = (
+C, A, X, I, R = (
     AdminAction.CORRECT,
+    AdminAction.APPROVE,
     AdminAction.REEXTRACT,
     AdminAction.RETRY_INTAKE,
     AdminAction.REJECT,
@@ -32,7 +39,7 @@ T0 = datetime(2026, 9, 30, tzinfo=UTC)
 def test_story_2_10_action_guard_and_correction_plan() -> None:
     """Covers: Correct if any reason allows it; Re-extract only if every reason does;
     Retry intake in its place for PROCESSING_FAILED before quality completed; Reject
-    always, but nothing once `accounts_ref` exists; an unknown code allows only
+    always, but only Approve once `accounts_ref` exists (3.3); an unknown code allows only
     Reject. Correct: bank fields and unknown fields refused, a missing checked field
     added, values typed by their column, a line written whole."""
     # --- The guard (EXPERIENCE.md "Allowed actions by reason").
@@ -42,23 +49,37 @@ def test_story_2_10_action_guard_and_correction_plan() -> None:
         (["EXTRACTION_QUOTA"], False, True, (X, R)),
         (["PROCESSING_FAILED"], False, True, (X, R)),
         (["PROCESSING_FAILED"], False, False, (I, R)),
-        (["LOW_CONFIDENCE"], False, True, (C, R)),
-        (["DUPLICATE"], False, True, (R,)),
-        (["BANK_CHANGED"], False, True, (R,)),
-        (["ACCOUNTS_API_ERROR"], False, True, (R,)),
-        # Several reasons: Correct if any allows it, Re-extract only if all do.
-        (["BANK_CHANGED", "PO_MISMATCH"], False, True, (C, R)),
+        (["LOW_CONFIDENCE"], False, True, (C, A, R)),
+        (["PO_MISMATCH"], False, True, (C, A, R)),
+        (["DATE_MISMATCH"], False, True, (C, A, R)),
+        (["NO_PHOTO_DATE"], False, True, (C, A, R)),
+        (["SUPPLIER_ID_MISMATCH"], False, True, (C, A, R)),
+        (["DUPLICATE"], False, True, (A, R)),
+        (["BANK_CHANGED"], False, True, (A, R)),
+        (["ACCOUNTS_API_ERROR"], False, True, (A, R)),
+        # Several reasons: Correct if any allows it, Approve and Re-extract only if
+        # all do.
+        (["BANK_CHANGED", "PO_MISMATCH"], False, True, (C, A, R)),
+        (["DUPLICATE", "UNREADABLE"], False, True, (R,)),
         (["EXTRACTION_QUOTA", "PROCESSING_FAILED"], False, True, (X, R)),
         (["EXTRACTION_QUOTA", "LOW_CONFIDENCE"], False, True, (C, R)),
+        (["PROCESSING_FAILED", "BANK_CHANGED"], False, True, (R,)),
         (["NEW_REASON"], False, True, (R,)),
+        (["NEW_REASON", "LOW_CONFIDENCE"], False, True, (C, R)),
         ([], False, True, (R,)),
-        # In the accounts system: only Approve (Story 3.3), so nothing here.
-        (["ACCOUNTS_API_ERROR"], True, True, ()),
-        (["LOW_CONFIDENCE"], True, True, ()),
+        # In the accounts system: only Approve, which re-posts safely (Story 3.3).
+        (["ACCOUNTS_API_ERROR"], True, True, (A,)),
+        (["LOW_CONFIDENCE"], True, True, (A,)),
+        (["UNREADABLE"], True, False, (A,)),
     ]
     for reasons, accounts_ref, quality_done, expected in matrix:
         got = guard(reasons, accounts_ref=accounts_ref, quality_done=quality_done)
         assert got == expected, (reasons, accounts_ref, quality_done)
+    # Story 3.3: approving a bank change needs both call-back checks (AD-11).
+    both = {"called_number_on_file": True, "supplier_confirmed": True}
+    assert checks_missing(["BANK_CHANGED"], {"called_number_on_file": True})
+    assert not checks_missing(["BANK_CHANGED", "PO_MISMATCH"], both)
+    assert not checks_missing(["DUPLICATE"], {})
 
     # --- Correct: the rows it writes.
     line_row = LineValue(

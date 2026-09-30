@@ -1,7 +1,13 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { SESSION_EXPIRED, onApiEvent } from "@/api";
-import { rejectItem, rerunItem, type AdminAction } from "@/api/item";
+import {
+  approveItem,
+  rejectItem,
+  rerunItem,
+  type AdminAction,
+  type ApproveChecks,
+} from "@/api/item";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui/button";
 import { useShortcuts } from "@/shell/shortcuts";
@@ -9,10 +15,17 @@ import { strings } from "@/strings";
 
 import { actionFailed, openNext } from "./actionOutcome";
 
-/** UX-DR12: Reject's reason, the only free text (the server checks it too). */
+/** UX-DR12: Reject's and Approve's reasons, the only free text (the server checks
+ * them too). */
 export const MAX_REASON = 500;
 
-type Dialog = "reextract" | "retry_intake" | "reject";
+type Dialog = "approve" | "reextract" | "retry_intake" | "reject";
+type ReasonDialog = "approve" | "reject";
+
+const NO_CHECKS: ApproveChecks = {
+  calledNumberOnFile: false,
+  supplierConfirmed: false,
+};
 
 interface ItemActionsProps {
   invoiceId: string;
@@ -24,13 +37,21 @@ interface ItemActionsProps {
   onCorrect: () => void;
   /** Back from Correct mode: focus returns to the Correct button. */
   focusCorrect?: boolean;
+  /** Story 3.3: Approve's summary (WCAG 3.3.4): the supplier and amount as shown. */
+  summary?: { supplier: string; amount: string };
+  /** `DUPLICATE` is the only open reason: Approve reads "Not a duplicate". */
+  duplicate?: boolean;
+  /** `BANK_CHANGED` is open: the call-back checks, which Approve needs both of. */
+  checks?: ApproveChecks | null;
 }
 
 /**
- * The admin action bar (Story 2.10, EXPERIENCE.md Admin actions): Correct, Re-extract
- * or Retry intake, and Reject, as the open reasons allow. Re-extract and Retry intake
- * ask first; Reject needs a reason (WCAG 3.3.4). After an action the next queued item
- * opens.
+ * The admin action bar (Stories 2.10 and 3.3, EXPERIENCE.md Admin actions): Correct,
+ * Approve, Re-extract or Retry intake, and Reject, as the open reasons allow.
+ * Re-extract and Retry intake ask first; Approve and Reject need a reason, and Approve
+ * shows a summary first (WCAG 3.3.4). With the bank details changed, Approve stays
+ * disabled until both call-back checks are ticked. After an action the next queued
+ * item opens.
  */
 export function ItemActions({
   invoiceId,
@@ -38,12 +59,20 @@ export function ItemActions({
   allowed,
   onCorrect,
   focusCorrect = false,
+  summary,
+  duplicate = false,
+  checks = null,
 }: ItemActionsProps) {
   const a = strings.item.actions;
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
+  // Each reason dialog keeps its own text, so one never carries into the other.
+  const [reasons, setReasons] = useState<Record<ReasonDialog, string>>({
+    approve: "",
+    reject: "",
+  });
+  const tickId = useId();
   const headingId = useId();
   const reasonId = useId();
   const hintId = useId();
@@ -66,22 +95,36 @@ export function ItemActions({
     setDialog(next);
   }
 
-  // Story 2.11: the buttons' own handlers, only for the buttons shown.
+  const canApprove = allowed.includes("approve");
+  // AD-11: both call-back checks first (the server refuses without them too).
+  const approveBlocked =
+    checks !== null && !(checks.calledNumberOnFile && checks.supplierConfirmed);
+
+  // Story 2.11: the buttons' own handlers, only for the buttons shown and enabled.
   useShortcuts({
     c: allowed.includes("correct") ? onCorrect : undefined,
+    a: canApprove && !approveBlocked ? () => open("approve") : undefined,
     r: allowed.includes("reject") ? () => open("reject") : undefined,
   });
 
   async function run(action: Dialog) {
-    if (action === "reject" && !reason.trim()) {
+    const reason =
+      action === "approve" || action === "reject" ? reasons[action].trim() : "";
+    if (action === "reject" && !reason) {
       setProblem(a.rejectDialog.required);
+      return;
+    }
+    if (action === "approve" && !reason) {
+      setProblem(a.approveDialog.required);
       return;
     }
     setBusy(true);
     setProblem(null);
     try {
       if (action === "reject") {
-        await rejectItem(invoiceId, routingId, reason.trim());
+        await rejectItem(invoiceId, routingId, reason);
+      } else if (action === "approve") {
+        await approveItem(invoiceId, routingId, reason, checks ?? NO_CHECKS);
       } else {
         await rerunItem(invoiceId, routingId, action);
       }
@@ -96,9 +139,11 @@ export function ItemActions({
       invoiceId,
       action === "reject"
         ? a.rejected
-        : action === "reextract"
-          ? a.sentForExtraction
-          : a.sentForIntake,
+        : action === "approve"
+          ? a.approved
+          : action === "reextract"
+            ? a.sentForExtraction
+            : a.sentForIntake,
     );
   }
 
@@ -120,13 +165,34 @@ export function ItemActions({
       ? a.reextractDialog
       : dialog === "retry_intake"
         ? a.retryIntakeDialog
-        : a.rejectDialog;
+        : dialog === "approve"
+          ? a.approveDialog
+          : a.rejectDialog;
+  const reasonDialog: ReasonDialog | null =
+    dialog === "approve" || dialog === "reject" ? dialog : null;
   return (
     <section aria-label={a.label} className="flex flex-wrap gap-2">
       {allowed.includes("correct") ? (
         <Button ref={correctButton} type="button" onClick={onCorrect}>
           {a.correct}
         </Button>
+      ) : null}
+      {canApprove ? (
+        <span className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            disabled={approveBlocked}
+            aria-describedby={approveBlocked ? tickId : undefined}
+            onClick={() => open("approve")}
+          >
+            {duplicate ? a.notDuplicate : a.approve}
+          </Button>
+          {approveBlocked ? (
+            <span id={tickId} className="text-sm">
+              {a.tickBoth}
+            </span>
+          ) : null}
+        </span>
       ) : null}
       {allowed.includes("reextract") ? (
         <Button
@@ -169,24 +235,39 @@ export function ItemActions({
             {copy.heading}
           </h2>
           <p>{copy.body}</p>
-          {dialog === "reject" ? (
+          {dialog === "approve" && summary !== undefined ? (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+              <dt className="text-sm">{a.approveDialog.supplier}</dt>
+              <dd className="font-medium">{summary.supplier}</dd>
+              <dt className="text-sm">{a.approveDialog.amount}</dt>
+              <dd className="numeric font-medium">{summary.amount}</dd>
+            </dl>
+          ) : null}
+          {reasonDialog !== null ? (
             <div className="flex flex-col gap-1">
               <label htmlFor={reasonId} className="text-sm font-medium">
-                {a.rejectDialog.reason}
+                {reasonDialog === "approve"
+                  ? a.approveDialog.reason
+                  : a.rejectDialog.reason}
               </label>
               <textarea
                 id={reasonId}
-                value={reason}
+                value={reasons[reasonDialog]}
                 maxLength={MAX_REASON}
                 rows={3}
                 required
                 aria-describedby={problem ? `${hintId} ${problemId}` : hintId}
                 aria-invalid={problem !== null}
                 className="min-h-tap-min w-full rounded-md border bg-background px-3 py-2 text-sm"
-                onChange={(event) => setReason(event.target.value)}
+                onChange={(event) =>
+                  setReasons((current) => ({
+                    ...current,
+                    [reasonDialog]: event.target.value,
+                  }))
+                }
               />
               <p id={hintId} className="text-sm">
-                {a.rejectDialog.hint(MAX_REASON - reason.length)}
+                {a.rejectDialog.hint(MAX_REASON - reasons[reasonDialog].length)}
               </p>
             </div>
           ) : null}

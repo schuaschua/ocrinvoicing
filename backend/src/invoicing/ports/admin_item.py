@@ -78,6 +78,20 @@ class BankChange:
 
 
 @dataclass(frozen=True)
+class DuplicateOf:
+    """The earlier invoice an open `DUPLICATE` names (its detail `invoice_id`, AD-9),
+    for the side-by-side comparison (Story 3.3): when it was received, its supplier,
+    its current total (AD-18) and its content type. Any status: it need not be queued."""
+
+    invoice_id: UUID
+    received_at: datetime
+    content_type: str
+    supplier_name: str | None
+    invoice_total: str | None
+    currency: str | None
+
+
+@dataclass(frozen=True)
 class AdminItem:
     """What the admin item screen shows. `supplier_phone` is set only when
     `BANK_CHANGED`, `UNREADABLE` or `UNSUPPORTED_DOCUMENT` is open, and `bank_changes`
@@ -102,6 +116,8 @@ class AdminItem:
     routing_id: UUID | None = None
     # The missing checked header fields Correct may add (`domain/actions.py`).
     addable_fields: tuple[str, ...] = ()
+    # Story 3.3: the matching invoice of an open `DUPLICATE`; None without one.
+    duplicate_of: DuplicateOf | None = None
 
 
 class AdminItemReader(Protocol):
@@ -113,6 +129,12 @@ class AdminItemReader(Protocol):
 
     async def content_type(self, invoice_id: UUID) -> str | None:
         """The queued invoice's content type (for its image); None unless queued."""
+        ...
+
+    async def duplicate_content_type(self, invoice_id: UUID) -> tuple[UUID, str] | None:
+        """The matching invoice an open `DUPLICATE` of the queued invoice names, and
+        its content type (for its image, Story 3.3); None unless the invoice is queued
+        with such a reason and the matching invoice exists."""
         ...
 
     async def reveal(

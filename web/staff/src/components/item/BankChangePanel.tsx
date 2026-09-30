@@ -1,4 +1,4 @@
-import type { BankChange } from "@/api/item";
+import type { ApproveChecks, BankChange } from "@/api/item";
 import { strings } from "@/strings";
 
 import { fieldLabel } from "./boxes";
@@ -9,19 +9,24 @@ interface BankChangePanelProps {
   phone: string | null;
   changes: BankChange[];
   announce: (message: string) => void;
+  /** Story 3.3: the call-back checklist, shown while Approve is offered. */
+  checks?: ApproveChecks;
+  onChecks?: (checks: ApproveChecks) => void;
 }
 
 /**
  * EXPERIENCE.md Bank-change panel (UX-DR13, AD-19): the supplier's phone number on file
  * to call back, and for each changed bank field the value on file (or "No account on
- * file") and the new one, both masked with Show. The call-back checklist and Approve
- * are Story 3.3's.
+ * file") and the new one, both masked with Show. Story 3.3: the call-back checklist;
+ * Approve stays disabled until both are ticked (the server checks them too, AD-11).
  */
 export function BankChangePanel({
   invoiceId,
   phone,
   changes,
   announce,
+  checks,
+  onChecks,
 }: BankChangePanelProps) {
   const b = strings.item.bank;
   return (
@@ -70,6 +75,29 @@ export function BankChangePanel({
           </dl>
         </div>
       ))}
+      {checks !== undefined && onChecks !== undefined ? (
+        <fieldset className="flex flex-col gap-1">
+          <legend className="text-sm font-semibold">{b.checklist}</legend>
+          {(
+            [
+              ["calledNumberOnFile", b.calledNumber],
+              ["supplierConfirmed", b.supplierConfirmed],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                className="size-tap-min shrink-0"
+                checked={checks[key]}
+                onChange={(event) =>
+                  onChecks({ ...checks, [key]: event.target.checked })
+                }
+              />
+              {label}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
     </section>
   );
 }

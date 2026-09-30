@@ -295,8 +295,8 @@ describe("2.11 test_story_2_11 keyboard shortcuts", () => {
     press("Escape");
     await waitFor(() => expect(window.location.pathname).toBe("/queue"));
 
-    // An item that allows neither Correct nor Reject, with its image gone: c, r, n
-    // and p do nothing, as there are no buttons for them.
+    // An item that allows neither Correct, Approve nor Reject, with its image gone:
+    // c, a, r, n and p do nothing, as there are no buttons for them.
     await screen.findAllByTestId("queue-row");
     press("j");
     press("Enter");
@@ -308,6 +308,7 @@ describe("2.11 test_story_2_11 keyboard shortcuts", () => {
     const total = screen.getByRole("button", { name: /Box 1: Invoice total/ });
     expect(total).toHaveAttribute("aria-pressed", "true");
     press("c");
+    press("a");
     press("r");
     press("n");
     press("p");

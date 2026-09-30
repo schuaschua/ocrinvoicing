@@ -19,6 +19,20 @@ export interface ItemField {
 export interface ItemReason {
   code: string;
   fieldIds: string[];
+  /** The reason's facts, e.g. `ACCOUNTS_API_ERROR`'s `{status, code}` (Story 3.2). */
+  detail: Record<string, unknown>;
+}
+
+/** Story 3.3: the earlier invoice an open `DUPLICATE` names, for the comparison. */
+export interface DuplicateOf {
+  invoiceId: string;
+  receivedAt: string;
+  contentType: string;
+  supplierName: string | null;
+  /** The exact total as the server sent it; the app never computes with it. */
+  invoiceTotal: string | null;
+  currency: string | null;
+  imageAvailable: boolean;
 }
 
 export interface ItemLine {
@@ -66,15 +80,19 @@ export interface AdminItem {
   routingId: string | null;
   /** The missing checked fields Correct may add, as the server decides them. */
   addableFields: string[];
+  /** Story 3.3: the matching invoice of an open `DUPLICATE`; null without one. */
+  duplicateOf: DuplicateOf | null;
 }
 
 export type RevealWhich = "new" | "on_file";
 
-/** Story 2.10: an admin action, as the server names it. */
-export type AdminAction = "correct" | "reextract" | "retry_intake" | "reject";
+/** Stories 2.10 and 3.3: an admin action, as the server names it. */
+export type AdminAction =
+  "correct" | "approve" | "reextract" | "retry_intake" | "reject";
 
 const ACTIONS: readonly AdminAction[] = [
   "correct",
+  "approve",
   "reextract",
   "retry_intake",
   "reject",
@@ -113,6 +131,28 @@ function itemPath(invoiceId: string): string {
 /** The same-origin image or PDF stream, for an `<img>` or a link (never a SAS URL). */
 export function itemImageUrl(invoiceId: string): string {
   return `${itemPath(invoiceId)}/image`;
+}
+
+/** Story 3.3: the matching invoice's image, served while the item's `DUPLICATE` is
+ * open. */
+export function duplicateImageUrl(invoiceId: string): string {
+  return `${itemPath(invoiceId)}/duplicate/image`;
+}
+
+function duplicateOf(value: unknown): DuplicateOf | null {
+  if (!isWire(value)) return null;
+  const invoiceId = str(value.invoice_id);
+  const contentType = str(value.content_type);
+  if (invoiceId === null || contentType === null) return null;
+  return {
+    invoiceId,
+    receivedAt: str(value.received_at) ?? "",
+    contentType,
+    supplierName: str(value.supplier_name),
+    invoiceTotal: str(value.invoice_total),
+    currency: str(value.currency),
+    imageAvailable: value.image_available === true,
+  };
 }
 
 function field(value: unknown): ItemField[] {
@@ -189,7 +229,13 @@ export async function getItem(
     supplierPhone: str(body.supplier_phone),
     reasons: list(body.reasons).flatMap((r) =>
       isWire(r) && str(r.code) !== null
-        ? [{ code: str(r.code) as string, fieldIds: textList(r.field_ids) }]
+        ? [
+            {
+              code: str(r.code) as string,
+              fieldIds: textList(r.field_ids),
+              detail: isWire(r.detail) ? r.detail : {},
+            },
+          ]
         : [],
     ),
     fields: list(body.fields).flatMap(field),
@@ -207,6 +253,7 @@ export async function getItem(
     ),
     routingId: str(body.routing_id),
     addableFields: textList(body.addable_fields),
+    duplicateOf: duplicateOf(body.duplicate_of),
   };
 }
 
@@ -282,5 +329,35 @@ export async function rejectItem(
   await apiRequest<unknown>(`${itemPath(invoiceId)}/reject`, {
     method: "POST",
     json: { routing_id: routingId, reason },
+  });
+}
+
+/** Story 3.3: Approve's call-back checklist, for changed bank details (AD-11). */
+export interface ApproveChecks {
+  calledNumberOnFile: boolean;
+  supplierConfirmed: boolean;
+}
+
+/**
+ * Approve with a reason (500 characters at most) and the call-back checks; rejects
+ * like `correctItem`, and with 400 `CHECKS_REQUIRED` when the bank details changed and
+ * a check is missing (the server decides, AD-11).
+ */
+export async function approveItem(
+  invoiceId: string,
+  routingId: string | null,
+  reason: string,
+  checks: ApproveChecks,
+): Promise<void> {
+  await apiRequest<unknown>(`${itemPath(invoiceId)}/approve`, {
+    method: "POST",
+    json: {
+      routing_id: routingId,
+      reason,
+      checks: {
+        called_number_on_file: checks.calledNumberOnFile,
+        supplier_confirmed: checks.supplierConfirmed,
+      },
+    },
   });
 }

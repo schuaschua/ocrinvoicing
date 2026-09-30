@@ -1,4 +1,5 @@
-"""The admin actions, run by staff-api (Story 2.10, AD-3, AD-4, AD-18). One adapter,
+"""The admin actions, run by staff-api (Stories 2.10 and 3.3, AD-3, AD-4, AD-11,
+AD-18). One adapter,
 over PostgreSQL (`adapters/postgres/admin_actions.py`).
 
 Each method is one transaction on a queued invoice: the `domain/actions.py` guard,
@@ -31,6 +32,8 @@ class Outcome(StrEnum):
     CONFLICT = "conflict"
     # The open reasons don't allow the action.
     NOT_ALLOWED = "not_allowed"
+    # Approve with `BANK_CHANGED` open, without both call-back checks (AD-11).
+    CHECKS_REQUIRED = "checks_required"
 
 
 @dataclass(frozen=True)
@@ -45,7 +48,7 @@ class ActionResult:
 
 
 class AdminActions(Protocol):
-    """The four Story 2.10 actions on a queued invoice. `admin_oid` is the acting
+    """The Story 2.10 and 3.3 actions on a queued invoice. `admin_oid` is the acting
     admin's Entra object id, recorded in the audit entry; `routing_id` is the routing
     the admin saw: any other latest routing is `CONFLICT` (routed again meanwhile)."""
 
@@ -77,4 +80,17 @@ class AdminActions(Protocol):
         self, invoice_id: UUID, reason: str, admin_oid: str, routing_id: UUID | None
     ) -> ActionResult:
         """The move to `rejected`; `reason` is kept in the audit entry only."""
+        ...
+
+    async def approve(
+        self,
+        invoice_id: UUID,
+        reason: str,
+        checks: Mapping[str, bool],
+        admin_oid: str,
+        routing_id: UUID | None,
+    ) -> ActionResult:
+        """The move to `ready_to_post` (its posting count and backoff reset, AD-3);
+        `reason` and `checks` are kept in the audit entry only. `CHECKS_REQUIRED` when
+        `BANK_CHANGED` is open and `checks` doesn't confirm both call-back checks."""
         ...

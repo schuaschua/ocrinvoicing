@@ -22,6 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { amountText } from "@/lib/format";
 import { navigate } from "@/router";
 import { useShortcuts } from "@/shell/shortcuts";
 import { pageTitle, reasonLabels, strings, type ReasonCode } from "@/strings";
@@ -35,15 +36,6 @@ type State =
   | { kind: "loading" }
   | { kind: "ready"; data: QueuePage }
   | { kind: "error"; message: string };
-
-/** "SGD 1,248.50": the server's 2-decimal string, grouped for reading, never computed. */
-function amountText(amount: string | null, currency: string | null): string {
-  if (amount === null) return strings.queue.noAmount;
-  const [whole = "", cents] = amount.split(".");
-  const grouped = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const text = cents === undefined ? grouped : `${grouped}.${cents}`;
-  return currency === null ? text : `${currency} ${text}`;
-}
 
 function two(n: number): string {
   return String(n).padStart(2, "0");

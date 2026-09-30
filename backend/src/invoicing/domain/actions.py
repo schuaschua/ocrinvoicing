@@ -1,14 +1,15 @@
-"""The admin actions of Story 2.10 (AD-3, AD-4, AD-18, UX-DR12): which actions an
-invoice's open reasons allow, and how a Correct request becomes admin rows.
+"""The admin actions of Stories 2.10 and 3.3 (AD-3, AD-4, AD-11, AD-18, UX-DR12):
+which actions an invoice's open reasons allow, and how a Correct request becomes admin
+rows.
 
 Pure. The item read lists `allowed_actions` and every action endpoint re-checks it
 inside its transaction, so the screen and the server apply one guard.
 
 EXPERIENCE.md "Allowed actions by reason" and its multi-reason rule: Correct if any
-open reason allows it; Re-extract only if every one does; Retry intake in place of
-Re-extract for `PROCESSING_FAILED` before the quality stage completed; Reject always,
-unless the invoice has an `accounts_ref`. Approve is Story 3.3, so an invoice with an
-`accounts_ref` has no action here.
+open reason allows it; Approve and Re-extract only if every one does; Retry intake in
+place of Re-extract for `PROCESSING_FAILED` before the quality stage completed; Reject
+always, unless the invoice has an `accounts_ref`: then only Approve, which re-posts it
+safely (AD-3). Approving `BANK_CHANGED` also needs both call-back checks (AD-11).
 """
 
 import re
@@ -33,9 +34,10 @@ from invoicing.domain.status import InvoiceStatus
 
 
 class AdminAction(StrEnum):
-    """An admin action of Story 2.10, by its API name."""
+    """An admin action of Story 2.10 or 3.3, by its API name."""
 
     CORRECT = "correct"
+    APPROVE = "approve"
     REEXTRACT = "reextract"
     RETRY_INTAKE = "retry_intake"
     REJECT = "reject"
@@ -44,21 +46,21 @@ class AdminAction(StrEnum):
 _R = ReasonCode
 _A = AdminAction
 
-# EXPERIENCE.md "Allowed actions by reason", without Approve (Story 3.3).
+# EXPERIENCE.md "Allowed actions by reason".
 REASON_ACTIONS: Mapping[ReasonCode, frozenset[AdminAction]] = MappingProxyType(
     {
         _R.UNREADABLE: frozenset({_A.REJECT}),
         _R.UNSUPPORTED_DOCUMENT: frozenset({_A.REJECT}),
         _R.EXTRACTION_QUOTA: frozenset({_A.REEXTRACT, _A.REJECT}),
         _R.PROCESSING_FAILED: frozenset({_A.REEXTRACT, _A.REJECT}),
-        _R.LOW_CONFIDENCE: frozenset({_A.CORRECT, _A.REJECT}),
-        _R.PO_MISMATCH: frozenset({_A.CORRECT, _A.REJECT}),
-        _R.DATE_MISMATCH: frozenset({_A.CORRECT, _A.REJECT}),
-        _R.NO_PHOTO_DATE: frozenset({_A.CORRECT, _A.REJECT}),
-        _R.SUPPLIER_ID_MISMATCH: frozenset({_A.CORRECT, _A.REJECT}),
-        _R.DUPLICATE: frozenset({_A.REJECT}),
-        _R.BANK_CHANGED: frozenset({_A.REJECT}),
-        _R.ACCOUNTS_API_ERROR: frozenset({_A.REJECT}),
+        _R.LOW_CONFIDENCE: frozenset({_A.CORRECT, _A.APPROVE, _A.REJECT}),
+        _R.PO_MISMATCH: frozenset({_A.CORRECT, _A.APPROVE, _A.REJECT}),
+        _R.DATE_MISMATCH: frozenset({_A.CORRECT, _A.APPROVE, _A.REJECT}),
+        _R.NO_PHOTO_DATE: frozenset({_A.CORRECT, _A.APPROVE, _A.REJECT}),
+        _R.SUPPLIER_ID_MISMATCH: frozenset({_A.CORRECT, _A.APPROVE, _A.REJECT}),
+        _R.DUPLICATE: frozenset({_A.APPROVE, _A.REJECT}),
+        _R.BANK_CHANGED: frozenset({_A.APPROVE, _A.REJECT}),
+        _R.ACCOUNTS_API_ERROR: frozenset({_A.APPROVE, _A.REJECT}),
     }
 )
 
@@ -66,6 +68,8 @@ REASON_ACTIONS: Mapping[ReasonCode, frozenset[AdminAction]] = MappingProxyType(
 TARGET_STATUS: Mapping[AdminAction, InvoiceStatus] = MappingProxyType(
     {
         _A.CORRECT: InvoiceStatus.AWAITING_VALIDATION,
+        # AD-3: the move resets `post_failures` and `next_attempt_at` (posting.py).
+        _A.APPROVE: InvoiceStatus.READY_TO_POST,
         _A.REEXTRACT: InvoiceStatus.AWAITING_EXTRACTION,
         _A.RETRY_INTAKE: InvoiceStatus.RECEIVED,
         _A.REJECT: InvoiceStatus.REJECTED,
@@ -76,13 +80,18 @@ TARGET_STATUS: Mapping[AdminAction, InvoiceStatus] = MappingProxyType(
 AUDIT_ACTION: Mapping[AdminAction, str] = MappingProxyType(
     {
         _A.CORRECT: "invoice.corrected",
+        _A.APPROVE: "invoice.approved",
         _A.REEXTRACT: "invoice.reextracted",
         _A.RETRY_INTAKE: "invoice.intake_retried",
         _A.REJECT: "invoice.rejected",
     }
 )
 
-_ORDER = (_A.CORRECT, _A.REEXTRACT, _A.RETRY_INTAKE, _A.REJECT)
+# EXPERIENCE.md Admin item: Correct, Approve, Re-extract or Reject.
+_ORDER = (_A.CORRECT, _A.APPROVE, _A.REEXTRACT, _A.RETRY_INTAKE, _A.REJECT)
+
+# AD-11: the call-back checklist an Approve of `BANK_CHANGED` needs, both ticked.
+APPROVE_CHECKS = ("called_number_on_file", "supplier_confirmed")
 
 
 def allowed_actions(
@@ -91,12 +100,15 @@ def allowed_actions(
     """The actions the open reasons allow, in button order. `reasons` are the codes of
     the latest routing (AD-4); a code this build doesn't know allows only Reject."""
     if accounts_ref:
-        # AD-3: once in the accounts system only Approve (re-post) is safe (3.3).
-        return ()
+        # AD-3: once in the accounts system only Approve is safe: the re-post returns
+        # the same reference.
+        return (_A.APPROVE,)
     per_reason = [_actions_for(reason) for reason in reasons]
     allowed = {_A.REJECT}
     if any(_A.CORRECT in actions for actions in per_reason):
         allowed.add(_A.CORRECT)
+    if per_reason and all(_A.APPROVE in actions for actions in per_reason):
+        allowed.add(_A.APPROVE)
     if per_reason and all(_A.REEXTRACT in actions for actions in per_reason):
         failed_before_quality = (
             _R.PROCESSING_FAILED.value in reasons and not quality_done
@@ -105,6 +117,14 @@ def allowed_actions(
         # upload goes through the quality stage again instead.
         allowed.add(_A.RETRY_INTAKE if failed_before_quality else _A.REEXTRACT)
     return tuple(action for action in _ORDER if action in allowed)
+
+
+def checks_missing(reasons: Collection[str], checks: Mapping[str, bool]) -> bool:
+    """Whether an Approve must be refused for its checklist (AD-11): `BANK_CHANGED` is
+    open and the admin did not confirm both call-back checks."""
+    return ReasonCode.BANK_CHANGED.value in reasons and not all(
+        checks.get(check) is True for check in APPROVE_CHECKS
+    )
 
 
 def _actions_for(reason: str) -> frozenset[AdminAction]:
@@ -116,8 +136,8 @@ def _actions_for(reason: str) -> frozenset[AdminAction]:
 
 # --- Correct --------------------------------------------------------------------------
 
-# Reject's reason is the only free text an action takes (UX-DR12).
-MAX_REJECT_REASON = 500
+# Reject's and Approve's reasons are the only free text an action takes (UX-DR12).
+MAX_REASON = 500
 # A corrected value: longer than any invoice field.
 MAX_VALUE_LENGTH = 200
 # The editable line columns; unit, tax, po_line_id and material_id are copied.

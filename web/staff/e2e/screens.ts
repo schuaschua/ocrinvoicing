@@ -63,7 +63,8 @@ const ADMIN_QUEUE: Record<string, ApiAnswer> = {
 };
 
 /** Story 2.9: an admin item with a bank change, its image and two flag boxes; Story
- * 2.10: its action bar. */
+ * 2.10: its action bar; Story 3.3: Approve with the call-back checklist, the duplicate
+ * comparison and the accounts error. */
 const ITEM_ID = "0192f0c1-7a2b-7c3d-8e4f-000000000003";
 const ITEM_PATH = `/api/admin/items/${ITEM_ID}`;
 // A 1x1 PNG (synthetic): the viewer and its boxes render over it.
@@ -86,6 +87,19 @@ const ADMIN_ITEM: Record<string, ApiAnswer> = {
       reasons: [
         { code: "LOW_CONFIDENCE", field_ids: ["invoice_total"], detail: {} },
         { code: "BANK_CHANGED", field_ids: ["payment[0].iban"], detail: {} },
+        {
+          code: "DUPLICATE",
+          field_ids: [],
+          detail: {
+            invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000001",
+            basis: "phash",
+          },
+        },
+        {
+          code: "ACCOUNTS_API_ERROR",
+          field_ids: [],
+          detail: { status: 503, code: "SIMULATED_FAILURE" },
+        },
       ],
       fields: [
         {
@@ -124,17 +138,29 @@ const ADMIN_ITEM: Record<string, ApiAnswer> = {
       bank_changes: [
         { field_id: "payment[0].iban", on_file: "4821", new: "9930" },
       ],
-      // Story 2.10: the action bar the open reasons allow.
-      allowed_actions: ["correct", "reject"],
+      // Story 2.10: the action bar the open reasons allow; Story 3.3: Approve.
+      allowed_actions: ["correct", "approve", "reject"],
+      duplicate_of: {
+        invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000001",
+        received_at: "2026-08-28T02:00:00+00:00",
+        content_type: "image/png",
+        supplier_name: "Synthetic Beta Traders",
+        invoice_total: "1248.50",
+        currency: "SGD",
+        image_available: true,
+      },
     },
   },
 };
 
-/** The item's image is not JSON: answer it with the PNG, ahead of the JSON stubs. */
+/** The item's and the matching invoice's images are not JSON: answer them with the
+ * PNG, ahead of the JSON stubs. */
 async function itemImage(page: Page): Promise<void> {
-  await page.route(`**${ITEM_PATH}/image`, (route) =>
-    route.fulfill({ status: 200, contentType: "image/png", body: PNG }),
-  );
+  for (const path of [`${ITEM_PATH}/image`, `${ITEM_PATH}/duplicate/image`]) {
+    await page.route(`**${path}`, (route) =>
+      route.fulfill({ status: 200, contentType: "image/png", body: PNG }),
+    );
+  }
 }
 
 export const SCREENS: Screen[] = [

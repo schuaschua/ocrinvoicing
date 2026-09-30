@@ -311,6 +311,22 @@ run "story_1_3_env_app_applied" {
     )
     error_message = "di_pages_used_pct must alert the action group at 80 % of the cap, on this environment's Application Insights."
   }
+  # --- http_concurrency
+  # Dev walkthrough 2026-09-30: supplier-api (no database) serves 8 requests per
+  # instance, staff-api 4 (its DB pool), by a PATCH; the pipeline and accounts-sim are
+  # untouched.
+  assert {
+    condition = (
+      keys(azapi_resource_action.http_concurrency) == ["staff_api", "supplier_api"] &&
+      alltrue([
+        for app, patch in azapi_resource_action.http_concurrency :
+        patch.method == "PATCH" &&
+        patch.resource_id == module.function_apps[app].resource_id &&
+        patch.body.properties.functionAppConfig.scaleAndConcurrency.triggers.http.perInstanceConcurrency == { supplier_api = 8, staff_api = 4 }[app]
+      ])
+    )
+    error_message = "supplier-api must take 8 and staff-api 4 HTTP requests per instance, set by a PATCH, and no other app."
+  }
   # --- staff_api_built_in_auth
   # Story 2.7: staff-api signs in with Entra through built-in auth (AD-14).
   assert {

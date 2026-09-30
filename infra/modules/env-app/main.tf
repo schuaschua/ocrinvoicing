@@ -25,6 +25,15 @@ locals {
     pipeline     = 1
     accounts_sim = 10
   }
+  # Flex's Python default is 1 HTTP request per instance, so each parallel request of a
+  # page load started its own cold instance (Dev walkthrough 2026-09-30). supplier-api
+  # uses no PostgreSQL (AD-6), so 8 lets one instance serve a whole page load; staff-api
+  # takes as many as its PostgreSQL pool holds (STAFF_POOL_SIZE = 4), so no request
+  # waits for a connection (Dj, 2026-09-30).
+  http_per_instance_concurrency = {
+    supplier_api = 8
+    staff_api    = 4
+  }
 
   storage_id    = var.storage_account.resource_id
   blob_endpoint = "https://${var.storage_account.name}.blob.core.windows.net"
@@ -245,6 +254,11 @@ module "function_apps" {
   fc1_runtime_version    = local.runtime_version
   instance_memory_in_mb  = local.instance_memory_mb
   maximum_instance_count = local.maximum_instance_counts[each.key]
+  # The HTTP concurrency below is set by azapi_resource_action.http_concurrency (the
+  # module has no input for it); the module's own updates must keep it.
+  ignore_body_changes = {
+    web_sites = ["properties.functionAppConfig.scaleAndConcurrency.triggers"]
+  }
 
   managed_identities = {
     user_assigned_resource_ids = [var.identities[each.key].resource_id]
@@ -270,6 +284,27 @@ module "function_apps" {
   # The platform reads the package from the deployment container and the host starts
   # against its host containers as the app identity, so those roles must exist first.
   depends_on = [azurerm_role_assignment.runtime]
+}
+
+# azapi, not the AVM module: avm-res-web-site 0.23.0 (the latest) has no input for
+# scaleAndConcurrency.triggers. A PATCH of this one field on the site the module owns
+# (terraform.md rule 2), which ignores the path (ignore_body_changes above); a full PUT
+# would re-send siteConfig fields Flex rejects (ARM 51021).
+resource "azapi_resource_action" "http_concurrency" {
+  for_each = local.http_per_instance_concurrency
+
+  type        = "Microsoft.Web/sites@2025-03-01"
+  resource_id = module.function_apps[each.key].resource_id
+  method      = "PATCH"
+  body = {
+    properties = {
+      functionAppConfig = {
+        scaleAndConcurrency = {
+          triggers = { http = { perInstanceConcurrency = each.value } }
+        }
+      }
+    }
+  }
 }
 
 # --- Runtime role assignments (AD-17) -------------------------------------------------

@@ -44,7 +44,7 @@ def _lib_value(name: str) -> str:
     return match.group(1)
 
 
-def test_story_1_2_jenkinsfile_guards() -> None:
+def _jenkinsfile_guards() -> None:
     """The Jenkinsfiles and image. Covers: every checks.sh subcommand on every branch and the
     audit weekly; the AD-17 stage order on main; an input step (Dj only) on shared and nowhere
     else; no Prod stage or identity; each stack applies its own saved plan; sign-in only through
@@ -131,7 +131,7 @@ def test_story_1_2_jenkinsfile_guards() -> None:
     assert all(re.fullmatch(r"[\w.-]+:[\w.-]+", line) for line in plugins), "every plugin is pinned"
 
 
-def test_story_1_2_repo_guards() -> None:
+def _repo_guards() -> None:
     """Repo-wide scans of the Jenkinsfiles and ci/. Covers: no auto-approve and apply only from a
     saved plan; operator steps never run in CI; no GitHub Actions or Azure DevOps YAML; no secret
     in the Jenkins configuration; tool downloads are pinned by checksum."""
@@ -173,3 +173,9 @@ def test_story_1_2_repo_guards() -> None:
     downloads = re.findall(r'fetch "(\S+)"', dockerfile)
     sums = re.findall(r"^ARG \w+_SHA256=([0-9a-f]{64})$", dockerfile, re.M)
     assert len(downloads) == len(sums) == 6
+
+
+def test_story_1_2_jenkins_and_repo_guards() -> None:
+    """Story 1.2 guards, merged under the test cap: the Jenkinsfiles and image, then repo-wide scans."""
+    _jenkinsfile_guards()
+    _repo_guards()

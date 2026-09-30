@@ -147,7 +147,9 @@ variables {
 }
 
 # Covers: four_apps_one_plan_each, runtime_roles_are_exactly_ad17, staff_api_built_in_auth,
-# accounts_sim_built_in_auth.
+# accounts_sim_built_in_auth; and (merged from the former settings plan run, under the test cap)
+# app_settings_hold_no_secrets, pipeline_database_settings, telemetry_settings,
+# private_key_vault_setting.
 run "story_1_3_env_app_applied" {
   command = apply
 
@@ -423,11 +425,6 @@ run "story_1_3_env_app_applied" {
     }
     error_message = "the accounts_sim_auth output must report the configured auth."
   }
-}
-
-# Covers: app_settings_hold_no_secrets, pipeline_database_settings, telemetry_settings, private_key_vault_setting.
-run "story_1_3_env_app_settings_plan" {
-  command = plan
 
   # --- app_settings_hold_no_secrets
   assert {
@@ -523,16 +520,6 @@ run "story_1_3_env_app_settings_plan" {
   }
 }
 
-run "private_key_vault_uri_must_be_a_vault_uri" {
-  command = plan
-
-  variables {
-    private_key_vault_uri = "http://babaloo-sea-lng-kv-22.vault.azure.net/"
-  }
-
-  expect_failures = [var.private_key_vault_uri]
-}
-
 run "private_key_vault_must_not_be_the_env_vault" {
   command = plan
 
@@ -543,10 +530,15 @@ run "private_key_vault_must_not_be_the_env_vault" {
   expect_failures = [var.private_key_vault_uri]
 }
 
-run "all_four_identities_are_required" {
+# Three variable validations in one plan (merged under the test cap): each listed variable
+# must fail its own check. Covers: private_key_vault_uri_must_be_a_vault_uri,
+# all_four_identities_are_required, staff_api_client_id_must_be_a_uuid.
+run "variable_validations" {
   command = plan
 
   variables {
+    private_key_vault_uri = "http://babaloo-sea-lng-kv-22.vault.azure.net/"
+    staff_api_client_id   = "babaloo-sea-lng-staff-api-dev"
     identities = {
       supplier_api = {
         name         = "babaloo-sea-lng-id-01"
@@ -557,15 +549,5 @@ run "all_four_identities_are_required" {
     }
   }
 
-  expect_failures = [var.identities]
-}
-
-run "staff_api_client_id_must_be_a_uuid" {
-  command = plan
-
-  variables {
-    staff_api_client_id = "babaloo-sea-lng-staff-api-dev"
-  }
-
-  expect_failures = [var.staff_api_client_id]
+  expect_failures = [var.private_key_vault_uri, var.identities, var.staff_api_client_id]
 }

@@ -35,6 +35,13 @@ def work_dir() -> Iterator[Path]:
     shutil.rmtree(path, ignore_errors=True)
 
 
+def _fresh(work_dir: Path, name: str) -> Path:
+    """A sub-folder laid out like the work_dir fixture, so each merged part keeps its own logs."""
+    path = work_dir / name
+    (path / "infra" / "dev" / "foundation").mkdir(parents=True)
+    return path
+
+
 def _run(script: str, *args: str, work_dir: Path, **env_extra: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith(("ARM_", "TF_", "FAKE_"))}
     for key in ("idToken", "servicePrincipalId", "tenantId"):
@@ -62,7 +69,7 @@ def _terraform_calls(work_dir: Path) -> list[list[str]]:
 # --- terraform-plan.sh -----------------------------------------------------------------
 
 
-def test_story_1_2_terraform_plan_tag_gate(work_dir: Path) -> None:
+def _terraform_plan_tag_gate(work_dir: Path) -> None:
     """terraform-plan.sh. Covers: a plan with changes and tags hands the saved plan to apply
     (and deletes the plan JSON); an untagged resource stops the stack before apply; the
     Jenkinsfile's CI_OUTPUT_FILE holds exactly hasWork=true, or hasWork=false for --optional
@@ -133,7 +140,7 @@ SIGN_IN_VARIABLES = (
 )
 
 
-def test_story_1_2_terraform_signs_in_only_as_the_stack_owners_managed_identity(work_dir: Path) -> None:
+def _terraform_signs_in_only_as_the_stack_owners_managed_identity(work_dir: Path) -> None:
     """ci/lib.sh export_arm_context on the CI VM (I/O matrix "Terraform sign-in"). Covers: with
     CI_MSI_CLIENT_ID, Terraform uses the managed identity of that client id and no OIDC, CLI
     or secret variable is left; in CI without a client id the stage fails, naming it."""
@@ -183,7 +190,7 @@ def _ado_status(work_dir: Path, state: str, **env_extra: str) -> tuple[subproces
     return result, calls
 
 
-def test_story_1_2_ado_status_posts_on_the_built_iteration(work_dir: Path) -> None:
+def _ado_status_posts_on_the_built_iteration(work_dir: Path) -> None:
     """ci/ado-status.sh against a fake curl (I/O matrix "PR build"). Covers: the pull request
     is looked up from the branch into main; the status goes on the iteration of GIT_COMMIT with
     state, jenkins/checks and the iteration id; the token reaches curl only on stdin; no pull
@@ -235,7 +242,7 @@ def test_story_1_2_ado_status_posts_on_the_built_iteration(work_dir: Path) -> No
 # --- terraform-apply.sh ----------------------------------------------------------------
 
 
-def test_story_1_2_terraform_apply_only_from_the_saved_plan(work_dir: Path) -> None:
+def _terraform_apply_only_from_the_saved_plan(work_dir: Path) -> None:
     """terraform-apply.sh. Covers: an apply without a saved plan is refused (no terraform
     call); an apply uses only the saved plan, never auto-approve."""
     # Without a saved plan: refused.
@@ -265,7 +272,7 @@ MIGRATE_ENVIRONMENTS = [
 ]
 
 
-def test_story_1_2_migrations_run_as_the_env_deploy_identity_with_an_entra_token(work_dir: Path) -> None:
+def _migrations_run_as_the_env_deploy_identity_with_an_entra_token(work_dir: Path) -> None:
     """migrate.sh, for dev and then prod: --check finds work; the run uses the env deploy
     identity's login with an Entra token over TLS, grants to the env's app logins (Story 2.1),
     asks az for one token and opens no firewall. Story 1.6: it also grants to the env's
@@ -415,8 +422,20 @@ def _install(work_dir: Path, *tools: str, **env_extra: str) -> subprocess.Comple
     )
 
 
-def test_story_1_2_install_tools_rejects_a_checksum_mismatch(work_dir: Path) -> None:
+def _install_tools_rejects_a_checksum_mismatch(work_dir: Path) -> None:
     result = _install(work_dir, "terraform", FAKE_CURL_CONTENT="TAMPERED")
     assert result.returncode == 1
     assert "checksum mismatch" in result.stderr
     assert not (work_dir / "bin" / "terraform").exists()
+
+
+def test_story_1_2_ci_scripts(work_dir: Path) -> None:
+    """Story 1.2 deploy-stage scripts, merged under the test cap: terraform-plan.sh's tag gate,
+    Terraform sign-in, ado-status.sh, terraform-apply.sh, migrate.sh and install-tools.sh. Each
+    part runs in its own fresh folder, as it did as a separate test."""
+    _terraform_plan_tag_gate(_fresh(work_dir, "plan"))
+    _terraform_signs_in_only_as_the_stack_owners_managed_identity(_fresh(work_dir, "sign-in"))
+    _ado_status_posts_on_the_built_iteration(_fresh(work_dir, "ado-status"))
+    _terraform_apply_only_from_the_saved_plan(_fresh(work_dir, "apply"))
+    _migrations_run_as_the_env_deploy_identity_with_an_entra_token(_fresh(work_dir, "migrate"))
+    _install_tools_rejects_a_checksum_mismatch(_fresh(work_dir, "install"))

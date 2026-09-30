@@ -124,7 +124,7 @@ def _json_blocks(output: str) -> list[dict]:
     return blocks
 
 
-def test_story_1_1_state_backend_dry_run_plan() -> None:
+def _state_backend_dry_run_plan() -> None:
     """state-backend.sh --dry-run (AD-17, OCR-129). Covers, in order:
     plan matches AD-17 (no federated credentials, state containers in stdjtfstatesea, rg-22 deploy identities,
     Contributor only on stack groups, conditioned RBAC Administrator); OCR-129 private-key
@@ -202,7 +202,7 @@ def _rbac_admin_scopes(out: str) -> list[str]:
     return [re.search(r"--scope (\S+)", line).group(1) for line in admin]
 
 
-def test_story_1_1_rbac_step3_dry_run_plan() -> None:
+def _rbac_step3_dry_run_plan() -> None:
     """rbac-step3.sh --dry-run. Covers: conditions only on runtime roles (2 conditioned RBAC
     Administrator grants, Cognitive Services User on DI, no ACS scope until Story 5.2);
     OCR-129 no RBAC Administrator reaches rg-22; conditions allow only the DI role.
@@ -231,7 +231,7 @@ PGP_ENVIRONMENTS = [
 ]
 
 
-def test_ocr_129_pgp_step4b_splits_the_pair_and_grants_only_staff_api() -> None:
+def _pgp_step4b_splits_the_pair_and_grants_only_staff_api() -> None:
     """pgp-step4b.sh --dry-run, for dev and then prod: the private key goes to the private-key
     vault first, the public key to the env vault, and only staff-api is granted, on the
     private-key secret, after its identity is looked up in the env group."""
@@ -252,7 +252,7 @@ def test_ocr_129_pgp_step4b_splits_the_pair_and_grants_only_staff_api() -> None:
         assert out.index("az keyvault secret set") > out.index("==> Check existing secrets")
 
 
-def test_ocr_129_database_step5_dry_run_plan() -> None:
+def _database_step5_dry_run_plan() -> None:
     """database-step5.sh --dry-run. Covers: OCR-129 the dev loaders group (Dj's load-script
     login) gets two secrets and no vault-wide role; the prod run targets its own database with
     the prod logins, including its loaders group, over TLS; the loaders group is refused as the
@@ -289,7 +289,7 @@ def test_ocr_129_database_step5_dry_run_plan() -> None:
     assert "[dry-run] psql" not in result.stdout
 
 
-def test_story_1_1_verify_db_isolation_connect_mode() -> None:
+def _verify_db_isolation_connect_mode() -> None:
     result = _run(
         "verify-db-isolation.sh",
         "--dry-run",
@@ -301,7 +301,7 @@ def test_story_1_1_verify_db_isolation_connect_mode() -> None:
     assert "dbname=invoicing_prod user=babaloo-sea-lng-id-22" in result.stdout
 
 
-def test_story_1_1_acs_email_sender_role_content() -> None:
+def _acs_email_sender_role_content() -> None:
     result = _run("budget-and-roles.sh", "--dry-run")
     assert result.returncode == 0, result.stderr
     role = _json_blocks(result.stdout)[0]
@@ -384,7 +384,7 @@ def test_story_1_2_ci_vm_dry_run_plan() -> None:
 # --- lib.sh names agree with infra/modules/naming ---------------------------------------
 
 
-def test_story_1_1_lib_names_match_the_naming_module() -> None:
+def _lib_names_match_the_naming_module() -> None:
     """Same values as infra/modules/naming/tests and the root tests expect."""
     script = """
 source "$1/lib.sh"
@@ -432,3 +432,19 @@ printf '%s\\n' \
         "babaloo-sea-lng-grp-11",
         "babaloo-sea-lng-grp-21",
     ]
+
+
+def test_story_1_1_bootstrap_dry_run_plans() -> None:
+    """Story 1.1 bootstrap --dry-run plans, merged under the test cap: state-backend.sh, rbac-step3.sh,
+    verify-db-isolation.sh connect mode, the ACS Email Sender role, and lib.sh names."""
+    _state_backend_dry_run_plan()
+    _rbac_step3_dry_run_plan()
+    _verify_db_isolation_connect_mode()
+    _acs_email_sender_role_content()
+    _lib_names_match_the_naming_module()
+
+
+def test_ocr_129_pgp_and_database_dry_run_plans() -> None:
+    """OCR-129 --dry-run plans, merged under the test cap: pgp-step4b.sh and database-step5.sh."""
+    _pgp_step4b_splits_the_pair_and_grants_only_staff_api()
+    _database_step5_dry_run_plan()

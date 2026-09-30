@@ -1,15 +1,15 @@
-# Overnight report: 30 Sep 2026, about 01:30 → 07:00 (SGT)
+# Overnight report: 30 Sep 2026, about 01:30 → 09:00 (SGT)
 
 Dj asked me to "do as many stories as you can" without him, and to keep tests to a minimum so Jenkins stays fast. This is what happened. Each story's plan file holds its decisions and review triage log. Deferred engineering items are in `deferred-work.md`.
 
 ## Summary
 
-- **Dev is live, and each change deploys through Jenkins.** Builds #6 to #10 went green end to end: checks, plan, apply, migrations, code deploy and health check.
-- **Stories built, reviewed, committed and pushed:** 2.3, 2.5, 2.6, 2.8, 2.9, plus 2.10 (see its section below).
-  - Each one went through plan, then a coding agent, then two review lenses run one after the other (edge cases, verification gaps), then fixes, then `ci/checks.sh all` on my side, then a gitleaks-gated commit, then a Jira comment.
-  - Jira stories and subtasks are **In Progress**, each with a built comment. Nothing moved to Done: that waits for you to see them run in Dev.
-- **Tests:** backend tests were merged to free room (198 → 163 cases, same assertions). After the new stories the repo is at about 178 of 200. Backend coverage is about 87 %.
-- **Not started:** 2.11 (keyboard shortcuts) and Epics 3 to 5.
+- **Dev is live, and each change deploys through Jenkins.** Builds #6 onwards went green end to end: checks, plan, apply, migrations, code deploy and health check. Each story was deployed as soon as it was committed.
+- **Epics 2 and 3 are fully built:** 2.3, 2.5, 2.6, 2.8, 2.9, 2.10, 2.11, 3.1, 3.2, 3.3 and 3.4, all committed and pushed. 2.1, 2.2, 2.4 and 2.7 were built earlier.
+- **How each story was built:** plan, then a coding agent, then two review lenses run one after the other (edge cases, verification gaps), then fixes, then `ci/checks.sh all` on my side, then a gitleaks-gated commit, then a Jira comment.
+- **Jira:** stories and subtasks are **In Progress**, each with a built comment. Nothing moved to Done: that waits for you to see them run in Dev.
+- **Tests:** backend tests were merged once to free room (198 → 163, same assertions). The repo is now at **162 of 200** after a second merge. Backend coverage is about 89 %.
+- **Not started:** Epics 4 and 5.
 
 ## Infrastructure and CI fixes made tonight
 
@@ -108,6 +108,22 @@ Each story: plan, coding agent, edge-case and verification-gap reviews run one a
 - **Tests:** the end-to-end test goes from upload to posted, in-process.
 - The contract's `total_tax` and line description are now optional, so common invoices aren't stalled.
 - **To confirm on Dev:** the real pipeline → accounts-sim HTTP call and token.
+
+### 3.3 Admin approves exceptions (`5d5ceea`, OCR-68), build #15
+- **When Approve is offered:** only when every open reason allows it, and alone once an `accounts_ref` exists.
+- **Rules:** a reason is required, and the bank call-back checklist is enforced on the server. Approving moves the invoice to `ready_to_post` (resetting the backoff), queues `q-post` and writes an audit row.
+- **Screen:** duplicate comparison ("Not a duplicate" only when that's the only reason), an accounts error panel, and the `a` shortcut.
+- **Review:** 5 findings patched.
+
+### 3.4 Search all invoices (`e20113a`, OCR-69), build #16
+- **Access:** admin and finance.
+- **Search:** by supplier, status, normalised invoice number, or `R-…` reference (decoded to the UUID's low 40 bits, matched in SQL).
+- **Detail:** current values (money at 2 decimals), status history with actor categories, `accounts_ref`; bank fields only as "Bank details on file".
+- **Review:** 9 findings patched.
+- **Epic 3 is now fully built.**
+
+### Test budget
+A second merge pass (web, ci, infra and Terraform tests) freed room again: **162 of 200**.
 
 ### Test merge (`3c275d2`)
 Backend tests were merged to free room under the cap, 198 → 163 cases, with every assertion kept.

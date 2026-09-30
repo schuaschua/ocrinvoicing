@@ -81,7 +81,7 @@ def _tool_calls(calls: list[list[str]], tool: str) -> list[list[str]]:
 # --- state-backend.sh re-run ---------------------------------------------------------------------
 
 
-def test_story_1_1_state_backend_rerun(work_dir: Path) -> None:
+def _state_backend_rerun(work_dir: Path) -> None:
     """state-backend.sh re-run where everything exists. Covers: the security settings are
     re-applied (OCR-129 private-key vaults keep RBAC and purge protection);
     no federated credential is looked up or made (Dj, 2026-09-29); the state account
@@ -198,7 +198,7 @@ def test_story_1_2_ci_vm_matrix(work_dir: Path) -> None:
 # --- verify-db-isolation.sh ----------------------------------------------------------------------
 
 
-def test_story_1_1_verify_db_isolation(work_dir: Path) -> None:
+def _verify_db_isolation(work_dir: Path) -> None:
     """verify-db-isolation.sh. Covers: cross-env connection refused reports PASS; allowed
     reports FAIL; privilege check passes when isolated; fails when dev can reach prod; a
     missing database fails the PUBLIC check."""
@@ -260,7 +260,7 @@ def _role_creates(calls: list[list[str]]) -> list[list[str]]:
     return [call for call in calls if _starts_with(call, ["role", "assignment", "create"])]
 
 
-def test_ocr_129_pgp_step4b_runs(work_dir: Path) -> None:
+def _pgp_step4b_runs(work_dir: Path) -> None:
     """pgp-step4b.sh runs that succeed. Covers: both secrets exist (nothing to generate, the
     staff-api grant exists); a re-run after a missed grant only grants staff-api; a new
     environment splits the pair across the vaults and then grants staff-api, and leaves no
@@ -307,7 +307,7 @@ def test_ocr_129_pgp_step4b_runs(work_dir: Path) -> None:
     assert not any((REPO_ROOT / ".work" / "bootstrap").glob("tmp.*/private.asc"))
 
 
-def test_ocr_129_pgp_step4b_guards(work_dir: Path) -> None:
+def _pgp_step4b_guards(work_dir: Path) -> None:
     """pgp-step4b.sh runs that must stop without generating a key or granting a role.
     Covers: only one secret of the pair exists (public absent; private absent); a secret
     lookup error other than NotFound; the staff-api identity is missing; the private-key vault
@@ -365,7 +365,7 @@ DEV_VAULT = (
 )
 
 
-def test_ocr_129_database_step5_dj_rights(work_dir: Path) -> None:
+def _database_step5_dj_rights(work_dir: Path) -> None:
     """database-step5.sh. Covers: the dev loaders group (Dj's load-script login; Dj, 2026-09-29:
     guest UPN over 63 characters) is looked up before any change and granted the two secrets
     only (hmac-key and pgp-public-key, Secrets User, as a Group), nothing deleted; an earlier
@@ -396,7 +396,7 @@ def test_ocr_129_database_step5_dj_rights(work_dir: Path) -> None:
 # --- App registrations ----------------------------------------------------------------------------
 
 
-def test_story_1_1_app_registrations(work_dir: Path) -> None:
+def _app_registrations(work_dir: Path) -> None:
     """app-registrations.sh. Covers: a missing app role is added keeping the existing role ids;
     existing Entra groups (loaders grp-01/grp-11, pg-admins grp-21) are kept and a member is not
     re-added; missing groups are created with the operator added; duplicate app registrations
@@ -445,3 +445,19 @@ def test_story_1_1_app_registrations(work_dir: Path) -> None:
     assert result.returncode == 1
     assert "matches 2 app registrations" in result.stderr
     assert not any(_starts_with(call, ["ad", "app", "update"]) for call in calls)
+
+
+def test_story_1_1_bootstrap_matrix(work_dir: Path) -> None:
+    """Story 1.1 I/O-matrix runs, merged under the test cap: state-backend.sh re-run,
+    verify-db-isolation.sh, and app-registrations.sh."""
+    _state_backend_rerun(work_dir)
+    _verify_db_isolation(work_dir)
+    _app_registrations(work_dir)
+
+
+def test_ocr_129_pgp_step4b_and_database_step5(work_dir: Path) -> None:
+    """OCR-129 I/O-matrix runs, merged under the test cap: pgp-step4b.sh runs and guards, and
+    database-step5.sh rights."""
+    _pgp_step4b_runs(work_dir)
+    _pgp_step4b_guards(work_dir)
+    _database_step5_dj_rights(work_dir)

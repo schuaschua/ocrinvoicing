@@ -157,7 +157,7 @@ This document breaks the ocrinvoicing requirements into epics and stories. The r
 - **Email (AD-16):** an `EmailPort` over ACS Email with a verified custom domain. It throttles per environment with no shared state: Dev at most 5 a minute and 20 an hour, Prod at most 25 a minute and 80 an hour. Recipients come from `ALERT_RECIPIENTS_<ROLE>`. Emails go to staff alerts only.
 - **Monitoring (AD-17):**
   - Log Analytics capped at 0.08 GB/day, with no separate log-cap alert (Dj's decision).
-  - Alerts on the budgets and on the Application Insights custom metrics `poison_message{queue}`, `stuck_invoices` and `di_pages_used_pct` (80%), with alerting on custom metric dimensions turned on.
+  - Alerts on the budgets, and log alerts on the Application Insights log events `poison.done` (per `queue`), `sweeper.done` (`requeued` + `orphans` above 0) and `extract.di_usage` (`pages_used_pct` at 80%).
 - **Supplier load script:** an operator-run script, run as Dj's user, that loads suppliers through the application code. It encrypts each bank field, stores `supplier_name` with each link for display, prints each new link once, and supports `--replace-link` and `--revoke`.
 
 ### UX Design Requirements
@@ -490,10 +490,10 @@ So that I learn about cost, failures and quota before users do.
 **Given** each environment
 **When** monitoring is applied
 **Then** every app sends traces to that environment's Application Insights, with sampling on and one trace per `correlation_id`
-**And** a metrics helper in the `invoicing` package emits Application Insights custom metrics with dimensions, and alerting on custom metric dimensions is turned on (AD-17)
+**And** the pipeline alerts are log alerts on log events in Application Insights `traces`; a metrics helper in the `invoicing` package still emits custom metrics with dimensions, but no alert depends on them (AD-17)
 **And** alerts to Dj fire through the action group when a resource-group budget threshold is crossed (the $8 subscription budget was dropped, Dj 2026-09-30)
 
-**Note:** the pipeline alerts use custom metrics emitted by later stories: `poison_message{queue}` and `stuck_invoices` (Story 2.2) and `di_pages_used_pct` (Story 2.3). Each of those stories adds its own alert rule. There is no separate log-cap alert (Dj's decision, AD-17).
+**Note:** the pipeline alerts are log alerts on log events written by later stories: `poison.done` and `sweeper.done` (Story 2.2) and `extract.di_usage` (Story 2.3). Each of those stories adds its own alert rule. The custom metrics are still emitted, but no alert depends on them: they never reached Application Insights in Dev (Dj, 2026-09-30). There is no separate log-cap alert (Dj's decision, AD-17).
 
 **Given** an alert rule
 **When** it fires in a test
@@ -721,7 +721,7 @@ So that nothing uploaded overnight or at weekends is lost.
 **When** it lands in a `*-poison` queue
 **Then** the poison trigger calls `route_to_admin(PROCESSING_FAILED)` only when the invoice is still in that queue's input state, or in its claim state with an expired lease; otherwise it acknowledges the poison message (AD-2, AD-4)
 **And** when the invoice row is missing, it passes the blob's `IntakeBlobMetadata`, so `route_to_admin` creates the row
-**And** it emits the custom metric `poison_message{queue}`, and an alert to Dj fires when that is more than 0 in an hour (AD-17)
+**And** it logs `poison.done` with its `queue`, and a log alert on `poison.done` fires to Dj when there is any in an hour, one per queue (AD-17)
 **And** the trigger follows the same database-wait rule
 
 **Given** an invoice whose `status_changed_at` is more than 1 hour old and more than 1 hour after the database last started (`pg_postmaster_start_time()`)
@@ -733,7 +733,7 @@ So that nothing uploaded overnight or at weekends is lost.
 - `ready_to_post` whose `next_attempt_at` is empty or past, or `posting` with an expired lease → `q-post`.
 
 **And** it never touches `in_admin_queue`, `posted` or `rejected`
-**And** it emits `stuck_invoices`, and an alert to Dj fires when that is more than 0 (AD-17)
+**And** it logs `sweeper.done` with `requeued` and `orphans`, and a log alert on `sweeper.done` fires to Dj when `requeued` + `orphans` is more than 0 (AD-17)
 
 **Given** an invoice in `extracting`, `validating` or `posting` whose 10-minute lease has expired
 **When** a message for that stage arrives
@@ -744,8 +744,8 @@ So that nothing uploaded overnight or at weekends is lost.
 **Then** it deletes them (AD-2, AD-6)
 
 **Tasks:**
-- Python: DB-wait decorator for consumers; poison triggers with the state guard; sweeper timer (status map, `uploadkeys` cleanup); lease reclaim; the `poison_message` and `stuck_invoices` metrics.
-- Terraform: the `poison_message` and `stuck_invoices` alert rules in `<env>/app`.
+- Python: DB-wait decorator for consumers; poison triggers with the state guard; sweeper timer (status map, `uploadkeys` cleanup); lease reclaim; the `poison_message` and `stuck_invoices` metrics and the `poison.done` and `sweeper.done` log events.
+- Terraform: the `poison_message` and `stuck_invoices` log alert rules in `<env>/app`.
 - Tests: `test_story_2_2_*` with the database unreachable, poison routing and its guard, each status-map row, `in_admin_queue` left alone, no stuck count right after a database start, lease reclaim, and `uploadkeys` cleanup.
 
 ### Story 2.3: Invoice fields are extracted by Document Intelligence
@@ -789,10 +789,10 @@ So that I only look at invoices the system isn't sure about.
 **When** extraction is attempted
 **Then** the invoice is routed with `EXTRACTION_QUOTA`
 **And** pages are reserved in `intake.di_usage` under the same lock before each analyze call, so two instances can't both pass the cap
-**And** the stage emits `di_pages_used_pct`, and at 80% of the cap Dj gets an alert (AD-17)
+**And** the stage emits `di_pages_used_pct` and logs it as `extract.di_usage`, and a log alert on `extract.di_usage` fires to Dj at 80% of the cap (AD-17)
 
 **Tasks:**
-- Terraform: the `pipeline` Cognitive Services User assignment and the `di_pages_used_pct` alert in `<env>/app` (the DI resource is in Story 1.1).
+- Terraform: the `pipeline` Cognitive Services User assignment and the `di_pages_used_pct` log alert in `<env>/app` (the DI resource is in Story 1.1).
 - Python: DI adapter with the PostgreSQL-backed rate limiter and page reservation; `ModelSelector` port; `extract` function; bank-field encryption and fingerprinting; migrations for `extraction_run`, `invoice_field`, `invoice_line` and `di_usage`.
 - Tests: `test_story_2_3_*` with a faked DI for the happy path, AD-18 field ids, no plaintext bank value in any row, reuse on retry, Re-extract calling DI again, resumed polling after a 429, the quota cap and throttling.
 

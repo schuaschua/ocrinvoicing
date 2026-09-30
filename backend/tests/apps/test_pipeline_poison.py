@@ -3,9 +3,11 @@ I/O matrix, against a real PostgreSQL 18 signed in as the pipeline login, with f
 blob storage and metrics."""
 
 import asyncio
+import logging
 from collections.abc import Callable
 from typing import Any
 
+import pytest
 from _pipeline_fakes import (
     CORRELATION_ID,
     SUPPLIER_ID,
@@ -17,6 +19,7 @@ from _pipeline_fakes import (
 )
 from sqlalchemy import Engine, select, text, update
 
+from invoicing.adapters.logging import LogValue, event_fields
 from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
 from invoicing.adapters.postgres.schema import admin_item, invoice, status_history
 from invoicing.apps.pipeline.poison import (
@@ -94,6 +97,13 @@ class Poison:
         return self.metrics.emitted == [("poison_message", 1, {"queue": queue})]
 
 
+def _poison_done(caplog: pytest.LogCaptureFixture) -> list[dict[str, LogValue]]:
+    """The fields of each `poison.done` record; its message carries its queue."""
+    done = [r for r in caplog.records if r.getMessage().startswith("poison.done ")]
+    assert all(f" queue={event_fields(r)['queue']}" in r.getMessage() for r in done)
+    return [event_fields(r) for r in done]
+
+
 def _assert_routed(poison: Poison, outcome: PoisonOutcome, queue: str) -> None:
     assert outcome == ROUTED
     assert poison.status() == "in_admin_queue"
@@ -108,8 +118,11 @@ def _assert_routed(poison: Poison, outcome: PoisonOutcome, queue: str) -> None:
 
 
 def test_story_2_2_poison_messages_are_routed_and_counted_but_never_take_a_live_claim(
-    pipeline_engine: Engine, reset_intake: Callable[[], None]
+    pipeline_engine: Engine,
+    reset_intake: Callable[[], None],
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
+    caplog.set_level(logging.INFO, logger="invoicing")
     # --- Story 2.2: poison in the input state is routed and counted
     quality = Poison(pipeline_engine, Stage.QUALITY)
     quality.seed(S.RECEIVED)
@@ -126,6 +139,8 @@ def test_story_2_2_poison_messages_are_routed_and_counted_but_never_take_a_live_
         ).one()
     assert tuple(last) == ("received", "in_admin_queue", "pipeline:poison")
     assert quality.counted("q-quality-poison")
+    # AD-17: ar-01 reads poison.done and its queue.
+    assert _poison_done(caplog)[-1]["queue"] == "q-quality-poison"
     # The blob was never needed: the row exists.
     assert quality.images.reads == []
 
@@ -170,3 +185,11 @@ def test_story_2_2_poison_messages_are_routed_and_counted_but_never_take_a_live_
     assert poison.run() == PoisonOutcome(PoisonAction.ACK, "MOVED_ON")
     assert poison.status() == S.EXTRACTING.value
     assert poison.rows(admin_item) == []
+
+    # --- Story 2.2: a malformed message is counted and logged for ar-01 (AD-17)
+    caplog.clear()
+    assert quality.run(b"not json") == PoisonOutcome(
+        PoisonAction.ACK, "MALFORMED_MESSAGE"
+    )
+    (done,) = _poison_done(caplog)
+    assert (done["queue"], done["code"]) == ("q-quality-poison", "MALFORMED_MESSAGE")

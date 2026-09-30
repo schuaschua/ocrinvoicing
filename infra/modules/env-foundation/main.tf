@@ -38,9 +38,9 @@ locals {
     }
   }
 
-  # AD-17: Storage queue metrics have no per-queue breakdown, so the queue and pipeline
-  # alerts use custom metrics, whose dimensions Application Insights drops unless this
-  # is on ("alerting on custom metric dimensions").
+  # AD-17: keeps the dimensions of the still-emitted custom metrics ("alerting on custom
+  # metric dimensions"); no alert depends on them since the pipeline alerts became log
+  # alerts (2026-09-30).
   custom_metrics_opted_in_type = "WithDimensions"
 
   # No ingestion sampling: the apps already sample in OpenTelemetry (TELEMETRY_SAMPLING_RATIO,

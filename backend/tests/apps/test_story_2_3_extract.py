@@ -433,6 +433,13 @@ def test_story_2_3_extract_stage(
             assert value not in dump and value not in logged
     assert _pages(pipeline_engine) == 1
     assert metrics.emitted[-1] == ("di_pages_used_pct", 1.0, {})
+    # The ar-03 log alert parses this event's message (AD-17).
+    usage = [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("extract.di_usage ")
+    ]
+    assert usage[-1].endswith(" pages_used_pct=1.0")
 
     # --- Claim lost: already awaiting_validation; q-validate queued again (AD-2) -------
     queue.sent.clear()
@@ -591,9 +598,16 @@ def test_story_2_3_extract_stage(
     with owner.begin() as connection:
         connection.execute(text("UPDATE intake.di_usage SET pages = 100"))
     calls = len(di.calls)
+    caplog.clear()
     outcome = run(fifth)
     assert (outcome.action, outcome.reason) == (ExtractAction.ROUTE, "EXTRACTION_QUOTA")
     assert len(di.calls) == calls
     assert _status(pipeline_engine, fifth)[0] == "in_admin_queue"
     assert metrics.emitted[-1] == ("di_pages_used_pct", 100.0, {})
+    usage = [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("extract.di_usage ")
+    ]
+    assert usage[-1].endswith(" pages_used_pct=100.0")
     owner.dispose()

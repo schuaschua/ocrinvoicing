@@ -409,7 +409,7 @@ stateDiagram-v2
     | 4b. Operator step (bootstrap README), once per environment | operator, holding Key Vault Secrets Officer on that vault | generates the PGP key pair offline with `gpg` (RSA 3072, ASCII-armoured, no passphrase, so `pgp_pub_decrypt` needs none), stores it as the secrets `pgp-public-key` and `pgp-private-key`, then deletes the local copies. Terraform can't generate OpenPGP keys, and `terraform.md` rule 28 forbids a provisioner, so Terraform never manages these two secrets |
     | 5. Operator step (bootstrap README), once per environment | operator, as PostgreSQL Entra admin | the database logins, ownership and `CONNECT` rules in AD-11; Dj's loaders group, with Dj as a member, gets Key Vault Secrets User and Storage Table Data Contributor on that environment's vault and storage account, for the load script (Dj, 2026-09-29: guest UPN over 63 characters) |
     | 6. Migrations | pipeline, as the env deploy identity | Alembic `upgrade head`, including every schema grant |
-    | 7. `<env>/app` | env deploy identity | the four Flex plans and apps, their settings, built-in auth, the runtime role assignments below, metric alerts |
+    | 7. `<env>/app` | env deploy identity | the four Flex plans and apps, their settings, built-in auth, the runtime role assignments below, log alerts |
     | 8. Operator step (bootstrap README), once per environment | operator | registers the `staff-api` redirect URI on its app registration |
     | 9. Code deploy, every run | pipeline, as the env deploy identity | builds each app's package (the SPA build included in `supplier-api` and `staff-api`) and publishes it to the Flex app's deployment container (one deploy) |
 
@@ -441,12 +441,12 @@ stateDiagram-v2
   - **Tags.** The five tags of P-17 replace the standards' six.
   - **Redundancy.** All storage is LRS (P-15).
   - **Monitoring.** Each environment has one Log Analytics workspace and one Application Insights instance, with sampling on, a 0.08 GB/day cap and 30-day retention. The 5 GB free allowance is per billing account.
-  - **Alerts**, all sent to Dj. Storage queue metrics have no per-queue breakdown, so the queue and pipeline alerts use Application Insights custom metrics, with alerting on custom metric dimensions turned on (dimensions are dropped otherwise):
+  - **Alerts**, all sent to Dj. Storage queue metrics have no per-queue breakdown, and the pipeline's custom metrics never reached Application Insights in Dev, so the queue and pipeline alerts are log search alerts on the environment's Application Insights `traces`. Each finds its log event by the start of `message` and reads the event's fields from `customDimensions`. The pipeline logs these three events outside any trace, so sampling never drops them. The custom metrics are still emitted, but no alert depends on them (Dj, 2026-09-30):
     - the resource-group budgets (`azure.md` rule 17) (the $8 subscription budget was dropped, Dj 2026-09-30);
-    - `poison_message{queue}`, emitted by each poison trigger, more than 0 in an hour;
-    - `stuck_invoices`, emitted by the sweeper, more than 0;
-    - `di_pages_used_pct`, emitted by the `extract` stage, at 80% of an environment's cap.
-- **Cost (P-2):** about $0.30 a month for the metric alerts. Ingestion is within the free allowance, and the daily cap bounds it (Dj chose no separate log-cap alert).
+    - log alert on `poison.done`, logged by each poison trigger: any in an hour, one alert per `queue` (every 15 minutes);
+    - log alert on `sweeper.done`: `requeued` + `orphans` above 0 in 30 minutes (every 15 minutes);
+    - log alert on `extract.di_usage`, logged by the `extract` stage: `pages_used_pct` of at least 80 of an environment's cap in 6 hours (every hour).
+- **Cost (P-2):** about $1.50 a month for the three log alert rules (15-minute or slower frequency). `ar-01` splits by queue, so it is billed per monitored time series, one per poison queue that has logged `poison.done`. `ar-03` resolves by itself after 6 hours with no `extract.di_usage`, even while usage stays at 80% or more, and fires again on the next extraction. Ingestion is within the free allowance, and the daily cap bounds it (Dj chose no separate log-cap alert).
 
 ### AD-18: Extraction results are stored as typed field and line rows, one run at a time [ADOPTED]
 

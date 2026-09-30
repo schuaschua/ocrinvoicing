@@ -14,6 +14,8 @@ from contextvars import ContextVar
 from enum import Enum
 from uuid import UUID
 
+from opentelemetry import context, trace
+
 # Keys that hold ids, codes or timings. Nothing else is ever emitted.
 ALLOWED_KEYS = frozenset(
     {
@@ -39,6 +41,8 @@ ALLOWED_KEYS = frozenset(
         "http_status",
         "invoice_id",
         "orphans",
+        # DI pages this month as a percentage of the cap (Story 2.3, ar-03): a number.
+        "pages_used_pct",
         "queue",
         "reason",
         "requeued",
@@ -120,6 +124,19 @@ def log_event(
     # Flat attributes, not one dict: the OpenTelemetry handler exports each record
     # attribute as a custom dimension. None of the allowed keys is a LogRecord field.
     logger.log(level, "%s %s", event, text, extra=kept)
+
+
+def log_unsampled_event(
+    logger: logging.Logger, event: str, *, level: int = logging.INFO, **fields: object
+) -> None:
+    """`log_event` outside any trace, so trace-based log sampling always keeps it."""
+    # AD-17: the log alerts read these events, and logs follow their trace's sampling
+    # decision (0.5), so they are logged with no active span and never sampled out.
+    token = context.attach(trace.set_span_in_context(trace.INVALID_SPAN))
+    try:
+        log_event(logger, event, level=level, **fields)
+    finally:
+        context.detach(token)
 
 
 def event_fields(record: logging.LogRecord) -> dict[str, LogValue]:

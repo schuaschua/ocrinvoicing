@@ -31,7 +31,7 @@ from enum import StrEnum
 from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
 
-from invoicing.adapters.logging import log_event
+from invoicing.adapters.logging import log_event, log_unsampled_event
 from invoicing.adapters.telemetry import correlation_span
 from invoicing.apps.pipeline.quality import StageFailed, check_metadata
 from invoicing.domain.errors import DatabaseOfflineError
@@ -159,7 +159,7 @@ def poison_handler(
         except ValidationError:
             # Nothing can be routed without an invoice id; it is still counted.
             _emit()
-            log_event(
+            log_unsampled_event(
                 _logger,
                 "poison.done",
                 level=logging.ERROR,
@@ -188,7 +188,7 @@ def poison_handler(
                 if dequeue_count >= MAX_DEQUEUE_COUNT:
                     # The final outcome: nothing watches `<queue>-poison-poison`.
                     _emit()
-                    log_event(
+                    log_unsampled_event(
                         _logger,
                         "poison.done",
                         level=logging.ERROR,
@@ -209,7 +209,7 @@ def poison_handler(
                 )
                 raise PoisonFailed(code) from None
             _emit()
-            log_event(
+            log_unsampled_event(
                 _logger,
                 "poison.done",
                 level=logging.WARNING,

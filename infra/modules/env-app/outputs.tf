@@ -36,23 +36,29 @@ output "telemetry_sampling_ratio" {
 }
 
 output "metric_alerts" {
-  description = "The AD-17 metric alert rules, keyed by metric: name, resource id, scopes, action group ids and tags."
+  description = "The AD-17 pipeline alert rules (log search alerts on Application Insights traces), keyed by the pipeline metric they stand for: name, resource id, scopes, action group ids, tags and criterion."
   value = {
     for metric, alert in {
-      poison_message    = azurerm_monitor_metric_alert.poison_message
-      stuck_invoices    = azurerm_monitor_metric_alert.stuck_invoices
-      di_pages_used_pct = azurerm_monitor_metric_alert.di_pages_used_pct
+      poison_message    = azurerm_monitor_scheduled_query_rules_alert_v2.poison_message
+      stuck_invoices    = azurerm_monitor_scheduled_query_rules_alert_v2.stuck_invoices
+      di_pages_used_pct = azurerm_monitor_scheduled_query_rules_alert_v2.di_pages_used_pct
       } : metric => {
-      name             = alert.name
-      resource_id      = alert.id
-      scopes           = alert.scopes
-      action_group_ids = [for action in alert.action : action.action_group_id]
-      tags             = alert.tags
-      # The one criterion's metric, operator and threshold.
+      name                 = alert.name
+      resource_id          = alert.id
+      scopes               = toset(alert.scopes)
+      action_group_ids     = flatten([for action in alert.action : action.action_groups])
+      evaluation_frequency = alert.evaluation_frequency
+      window_duration      = alert.window_duration
+      tags                 = alert.tags
+      # The one criterion: its query, aggregation, measured column, operator,
+      # threshold and split-by dimensions.
       criteria = {
-        metric_name = one(alert.criteria).metric_name
-        operator    = one(alert.criteria).operator
-        threshold   = one(alert.criteria).threshold
+        query                   = one(alert.criteria).query
+        time_aggregation_method = one(alert.criteria).time_aggregation_method
+        metric_measure_column   = one(alert.criteria).metric_measure_column
+        operator                = one(alert.criteria).operator
+        threshold               = one(alert.criteria).threshold
+        dimensions              = [for dimension in one(alert.criteria).dimension : dimension.name]
       }
     }
   }

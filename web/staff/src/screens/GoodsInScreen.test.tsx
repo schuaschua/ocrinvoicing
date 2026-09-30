@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { SESSION_EXPIRED, onApiEvent } from "@/api";
 import { App } from "@/App";
 import type { CheckResult } from "@/deviceCheck";
 import { strings } from "@/strings";
@@ -249,5 +250,25 @@ describe("4.1 Goods-in scan", () => {
     });
     expect(screen.getByTestId("shell-notice")).toHaveTextContent(s.unavailable);
     expect(screen.queryByText(strings.offline)).toBeNull();
+
+    // --- Sign-in expired on send: built-in auth's empty 403 is an expired session.
+    cleanup();
+    fetchMock.mockReset();
+    goodsIn(() => answer(200, { today: "2026-09-29", items: [TODAY] }));
+    const expired = vi.fn();
+    const stop = onApiEvent(SESSION_EXPIRED, expired);
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /PO 45016/ }));
+    fireEvent.change(screen.getByTestId("choose-file-input"), {
+      target: {
+        files: [
+          new File([new Uint8Array(900)], "late.jpg", { type: "image/jpeg" }),
+        ],
+      },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: s.send }));
+    act(() => FakeXhr.last().respond(403, ""));
+    await waitFor(() => expect(expired).toHaveBeenCalledTimes(1));
+    stop();
   });
 });

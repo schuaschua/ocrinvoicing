@@ -108,6 +108,28 @@ describe("1.4 API client", () => {
     await expect(apiRequest("/api/me")).rejects.toMatchObject({ status: 401 });
     expect(expired).toHaveBeenCalledTimes(2);
 
+    // Built-in auth's empty 403 on an expired session is a 401; any other 403 (our
+    // own JSON refusal, or a platform HTML page) is not an expired sign-in.
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 403 }));
+    await expect(apiRequest("/api/me")).rejects.toMatchObject({ status: 401 });
+    expect(expired).toHaveBeenCalledTimes(3);
+    // A platform 403 page (site stopped, quota) has HTML: not a sign-in problem.
+    fetchMock.mockResolvedValueOnce(
+      new Response("<html>Site stopped</html>", { status: 403 }),
+    );
+    await expect(apiRequest("/api/me")).rejects.toMatchObject({
+      status: 403,
+      code: null,
+    });
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ code: "FORBIDDEN", message: "Not allowed." }, 403),
+    );
+    await expect(apiRequest("/api/queue")).rejects.toMatchObject({
+      status: 403,
+      code: "FORBIDDEN",
+    });
+    expect(expired).toHaveBeenCalledTimes(3);
+
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ code: "DB_OFFLINE", message: "Offline." }, 503),
     );
@@ -154,6 +176,6 @@ describe("1.4 API client", () => {
     stopOffline();
     fetchMock.mockResolvedValueOnce(jsonResponse({}, 401));
     await expect(apiRequest("/api/me")).rejects.toBeInstanceOf(ApiError);
-    expect(expired).toHaveBeenCalledTimes(2);
+    expect(expired).toHaveBeenCalledTimes(3);
   });
 });

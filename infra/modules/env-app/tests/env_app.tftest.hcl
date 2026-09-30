@@ -322,7 +322,14 @@ run "story_1_3_env_app_applied" {
         for app, patch in azapi_resource_action.http_concurrency :
         patch.method == "PATCH" &&
         patch.resource_id == module.function_apps[app].resource_id &&
-        patch.body.properties.functionAppConfig.scaleAndConcurrency.triggers.http.perInstanceConcurrency == { supplier_api = 8, staff_api = 4 }[app]
+        patch.body.properties.functionAppConfig.scaleAndConcurrency.triggers.http.perInstanceConcurrency == { supplier_api = 8, staff_api = 4 }[app] &&
+        # Flex replaces functionAppConfig whole: the PATCH carries the runtime, the
+        # deployment storage and the scale limits the module sets (Dev build #20).
+        patch.body.properties.functionAppConfig.runtime == { name = "python", version = "3.13" } &&
+        patch.body.properties.functionAppConfig.scaleAndConcurrency.maximumInstanceCount == 10 &&
+        patch.body.properties.functionAppConfig.scaleAndConcurrency.instanceMemoryMB == 2048 &&
+        patch.body.properties.functionAppConfig.deployment.storage.authentication.userAssignedIdentityResourceId == module.function_apps[app].resource.body.properties.functionAppConfig.deployment.storage.authentication.userAssignedIdentityResourceId &&
+        patch.body.properties.functionAppConfig.deployment.storage.value == module.function_apps[app].resource.body.properties.functionAppConfig.deployment.storage.value
       ])
     )
     error_message = "supplier-api must take 8 and staff-api 4 HTTP requests per instance, set by a PATCH, and no other app."

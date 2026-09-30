@@ -44,6 +44,14 @@ Quick lens, 3 findings: 2 medium, 1 false.
 - Medium (patched): `azapi_update_resource` on the site would GET and PUT the whole site, re-sending `siteConfig` fields that FC1 rejects (51021), and the rule-2 citation was about a PATCH. Now `azapi_resource_action` with method PATCH, carrying this field only.
 - False: "walkthrough-dev-2026-09-30.md is not in the project". It is committed in PR #4 (branch `chore/dev-walkthrough-2026-09-30`) and lands on `main` with it.
 
+## Plan Change Log
+
+- **2026-09-30, Dev build #20 failed.** The PATCH carried only `scaleAndConcurrency.triggers`, and Azure answered `400 Site.FunctionAppConfig.Runtime is invalid. Runtime name and version must be provided.` (51021).
+  - Flex replaces `functionAppConfig` as a whole. Nothing was changed on either site.
+  - The PATCH now carries the whole `functionAppConfig`: the deployment storage, the runtime, `siteUpdateStrategy` and the scale limits, with the module's values plus the triggers. The values were checked against both sites' live config.
+  - The env-app test asserts those fields.
+  - KEEP: supplier-api 8, staff-api 4, and the module's `ignore_body_changes` for the triggers path.
+
 ## Verification
 
 **Commands:**

@@ -33,3 +33,22 @@ def supplier_reference(invoice_id: UUID) -> str:
         for i in reversed(range(LENGTH))
     ]
     return PREFIX + "".join(chars)
+
+
+# The low 40 bits are the UUID's last 5 bytes (`substring(uuid_send(id) from 12 for
+# 5)` in SQL).
+REFERENCE_BYTES = 5
+
+
+def parse_reference(text: str) -> bytes | None:
+    """The 5 low bytes of the invoice ids `text` names (Story 3.4 search), or None
+    when it is not a reference. Case and surrounding spaces don't matter, and the `R-`
+    prefix may be left off."""
+    candidate = text.strip().upper()
+    candidate = candidate.removeprefix(PREFIX)
+    if len(candidate) != LENGTH or any(char not in ALPHABET for char in candidate):
+        return None
+    bits = 0
+    for char in candidate:
+        bits = (bits << _BITS_PER_CHAR) | ALPHABET.index(char)
+    return bits.to_bytes(REFERENCE_BYTES)

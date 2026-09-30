@@ -33,6 +33,14 @@ export const SURFACES: readonly Surface[] = [
   { id: "admin_item", path: "/queue/:invoiceId", roles: ["admin"], nav: false },
   { id: "goods_in_scan", path: "/goods-in", roles: ["goods_in"], nav: true },
   { id: "invoices", path: "/invoices", roles: ["admin", "finance"], nav: true },
+  // Story 3.4: one invoice, reached from a search result. Part of the Invoices
+  // surface: staff-api guards its API with the invoices roles.
+  {
+    id: "invoice_detail",
+    path: "/invoices/:invoiceId",
+    roles: ["admin", "finance"],
+    nav: false,
+  },
   {
     id: "overdue_pos",
     path: "/overdue-pos",

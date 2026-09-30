@@ -65,7 +65,7 @@ development_status:
   3-1-simulated-accounts-system: review
   3-2-clean-invoices-post-automatically: review
   3-3-admin-approves-exceptions-after-checking-them: review
-  3-4-search-all-invoices: backlog
+  3-4-search-all-invoices: review
   epic-3-retrospective: optional
 
   epic-4: backlog

@@ -168,9 +168,59 @@ describe("2.7 staff sign in and see only their surfaces", () => {
     });
     expect(screen.getByTestId("shell-notice")).toBeEmptyDOMElement();
     unmount();
-    render(<App />);
+    const again = render(<App />);
     await screen.findByRole("heading", { level: 1, name: "Goods-in scan" });
     expect(screen.getByTestId("shell-notice")).toBeEmptyDOMElement();
+    again.unmount();
+
+    // Story 3.4: an invoice's detail opens for finance and admin only.
+    const invoiceId = "0192f0c1-7a2b-7c3d-8e4f-000000000001";
+    const detailPath = `/api/invoices/${invoiceId}`;
+    for (const role of ["finance", "admin"]) {
+      openAt(`/invoices/${invoiceId}`);
+      fetchMock.mockReset();
+      fetchMock.mockImplementation(async (input) =>
+        String(input) === detailPath
+          ? answer(200, {
+              invoice_id: invoiceId,
+              reference: "R-00000001",
+              received_at: "2026-09-01T01:02:00+00:00",
+              supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+              supplier_name: "Synthetic Alpha Building Supplies",
+              status: "posted",
+              after_correction: false,
+              accounts_ref: "ACC-000123",
+              posted_at: "2026-09-01T03:00:00+00:00",
+              fields: [],
+              bank_on_file: false,
+              lines: [],
+              history: [],
+            })
+          : answer(200, { name: "Priya Tan", roles: [role] }),
+      );
+      const view = render(<App />);
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "Invoice from Synthetic Alpha Building Supplies",
+      });
+      expect(window.location.pathname).toBe(`/invoices/${invoiceId}`);
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(
+        detailPath,
+      );
+      view.unmount();
+    }
+    openAt(`/invoices/${invoiceId}`);
+    fetchMock.mockReset();
+    signedInAs("procurement");
+    render(<App />);
+    await screen.findByRole("heading", { level: 1, name: "Suppliers" });
+    expect(window.location.pathname).toBe("/suppliers");
+    expect(screen.getByTestId("shell-notice")).toHaveTextContent(
+      "You don't have access to that page.",
+    );
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContain(
+      detailPath,
+    );
   });
 
   it("opens deep links, sends unknown paths home, and moves between pages from the sidebar", async () => {

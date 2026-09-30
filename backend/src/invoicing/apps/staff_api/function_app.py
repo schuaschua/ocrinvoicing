@@ -15,10 +15,12 @@ from invoicing.adapters.postgres.admin_actions import PostgresAdminActions
 from invoicing.adapters.postgres.admin_item import PostgresAdminItemReader
 from invoicing.adapters.postgres.admin_queue import PostgresAdminQueueReader
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
+from invoicing.adapters.postgres.invoice_search import PostgresInvoiceSearchReader
 from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.static import spa_endpoint
 from invoicing.apps.common import health_endpoint, load_settings, start_telemetry
 from invoicing.apps.staff_api.actions import action_endpoints
+from invoicing.apps.staff_api.invoices import invoices_endpoints
 from invoicing.apps.staff_api.item import item_endpoints
 from invoicing.apps.staff_api.me import me_endpoint
 from invoicing.apps.staff_api.queue import queue_endpoint
@@ -176,6 +178,29 @@ async def admin_approve(req: func.HttpRequest) -> func.HttpResponse:
     """Approve the invoice with a reason (and, for a bank change, both call-back
     checks): 200, 400, 401, 403, 404, 409 or 503."""
     return await approve_api(req)
+
+
+# Story 3.4: invoice search and detail for admin and finance. Read-only; bank fields
+# only as "on file" (AD-11), and no image route on this surface.
+invoice_search_api, invoice_detail_api = invoices_endpoints(
+    PostgresInvoiceSearchReader(engine),
+    currency=settings.invoice_currency,
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/invoices", methods=["GET"])
+async def invoice_search(req: func.HttpRequest) -> func.HttpResponse:
+    """Every invoice, newest first, 50 a page, filtered (admin and finance): 200, 400,
+    401, 403 or 503."""
+    return await invoice_search_api(req)
+
+
+@app.route(route="api/invoices/{invoice_id}", methods=["GET"])
+async def invoice_detail(req: func.HttpRequest) -> func.HttpResponse:
+    """One invoice's current fields, lines, history and accounts reference (admin and
+    finance): 200, 401, 404 or 503."""
+    return await invoice_detail_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

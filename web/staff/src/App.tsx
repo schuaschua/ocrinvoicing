@@ -6,6 +6,8 @@ import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui/button";
 import { navigate, useNotAllowed, usePath } from "@/router";
 import { LoadError } from "@/screens/LoadError";
+import { InvoiceDetailScreen } from "@/screens/InvoiceDetailScreen";
+import { InvoicesScreen } from "@/screens/InvoicesScreen";
 import { ItemScreen } from "@/screens/ItemScreen";
 import { Loading } from "@/screens/Loading";
 import { NoAccess } from "@/screens/NoAccess";
@@ -52,7 +54,7 @@ function routeFor(me: Me, path: string): Route {
   return { kind: "page", surface };
 }
 
-/** The invoice id of `/queue/:invoiceId`. */
+/** The invoice id of `/queue/:invoiceId` or `/invoices/:invoiceId`. */
 function itemIdFrom(path: string): string {
   const segment = path.split("/")[2] ?? "";
   try {
@@ -200,6 +202,10 @@ export function App() {
       content = <QueueScreen key={path} />;
     } else if (route.surface.id === "admin_item") {
       content = <ItemScreen key={path} invoiceId={itemIdFrom(path)} />;
+    } else if (route.surface.id === "invoices") {
+      content = <InvoicesScreen key={path} />;
+    } else if (route.surface.id === "invoice_detail") {
+      content = <InvoiceDetailScreen key={path} invoiceId={itemIdFrom(path)} />;
     } else {
       content = <SurfacePage key={path} surface={route.surface} />;
     }

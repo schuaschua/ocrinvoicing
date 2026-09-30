@@ -163,6 +163,102 @@ async function itemImage(page: Page): Promise<void> {
   }
 }
 
+/** Story 3.4: invoice search results (synthetic), with statuses as labels. */
+const INVOICES: Record<string, ApiAnswer> = {
+  "/api/invoices": {
+    status: 200,
+    body: {
+      items: [
+        {
+          invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000002",
+          reference: "R-00000002",
+          received_at: "2026-09-02T03:30:00+00:00",
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f55b0",
+          supplier_name: "Synthetic Beta Traders",
+          invoice_number: "INV-002",
+          amount: null,
+          currency: null,
+          status: "validating",
+          after_correction: true,
+        },
+        {
+          invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000001",
+          reference: "R-00000001",
+          received_at: "2026-09-01T01:02:00+00:00",
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+          supplier_name: "Synthetic Alpha Building Supplies",
+          invoice_number: "INV 001",
+          amount: "1248.50",
+          currency: "SGD",
+          status: "posted",
+          after_correction: false,
+        },
+      ],
+      page: 1,
+      page_size: 50,
+      total: 51,
+      suppliers: [
+        {
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+          supplier_name: "Synthetic Alpha Building Supplies",
+        },
+        {
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f55b0",
+          supplier_name: "Synthetic Beta Traders",
+        },
+      ],
+    },
+  },
+};
+
+/** Story 3.4: one invoice's detail (synthetic): bank fields only as on file. */
+const DETAIL_ID = "0192f0c1-7a2b-7c3d-8e4f-000000000001";
+const INVOICE_DETAIL: Record<string, ApiAnswer> = {
+  [`/api/invoices/${DETAIL_ID}`]: {
+    status: 200,
+    body: {
+      invoice_id: DETAIL_ID,
+      reference: "R-00000001",
+      received_at: "2026-09-01T01:02:00+00:00",
+      supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+      supplier_name: "Synthetic Alpha Building Supplies",
+      status: "posted",
+      after_correction: false,
+      accounts_ref: "ACC-000123",
+      posted_at: "2026-09-01T03:00:00+00:00",
+      fields: [
+        { field_id: "invoice_number", value: "INV 001", currency: null },
+        { field_id: "invoice_total", value: "1248.50", currency: "SGD" },
+      ],
+      bank_on_file: true,
+      lines: [
+        {
+          line_no: 1,
+          product_code: "EVA-01",
+          description: "EVA soles",
+          quantity: "10",
+          unit_price: "124.85",
+          amount: "1248.50",
+        },
+      ],
+      history: [
+        {
+          from_status: null,
+          to_status: "received",
+          at: "2026-09-01T01:02:00+00:00",
+          actor: "quality",
+        },
+        {
+          from_status: "posting",
+          to_status: "posted",
+          at: "2026-09-01T03:00:00+00:00",
+          actor: "post",
+        },
+      ],
+    },
+  },
+};
+
 export const SCREENS: Screen[] = [
   {
     story: "2.9",
@@ -171,6 +267,20 @@ export const SCREENS: Screen[] = [
     api: { ...me("admin"), ...ADMIN_ITEM },
     setup: itemImage,
     ready: "Call +65 6123 4567 (number on file)",
+  },
+  {
+    story: "3.4",
+    name: "invoice detail with bank details on file",
+    path: `/invoices/${DETAIL_ID}`,
+    api: { ...me("finance"), ...INVOICE_DETAIL },
+    ready: "Bank details on file",
+  },
+  {
+    story: "3.4",
+    name: "finance searches all invoices",
+    path: "/invoices",
+    api: { ...me("finance"), ...INVOICES },
+    ready: "Re-checking",
   },
   {
     story: "2.7",

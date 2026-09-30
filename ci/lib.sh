@@ -10,6 +10,9 @@ set -Eeuo pipefail
 
 CI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$CI_DIR/.." && pwd)"
+# Terraform needs its provider cache folder to exist; Jenkins sets TF_PLUGIN_CACHE_DIR
+# (Jenkinsfile), local runs usually don't.
+if [[ -n "${TF_PLUGIN_CACHE_DIR:-}" ]]; then mkdir -p "$TF_PLUGIN_CACHE_DIR"; fi
 # Reports (JUnit, Cobertura) and scratch files go under the gitignored .work/ folder.
 CI_WORK="$REPO_ROOT/.work/ci"
 export CI_DIR REPO_ROOT CI_WORK

@@ -6,7 +6,9 @@
 // status on the branch's pull request into main (ci/ado-status.sh); the branch policy
 // on main requires that status to merge.
 //
-// main: the checks, then the AD-17 order, each stack applied only from its own saved,
+// main: no checks (the pull request's branch build ran them on the same code, and the
+// branch policy merges only a passed one), then the AD-17 order, each stack applied
+// only from its own saved,
 // tag-gated plan of this run:
 //   shared/foundation (after Dj approves) -> dev/foundation -> Dev migrations
 //   -> dev/app -> Dev code
@@ -103,30 +105,49 @@ pipeline {
   environment {
     // "Running in CI": ci/checks.sh, the backend tests and the Playwright configs read it.
     TF_BUILD = 'true'
+    // Providers are downloaded once into jenkins_home and reused by every init (checks
+    // and plans), instead of each build downloading them again. Terraform still checks
+    // each one against the committed lock files.
+    TF_PLUGIN_CACHE_DIR = '/var/jenkins_home/.terraform.d/plugin-cache'
+    // The modules' own inits have no committed lock file to take checksums from.
+    TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE = 'true'
   }
   stages {
     stage('Checks') {
       agent any
+      // main: the pull request's branch build already ran every check on this code, and
+      // the branch policy on main only merges a passed one, so main goes straight to the
+      // deploy chain (Dj, 2026-09-30: checks took over 12 minutes on every build).
+      when { not { branch 'main' } }
       stages {
         stage('PR status: pending') {
-          when { not { branch 'main' } }
           steps { postStatus('pending') }
         }
-        // Every check runs, even after one fails, so a build reports them all.
-        stage('lint') {
-          steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh lint' } }
-        }
-        stage('test') {
-          steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh test' } }
-        }
-        stage('audit') {
-          steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh audit' } }
-        }
-        stage('secrets') {
-          steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh secrets' } }
-        }
-        stage('terraform') {
-          steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh terraform' } }
+        // Every check runs, even after one fails, so a build reports them all. terraform
+        // shares nothing with the app checks, so it runs beside them; lint installs the
+        // web dependencies that test uses, so those stay in order.
+        stage('Checks in parallel') {
+          parallel {
+            stage('app') {
+              stages {
+                stage('lint') {
+                  steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh lint' } }
+                }
+                stage('test') {
+                  steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh test' } }
+                }
+                stage('audit') {
+                  steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh audit' } }
+                }
+                stage('secrets') {
+                  steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh secrets' } }
+                }
+              }
+            }
+            stage('terraform') {
+              steps { catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') { sh 'ci/checks.sh terraform' } }
+            }
+          }
         }
       }
       post {

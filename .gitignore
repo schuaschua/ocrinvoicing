@@ -65,3 +65,6 @@ infra/modules/**/.terraform.lock.hcl
 .claude/settings.local.json
 .claude/*.lock
 _bmad/render/
+
+# Synthetic invoices for walking stories through in Dev (visible in file pickers).
+/test-invoices/

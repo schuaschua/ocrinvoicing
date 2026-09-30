@@ -193,7 +193,9 @@ export function InvoicesScreen() {
       </h1>
       <form
         role="search"
-        className="flex flex-wrap items-end gap-4"
+        // Top-aligned: the reference hint under its input must not lift that input
+        // above the others (the buttons sit level with the inputs, below the labels).
+        className="flex flex-wrap items-start gap-4"
         onSubmit={onSearch}
       >
         <div className="flex max-w-full min-w-0 flex-col gap-1">
@@ -262,7 +264,7 @@ export function InvoicesScreen() {
             {s.filters.referenceHint}
           </p>
         </div>
-        <div className="flex gap-2 self-center">
+        <div className="flex gap-2 sm:mt-6">
           <Button type="submit">{s.search}</Button>
           <Button type="button" variant="outline" onClick={onClear}>
             {s.clear}

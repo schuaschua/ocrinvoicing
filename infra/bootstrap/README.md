@@ -298,12 +298,14 @@ export PGHOST=babaloo-sea-lng-psql-21.postgres.database.azure.com PGPORT=5432 PG
 export PGUSER=babaloo-sea-lng-grp-01 PGDATABASE=invoicing_dev   # prod: babaloo-sea-lng-grp-11, invoicing_prod
 export PGPASSWORD="$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv)"
 uv run --directory backend --locked --no-dev python -m invoicing.tools.load_suppliers \
-  --file .work/suppliers.csv \
+  --file "$PWD/.work/suppliers.csv" \
   --host babaloo-sea-lng-func-01.azurewebsites.net \
   --vault-uri https://babaloo-sea-lng-kv-01.vault.azure.net/ \
   --account babaloosealngst01
 # Prod: -func-11, -kv-11, babaloosealngst11, and --allow-prod.
 ```
+
+On macOS with the python.org Python, run its `Install Certificates.command` once first (or `export SSL_CERT_FILE="$PWD/backend/.venv/lib/python3.13/site-packages/certifi/cacert.pem"`): otherwise the async Table Storage client fails TLS verification and the load stops after the database step with "Table Storage (supplierlinks) can't be reached". Running the same command again then issues the links.
 
 `--host` is the `supplier-api` host (`terraform output -json function_apps` in `infra/<env>/app`).
 

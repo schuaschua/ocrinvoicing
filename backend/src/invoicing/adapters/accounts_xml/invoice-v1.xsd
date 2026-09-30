@@ -5,7 +5,8 @@
   accounts-sim validates every request against it; both read this one file, so they
   cannot drift apart.
 
-  Money is xs:decimal with 2 decimals (spine conventions), quantities 3. No bank data:
+  Money is xs:decimal with 2 decimals (spine conventions), quantities 3. total_tax and
+  a line's description are optional (Story 3.2): many invoices print neither. No bank data:
   the accounts system pays from its own supplier master (AD-11).
 -->
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
@@ -68,7 +69,7 @@
     <xs:sequence>
       <xs:element name="line_no" type="xs:positiveInteger"/>
       <xs:element name="material_id" type="inv:Uuid"/>
-      <xs:element name="description" type="inv:Description"/>
+      <xs:element name="description" type="inv:Description" minOccurs="0"/>
       <xs:element name="quantity" type="inv:Quantity"/>
       <xs:element name="unit_price" type="inv:Money"/>
       <xs:element name="amount" type="inv:Money"/>
@@ -91,7 +92,7 @@
         <xs:element name="currency" type="inv:Currency"/>
         <xs:element name="po_number" type="inv:Code"/>
         <xs:element name="sub_total" type="inv:Money"/>
-        <xs:element name="total_tax" type="inv:Money"/>
+        <xs:element name="total_tax" type="inv:Money" minOccurs="0"/>
         <xs:element name="invoice_total" type="inv:Money"/>
         <xs:element name="lines" type="inv:Lines"/>
       </xs:sequence>

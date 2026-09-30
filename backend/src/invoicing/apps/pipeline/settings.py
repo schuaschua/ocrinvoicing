@@ -4,6 +4,7 @@ from pydantic import Field
 
 from invoicing.adapters.purchasing_factory import PurchasingAdapterName
 from invoicing.apps.common import (
+    AccountsAudience,
     AppSettings,
     CurrencyCode,
     HostName,
@@ -15,7 +16,7 @@ from invoicing.apps.common import (
 
 class PipelineSettings(AppSettings):
     """The environment's storage account (queues, blobs, tables), Key Vault, database
-    (AD-11) and Document Intelligence (AD-8). The database login is the pipeline
+    (AD-11), Document Intelligence (AD-8) and the accounts system (AD-10). The database login is the pipeline
     identity, signing in with an Entra token: there is no password setting."""
 
     storage_account_name: StorageAccountName
@@ -32,3 +33,9 @@ class PipelineSettings(AppSettings):
     di_endpoint: HttpsUrl
     di_monthly_page_cap: int = Field(gt=0)
     invoice_currency: CurrencyCode = "SGD"
+    # Story 3.2 (AD-10): the accounts system's base URL (this environment's
+    # accounts-sim, `https://<host>/api`) and the audience its token is for
+    # (`api://<accounts-sim client id>`). Switching to the real system changes only
+    # these two settings.
+    accounts_base_url: HttpsUrl
+    accounts_audience: AccountsAudience

@@ -40,6 +40,7 @@ from invoicing.adapters.postgres.schema import (
     status_history,
 )
 from invoicing.domain.ids import new_uuid7
+from invoicing.domain.posting import resets_post_failures
 from invoicing.domain.status import InvoiceStatus, Stage
 from invoicing.domain.sweep import (
     BACKOFF_STATUSES,
@@ -187,10 +188,16 @@ class PostgresInvoiceRepository:
             # Raised inside the transaction, so everything it wrote is rolled back.
             return False
 
-    def transition_in(self, connection: Connection, plan: Transition) -> bool:
+    def transition_in(
+        self, connection: Connection, plan: Transition, **extra: Any
+    ) -> bool:
         """Run `plan` inside the caller's transaction, ending any lease: the target is
-        a waiting status (Story 2.3 saves a run with it, AD-3 save-before-finish)."""
-        return self._transition(connection, plan, None, {"claimed_until": None})
+        a waiting status (Story 2.3 saves a run with it, AD-3 save-before-finish).
+        `extra` columns are set with it (Story 3.2: the posting count and backoff,
+        `posted_at`)."""
+        return self._transition(
+            connection, plan, None, {"claimed_until": None, **extra}
+        )
 
     def route_in(self, connection: Connection, routing: AdminRouting) -> bool:
         """Run `routing` inside the caller's transaction (Story 2.5 saves its PO
@@ -262,6 +269,11 @@ class PostgresInvoiceRepository:
         }
         if quality is not None:
             values["photo_taken_at"] = quality.photo_taken_at
+        if resets_post_failures(plan.from_status, plan.to_status):
+            # AD-3: a validated, corrected or approved invoice starts the posting
+            # ladder again, with no backoff left from an earlier try.
+            values["post_failures"] = 0
+            values["next_attempt_at"] = None
         conditions = [
             invoice.c.id == plan.invoice_id,
             invoice.c.status == plan.from_status.value,

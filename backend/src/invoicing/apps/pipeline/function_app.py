@@ -4,7 +4,8 @@
 Queue and timer triggers only, never HTTP routes (AD-1). Story 2.1 adds the `quality`
 stage on `q-quality`; Story 2.2 the poison triggers, the AD-7 database wait and the
 sweeper timer; Story 2.3 the `extract` stage on `q-extract`; Story 2.5 the `validate`
-stage on `q-validate`, and Story 2.6 its duplicate, date and bank checks. The other stages arrive with their stories.
+stage on `q-validate`, and Story 2.6 its duplicate, date and bank checks; Story 3.2 the
+`post` stage on `q-post`.
 """
 
 import azure.functions as func
@@ -13,6 +14,7 @@ from azure.identity.aio import (
     ManagedIdentityCredential as AsyncManagedIdentityCredential,
 )
 
+from invoicing.adapters.accounts_xml.client import AccountsXmlClient
 from invoicing.adapters.blob_images import BlobImageStore
 from invoicing.adapters.document_intelligence import DocumentIntelligenceAnalyzer
 from invoicing.adapters.documents import load_quality_thresholds
@@ -21,6 +23,7 @@ from invoicing.adapters.metrics import OpenTelemetryMetrics
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.postgres.extraction import PostgresExtractionRepository
 from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
+from invoicing.adapters.postgres.posting import PostgresPostingRepository
 from invoicing.adapters.postgres.suppliers import PostgresSupplierReader
 from invoicing.adapters.postgres.validation import PostgresValidationRepository
 from invoicing.adapters.purchasing_factory import purchasing_port
@@ -31,6 +34,7 @@ from invoicing.apps.common import load_settings, start_telemetry
 from invoicing.apps.pipeline.dbwait import wait_for_database
 from invoicing.apps.pipeline.extract import ExtractDependencies, extract_handler
 from invoicing.apps.pipeline.poison import poison_handler
+from invoicing.apps.pipeline.post import PostDependencies, post_handler
 from invoicing.apps.pipeline.quality import quality_handler
 from invoicing.apps.pipeline.settings import PipelineSettings
 from invoicing.apps.pipeline.sweeper import SWEEP_SCHEDULE, Sweeper
@@ -106,17 +110,38 @@ extract_stage = wait_for_database(
 # Story 2.5: purchasing is read before the finishing transaction (AD-10); the PO
 # match, the duplicate check (Story 2.6) and the writes run under the per-supplier
 # lock (AD-9, AD-19). A matched PO's reminder row is deleted after the commit (AD-6).
+validations = PostgresValidationRepository(engine, invoices)
 validate_stage = wait_for_database(
     QueueName.VALIDATE,
     queue,
     validate_handler(
         ValidateDependencies(
             invoices=invoices,
-            validations=PostgresValidationRepository(engine, invoices),
+            validations=validations,
             purchasing=purchasing,
             suppliers=PostgresSupplierReader(engine),
             queue=queue,
             reminders=reminders,
+        )
+    ),
+)
+# Story 3.2: the AD-18 current values go to the accounts system through its one
+# adapter (AD-10), with a managed-identity token for accounts-sim's registration.
+post_stage = wait_for_database(
+    QueueName.POST,
+    queue,
+    post_handler(
+        PostDependencies(
+            invoices=invoices,
+            postings=PostgresPostingRepository(engine, invoices),
+            validations=validations,
+            accounts=AccountsXmlClient(
+                base_url=settings.accounts_base_url,
+                audience=settings.accounts_audience,
+                credential=AsyncManagedIdentityCredential(client_id=_identity),
+            ),
+            queue=queue,
+            currency=settings.invoice_currency,
         )
     ),
 )
@@ -157,6 +182,14 @@ async def validate(msg: func.QueueMessage) -> None:
     """The validate stage: confidence, PO match and printed supplier (Story 2.5);
     duplicates, photo date and bank details (Story 2.6)."""
     await validate_stage(msg.get_body())
+
+
+@app.queue_trigger(
+    arg_name="msg", queue_name=QueueName.POST.value, connection="AzureWebJobsStorage"
+)
+async def post(msg: func.QueueMessage) -> None:
+    """The post stage: send a clean invoice to the accounts system (Story 3.2)."""
+    await post_stage(msg.get_body())
 
 
 # AD-2: one trigger per poison queue; each routes PROCESSING_FAILED under the guard.

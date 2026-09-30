@@ -38,6 +38,10 @@ PgName = Annotated[
 ]
 # An ISO 4217 code, e.g. SGD.
 CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+# An Entra token audience: an app ID URI (`api://<client id>`) or an https URL.
+AccountsAudience = Annotated[
+    str, StringConstraints(min_length=1, pattern=r"^(api|https)://[^\s/]+/?$")
+]
 
 
 class SettingsError(RuntimeError):

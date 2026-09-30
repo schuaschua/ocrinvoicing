@@ -5,7 +5,8 @@
 # settings, Story 2.2 the pipeline's poison_message and stuck_invoices metric alerts,
 # Story 2.3 the pipeline's DI settings, its Cognitive Services User assignment and the
 # di_pages_used_pct alert, Story 2.7 staff-api's built-in auth, and Story 3.1
-# accounts-sim's built-in auth and database settings.
+# accounts-sim's built-in auth and database settings, and Story 3.2 the pipeline's
+# accounts settings.
 
 locals {
   apps = toset(keys(var.app_names))
@@ -77,6 +78,12 @@ locals {
       DI_ENDPOINT         = var.document_intelligence_endpoint
       DI_MONTHLY_PAGE_CAP = tostring(var.di_monthly_page_cap)
       INVOICE_CURRENCY    = var.invoice_currency
+      # Story 3.2 (AD-10): this environment's accounts-sim, by its default host name
+      # (the app's own output would be a cycle), and the audience of the token the
+      # pipeline sends it: accounts-sim's own registration. The real system changes
+      # only these two.
+      ACCOUNTS_BASE_URL = "https://${var.app_names["accounts_sim"].function_app}.azurewebsites.net/api"
+      ACCOUNTS_AUDIENCE = "api://${var.accounts_sim_client_id}"
     }
     # Story 3.1 (AD-10, AD-11): accounts-sim's own database login (its identity's
     # name, Entra token, no password), and the one principal it serves, this

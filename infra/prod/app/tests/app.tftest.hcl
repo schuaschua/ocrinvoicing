@@ -256,12 +256,14 @@ run "prod_app" {
       module.app.pipeline_app_settings.DI_ENDPOINT == "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/" &&
       module.app.pipeline_app_settings.DI_MONTHLY_PAGE_CAP == "400" &&
       module.app.pipeline_app_settings.INVOICE_CURRENCY == "SGD" &&
+      module.app.pipeline_app_settings.ACCOUNTS_BASE_URL == "https://babaloo-sea-lng-func-14.azurewebsites.net/api" &&
+      module.app.pipeline_app_settings.ACCOUNTS_AUDIENCE == "api://30000000-0000-0000-0000-0000000000b1" &&
       module.app.staff_api_app_settings.POSTGRES_DATABASE == "invoicing_prod" &&
       module.app.staff_api_app_settings.POSTGRES_USER == "babaloo-sea-lng-id-12" &&
       module.app.staff_api_app_settings.DI_MONTHLY_PAGE_CAP == "400" &&
       module.app.staff_api_app_settings.INVOICE_CURRENCY == "SGD"
     )
-    error_message = "the prod pipeline must call the shared DI endpoint with a cap of 400 pages a month in SGD (AD-8), and staff-api (Story 2.8) must sign in to the prod database as its own identity with the same cap and currency."
+    error_message = "the prod pipeline must call the shared DI endpoint with a cap of 400 pages a month in SGD (AD-8) and post to its own accounts-sim (Story 3.2), and staff-api (Story 2.8) must sign in to the prod database as its own identity with the same cap and currency."
   }
   assert {
     condition     = output.metric_alerts["di_pages_used_pct"].criteria == { metric_name = "di_pages_used_pct", operator = "GreaterThanOrEqual", threshold = 80 }

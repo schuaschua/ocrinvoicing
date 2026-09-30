@@ -84,6 +84,21 @@ Each story: plan, coding agent, edge-case and verification-gap reviews run one a
 - **Review:** 15 findings patched.
 - The shared API client gained a `SESSION_RESTORED` event, in both apps.
 
+### 2.11 Opt-in keyboard shortcuts (`b71ab72`, OCR-34), deployed in build #12
+- Shortcuts are off by default, stored in `localStorage` (off if storage is unavailable). A switch in the header, or in the menu below 640 px, turns them on; `?` opens help.
+- **Keys:** `j`/`k`/Enter on the queue; `c`/`r`/`n`/`p`/Esc on an item.
+- **Guards:** nothing fires while typing or while a dialog is open. `Esc` in Correct mode doesn't leave the item, so edits aren't lost.
+- **Review:** 7 findings patched, including Caps Lock silently disabling every shortcut.
+- **Epic 2 is now fully built.**
+
+### 3.1 Simulated accounts system (`58ad6e4`, OCR-66), build #13
+- **`POST /api/invoices` on accounts-sim:** XSD-validated XML (hardened parsing), stored once per invoice, returning a `SIM-…` ref.
+- **Who can call it:** only this environment's pipeline identity, checked by built-in auth and by an in-code principal check that fails closed.
+- **Failure mode:** kept in the database (`sim_accounts.failure_mode`).
+- **XML builder** for Story 3.2: never rounds; refuses bad values.
+- **Review:** 12 findings patched, including one high: money could have been silently rounded.
+- **To confirm on Dev:** built-in auth accepting the pipeline's managed-identity token. For Prod, `accounts_sim_client_id` still needs filling in.
+
 ### Test merge (`3c275d2`)
 Backend tests were merged to free room under the cap, 198 → 163 cases, with every assertion kept.
 

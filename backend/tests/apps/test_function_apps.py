@@ -77,6 +77,10 @@ def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper
     (validate,) = [b.get_dict_repr() for b in functions["validate"].get_bindings()]
     assert (validate["type"], validate["queueName"]) == ("queueTrigger", "q-validate")
     assert validate["connection"] == "AzureWebJobsStorage"
+    # Story 3.2: the post stage consumes q-post.
+    (post,) = [b.get_dict_repr() for b in functions["post"].get_bindings()]
+    assert (post["type"], post["queueName"]) == ("queueTrigger", "q-post")
+    assert post["connection"] == "AzureWebJobsStorage"
     (timer,) = [b.get_dict_repr() for b in functions["sweeper"].get_bindings()]
     assert timer["type"] == "timerTrigger"
     # AD-2: every 15 minutes, NCRONTAB in UTC; no run on a cold start.
@@ -115,6 +119,8 @@ def test_story_1_3_a_missing_empty_or_malformed_setting_stops_the_app_naming_it_
         ("staff_api", "KEY_VAULT_URI", "http://plain-http-vault.example"),
         # Story 2.1: a host that could smuggle in libpq options.
         ("pipeline", "POSTGRES_HOST", "db.example host=evil"),
+        # Story 3.2: the accounts token's audience is an app ID URI or https only.
+        ("pipeline", "ACCOUNTS_AUDIENCE", "http://x"),
     ]:
         with monkeypatch.context() as env:
             app_env(env, app)

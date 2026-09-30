@@ -65,6 +65,9 @@ _LINE_COLUMNS = (
     invoice_line.c.unit_price,
     invoice_line.c.amount,
     invoice_line.c.po_line_id,
+    # Story 3.2: posted with the line (the accounts contract).
+    invoice_line.c.description,
+    invoice_line.c.material_id,
 )
 # The value columns of a field row; never `bank_ciphertext` (AD-11).
 _FIELD_COLUMNS = (
@@ -105,6 +108,8 @@ def _line(row: Any) -> LineValue:
         unit_price=row.unit_price,
         amount=row.amount,
         po_line_id=row.po_line_id,
+        description=row.description,
+        material_id=row.material_id,
     )
 
 

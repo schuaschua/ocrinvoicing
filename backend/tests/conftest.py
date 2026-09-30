@@ -61,6 +61,9 @@ APP_ONLY_SETTINGS = {
         "DI_ENDPOINT": "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/",
         "DI_MONTHLY_PAGE_CAP": "100",
         "INVOICE_CURRENCY": "SGD",
+        # Story 3.2: this environment's accounts-sim and its registration's audience.
+        "ACCOUNTS_BASE_URL": "https://babaloo-sea-lng-func-04.azurewebsites.net/api",
+        "ACCOUNTS_AUDIENCE": "api://30000000-0000-0000-0000-0000000000b1",
     },
 }
 

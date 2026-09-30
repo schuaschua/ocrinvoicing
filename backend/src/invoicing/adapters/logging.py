@@ -17,6 +17,8 @@ from uuid import UUID
 # Keys that hold ids, codes or timings. Nothing else is ever emitted.
 ALLOWED_KEYS = frozenset(
     {
+        # The accounts system's reference for a posted invoice (Story 3.2): an id.
+        "accounts_ref",
         "app",
         "attempt",
         "blob_written",

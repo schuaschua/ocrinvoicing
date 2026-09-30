@@ -434,7 +434,7 @@ run "story_1_3_env_app_settings_plan" {
     condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
       supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
       staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
-      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_ENDPOINT", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
+      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_ENDPOINT", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY", "ACCOUNTS_BASE_URL", "ACCOUNTS_AUDIENCE"])
       accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "PIPELINE_PRINCIPAL_ID"])
     }
     error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
@@ -464,9 +464,11 @@ run "story_1_3_env_app_settings_plan" {
       local.app_settings["pipeline"].POSTGRES_USER == "babaloo-sea-lng-id-03" &&
       local.app_settings["pipeline"].DI_ENDPOINT == "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/" &&
       local.app_settings["pipeline"].DI_MONTHLY_PAGE_CAP == "100" &&
-      local.app_settings["pipeline"].INVOICE_CURRENCY == "SGD"
+      local.app_settings["pipeline"].INVOICE_CURRENCY == "SGD" &&
+      local.app_settings["pipeline"].ACCOUNTS_BASE_URL == "https://babaloo-sea-lng-func-04.azurewebsites.net/api" &&
+      local.app_settings["pipeline"].ACCOUNTS_AUDIENCE == "api://30000000-0000-0000-0000-0000000000b1"
     )
-    error_message = "the pipeline must connect to its environment's database as its own identity's login, and to DI with its cap and currency (Story 2.3)."
+    error_message = "the pipeline must connect to its environment's database as its own identity's login, to DI with its cap and currency (Story 2.3), and to its own accounts-sim with that registration's audience (Story 3.2)."
   }
   # Story 2.8: staff-api signs in as its own identity, with the same cap and currency.
   assert {

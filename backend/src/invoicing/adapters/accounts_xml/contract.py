@@ -7,8 +7,8 @@ document from loading anything, local or remote. Documents are size-capped befor
 they are read. Errors never carry the document's values, and nothing here logs.
 
 accounts-sim validates and parses requests with `parse_invoice` and answers with
-`result_xml`; the pipeline's post stage (Story 3.2) builds requests with
-`build_invoice_xml`.
+`result_xml`; the pipeline's accounts client (`client.py`, Story 3.2) builds requests
+with `build_invoice_xml` and reads the answer with `parse_result`.
 """
 
 import io
@@ -39,7 +39,8 @@ class AccountsInvoiceLine:
 
     line_no: int
     material_id: UUID
-    description: str
+    # None: the invoice printed none (omitted from the document).
+    description: str | None
     quantity: Decimal
     unit_price: Decimal
     amount: Decimal
@@ -57,7 +58,8 @@ class AccountsInvoice:
     currency: str
     po_number: str
     sub_total: Decimal
-    total_tax: Decimal
+    # None: the invoice printed none (omitted from the document).
+    total_tax: Decimal | None
     invoice_total: Decimal
     lines: tuple[AccountsInvoiceLine, ...]
 
@@ -101,13 +103,13 @@ def parse_invoice(document: bytes) -> AccountsInvoice:
             currency=data["currency"],
             po_number=data["po_number"],
             sub_total=data["sub_total"],
-            total_tax=data["total_tax"],
+            total_tax=data.get("total_tax"),
             invoice_total=data["invoice_total"],
             lines=tuple(
                 AccountsInvoiceLine(
                     line_no=line["line_no"],
                     material_id=UUID(line["material_id"]),
-                    description=line["description"],
+                    description=line.get("description"),
                     quantity=line["quantity"],
                     unit_price=line["unit_price"],
                     amount=line["amount"],
@@ -155,7 +157,8 @@ def build_invoice_xml(invoice: AccountsInvoice) -> bytes:
     """`invoice` as a UTF-8 document valid against invoice-v1.xsd; `XmlInvalidError`
     when a value breaks the schema (the encoder validates as it builds), has more
     decimals than the wire allows (never rounded), is not finite, holds a character XML
-    can't carry, or is a reference that isn't whitespace-normalised."""
+    can't carry, or is a reference that isn't whitespace-normalised. A None `total_tax`
+    or line `description` is left out (both optional in the XSD)."""
     data = {
         "@xmlns": NAMESPACE,
         "invoice_id": str(invoice.invoice_id),
@@ -165,14 +168,23 @@ def build_invoice_xml(invoice: AccountsInvoice) -> bytes:
         "currency": _text(invoice.currency, token=True),
         "po_number": _text(invoice.po_number, token=True),
         "sub_total": _money(invoice.sub_total),
-        "total_tax": _money(invoice.total_tax),
+        # Optional: omitted when the invoice printed none.
+        **(
+            {}
+            if invoice.total_tax is None
+            else {"total_tax": _money(invoice.total_tax)}
+        ),
         "invoice_total": _money(invoice.invoice_total),
         "lines": {
             "line": [
                 {
                     "line_no": line.line_no,
                     "material_id": str(line.material_id),
-                    "description": _text(line.description),
+                    **(
+                        {}
+                        if line.description is None
+                        else {"description": _text(line.description)}
+                    ),
                     "quantity": _fixed(line.quantity, 3),
                     "unit_price": _money(line.unit_price),
                     "amount": _money(line.amount),
@@ -190,6 +202,32 @@ def build_invoice_xml(invoice: AccountsInvoice) -> bytes:
         element, namespaces={"": NAMESPACE}, xml_declaration=True, encoding="utf-8"
     )
     return document if isinstance(document, bytes) else document.encode("utf-8")
+
+
+# What the pipeline accepts as a reference: a short code, never free text, so it can be
+# stored and shown safely. accounts-sim sends SIM-<digits>.
+_ACCOUNTS_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./-]{0,63}")
+
+
+def _local(tag: object) -> str:
+    """An element's name without its `{namespace}`."""
+    return str(tag).rpartition("}")[2]
+
+
+def parse_result(document: bytes) -> str:
+    """The `accounts_ref` in the accounts system's answer
+    (`<result><accounts_ref>…</accounts_ref></result>`, in any namespace), parsed
+    defused like every document here; `XmlInvalidError` when it is not that shape or
+    the reference is not a short code."""
+    root = _resource(document).root
+    found = None
+    if _local(root.tag) == "result":
+        # By local name: a namespaced answer is the same answer.
+        found = next((c for c in root if _local(c.tag) == "accounts_ref"), None)
+    text = None if found is None else (found.text or "").strip()
+    if text is None or not _ACCOUNTS_REF.fullmatch(text):
+        raise XmlInvalidError()
+    return text
 
 
 # The answer to a stored invoice: <result><accounts_ref>SIM-000123</accounts_ref></result>.

@@ -96,6 +96,12 @@ def test_story_3_1_invoice_xml_round_trips_through_the_xsd() -> None:
         with pytest.raises(XmlInvalidError):
             build_invoice_xml(broken)
 
+    # Story 3.2: no tax total and no line description are both optional, left out.
+    bare = replace(INVOICE, total_tax=None, lines=(replace(line, description=None),))
+    bare_document = build_invoice_xml(bare)
+    assert b"total_tax" not in bare_document and b"description" not in bare_document
+    assert parse_invoice(bare_document) == replace(bare, sub_total=Decimal("100.00"))
+
     assert result_xml("SIM-000123") == (
         b'<?xml version="1.0" encoding="utf-8"?>\n'
         b"<result><accounts_ref>SIM-000123</accounts_ref></result>"

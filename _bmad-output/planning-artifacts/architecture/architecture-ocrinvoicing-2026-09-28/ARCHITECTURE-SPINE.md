@@ -463,12 +463,12 @@ stateDiagram-v2
   - **Lines.** Each is one `intake.invoice_line` row: `{invoice_id, run_id, line_no, product_code, description, quantity, unit, unit_price, amount, tax, confidence, po_line_id, material_id, source}`. `confidence` is the lowest of the line's checked fields. `po_line_id` and `material_id` are filled by the `validate` stage (AD-19).
   - **Current value.** The current values are the rows of the invoice's latest `extraction_run`, overlaid by the `source=admin` rows that carry that `run_id`; for each field or line, the newest such row wins. Rows from earlier runs are never current, so a Re-extract drops earlier corrections. An admin correction adds a row with confidence 1.0 and never updates a DI row. A corrected line is written as a complete line row, copying every uncorrected column. Every reader (validation, the admin screen, analytics) uses this rule, through one domain function.
   - **Field ids.** DI names in snake_case (`vendor_name`, `vendor_tax_id`, `invoice_date`, `purchase_order`, `sub_total`, `total_tax`, `invoice_total`, …), except `InvoiceId`, which becomes `invoice_number`. Line fields are `line[<n>].<field>`. DI returns `PaymentDetails` as a list, so bank fields are `payment[<n>].bank_account_number`, `payment[<n>].iban` and `payment[<n>].swift`; their bank field id is the part after the dot.
-  - **Checked fields** for `LOW_CONFIDENCE` (P-9, 0.98):
+  - **Checked fields** for `LOW_CONFIDENCE` (P-9, 0.90; Dj lowered it from 0.98 on 2026-09-30):
     - always: `vendor_name`, `invoice_number`, `invoice_date`, `sub_total`, `invoice_total`, and for every line `product_code`, `quantity`, `unit_price` and `amount`;
     - for supplier uploads: `purchase_order` (goods-in scans take the PO from the delivery);
     - when DI returns it: `vendor_tax_id`.
 
-    A checked field that is missing counts as confidence 0. Other DI fields are stored but never checked. **This departs from P-9**, which sends any field below 98% to the admin queue; Dj accepted it, because checking every returned field would defeat the 90% straight-through target. Bank fields are not checked for confidence: a fingerprint match with the master proves the read, and a mismatch already raises `BANK_CHANGED` (AD-19).
+    A checked field that is missing counts as confidence 0. Other DI fields are stored but never checked. **This departs from P-9**, which sends any field below 90% to the admin queue; Dj accepted it, because checking every returned field would defeat the 90% straight-through target. Bank fields are not checked for confidence: a fingerprint match with the master proves the read, and a mismatch already raises `BANK_CHANGED` (AD-19).
 
 ### AD-19: Validation rules [ADOPTED]
 

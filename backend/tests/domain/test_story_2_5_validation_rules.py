@@ -149,7 +149,7 @@ def test_story_2_5_validation_rules() -> None:
         [RunRow(RUN, T0)],
         [
             *[f for f in confident if f.field_id != "invoice_date"],
-            _field("invoice_date", "2026-09-28", 0.97),
+            _field("invoice_date", "2026-09-28", 0.89),
             _field("purchase_order", "PO-1", 0.5),
             _field("payment[0].iban", None, 0.1),
             _field("customer_name", "Anyone", 0.1),
@@ -165,19 +165,19 @@ def test_story_2_5_validation_rules() -> None:
     scan = check_confidence(values, supplier_upload=False)
     assert scan is not None
     assert scan.field_ids == ("invoice_date", "line[2].quantity")
-    # `vendor_tax_id` only when DI returned it; admin rows count 1.0; 0.98 passes; a
-    # line whose lowest confidence is under 0.98 names all its checked fields.
+    # `vendor_tax_id` only when DI returned it; admin rows count 1.0; 0.90 passes; a
+    # line whose lowest confidence is under 0.90 names all its checked fields.
     values = current_values(
         [RunRow(RUN, T0)],
         [
             *confident[:4],
-            _field("invoice_total", "x", 0.98),
+            _field("invoice_total", "x", 0.90),
             _field("vendor_tax_id", "T1", 0.4),
             _field("vendor_tax_id", "T1", 0.4, source="admin", at=later),
         ],
         # An admin line counts 1.0, even with a checked field left empty.
         [
-            _line(1, "A", "1", confidence=0.9),
+            _line(1, "A", "1", confidence=0.89),
             _line(2, None, None, confidence=0.0, source="admin"),
         ],
     )

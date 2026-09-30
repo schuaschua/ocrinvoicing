@@ -59,7 +59,7 @@ function item(extra: Record<string, unknown> = {}) {
       field("invoice_total", {
         value: "109.00",
         currency: "SGD",
-        confidence: 0.91,
+        confidence: 0.84,
         page: 1,
         polygon: BOX_A,
         flagged: true,
@@ -133,9 +133,9 @@ describe("2.9 admin item", () => {
     ).toEqual(["1", "2"]);
     expect(boxes[0]).toHaveAttribute("data-selected", "true");
     expect(boxes[0]?.style.borderWidth).toBe(`${4 / scale()}px`);
-    // The confidence badge (below 98 %) and the flag state; admin rows count 1.0.
+    // The confidence badge (below 90 %) and the flag state; admin rows count 1.0.
     const totalRow = total.closest("li") as HTMLElement;
-    expect(totalRow).toHaveTextContent("Confidence 91%");
+    expect(totalRow).toHaveTextContent("Confidence 84%");
     expect(totalRow).toHaveTextContent(strings.item.fields.flagged);
     expect(totalRow).toHaveTextContent("SGD 109.00");
     const dateRow = fieldButton(/Invoice date/).closest("li") as HTMLElement;

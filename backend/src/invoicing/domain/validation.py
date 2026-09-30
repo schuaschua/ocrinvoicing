@@ -35,8 +35,9 @@ from invoicing.domain.extraction import (
 from invoicing.domain.reasons import ReasonCode
 from invoicing.domain.transitions import AdminReason
 
-# P-9 / AD-18: a checked field below this confidence goes to an admin.
-CONFIDENCE_THRESHOLD = 0.98
+# P-9 / AD-18: a checked field below this confidence goes to an admin (Dj lowered it
+# from 0.98 on 2026-09-30: phone photos rarely reach 0.98 even when read correctly).
+CONFIDENCE_THRESHOLD = 0.90
 # AD-19: the least token-set similarity (0-100) of the printed and master names.
 NAME_SIMILARITY_MIN = 85
 # AD-19: sub_total within the larger of 1 % of the expected amount and 1.00.
@@ -195,7 +196,7 @@ def _low_line_fields(line: LineValue) -> list[str]:
 def check_confidence(
     values: CurrentValues, *, supplier_upload: bool
 ) -> AdminReason | None:
-    """`LOW_CONFIDENCE` naming each checked field below 0.98 (AD-18): the header
+    """`LOW_CONFIDENCE` naming each checked field below 0.90 (AD-18): the header
     fields, `purchase_order` for supplier uploads, `vendor_tax_id` when DI returned it,
     and every line's checked fields. Bank and other fields are never checked."""
     checked = list(CHECKED_HEADER_FIELDS)

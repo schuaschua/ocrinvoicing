@@ -127,7 +127,7 @@ Added or overridden:
 
 - **Capture button:** the supplier page's single primary action. Full width, at least 56px tall, with an icon and a label.
 - **Reason chip:** one per admin-queue reason, labelled with the plain-language name from `EXPERIENCE.md`, never the code. The blocking variant is used for `BANK_CHANGED` and `SUPPLIER_ID_MISMATCH`.
-- **Confidence badge:** shown next to any extracted field with confidence below 98%, with the value (for example "91%") in `{typography.numeric}`.
+- **Confidence badge:** shown next to any extracted field with confidence below 90%, with the value (for example "84%") in `{typography.numeric}`.
 - **Field flag box:** a red outline with a white halo, drawn over the invoice image at a flagged field's bounding region, with a numbered tag that matches the field list. When selected, the stroke widens to 4px, so selection doesn't rely on color alone.
 - **Focus ring:** `{components.focus-ring}` on every interactive element, never removed.
 - **Masked value:** admins see bank account numbers as `•••• 4821`, in `{typography.numeric}`, with a **Show** control.

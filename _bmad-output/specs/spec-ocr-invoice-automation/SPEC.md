@@ -28,7 +28,7 @@ This build is a proof of concept. Pain plus opportunity. A sport-shoe retail cha
   - **success:** A blurred, dark or cropped photo is refused before submission with a retake prompt; a clear photo is accepted. After 2 refusals the supplier may send it anyway; the server re-checks it with the same thresholds, processes it normally if it passes, and sends it to the admin queue if it fails.
 - **CAP-4**
   - **intent:** Invoice fields are extracted from any supplier layout, including handwriting, with a confidence per field.
-  - **success:** An invoice in a layout never seen before is extracted without per-supplier setup; each field carries a confidence score, and any checked field below 98% sends the invoice to the admin queue. The checked fields are the supplier name, invoice number, invoice date, sub-total and total; each line's product code, quantity, unit price and amount; the PO number on supplier uploads; and the supplier tax ID when it is printed. Other fields are stored but not checked (AD-18).
+  - **success:** An invoice in a layout never seen before is extracted without per-supplier setup; each field carries a confidence score, and any checked field below 90% sends the invoice to the admin queue. The checked fields are the supplier name, invoice number, invoice date, sub-total and total; each line's product code, quantity, unit price and amount; the PO number on supplier uploads; and the supplier tax ID when it is printed. Other fields are stored but not checked (AD-18).
 - **CAP-5**
   - **intent:** Extracted amounts are checked against the PO price × received quantity.
   - **success:** An invoice whose pre-tax amount differs from PO price × the received quantity not yet invoiced, by more than the larger of 1% and 1.00, lands in the admin queue, not the accounts system (AD-19).
@@ -87,7 +87,7 @@ This build is a proof of concept. Pain plus opportunity. A sport-shoe retail cha
 - Every invoice auto-posts unless a check flags it; the admin queue is the only human touchpoint.
 - The late-shipment signal is rule-based (no invoice by the PO expected date); no predictive modelling.
 - The PoC is tested at no more than 500 invoice pages a month, and no invoice is longer than 2 pages. The target state is thousands of invoices a month.
-- OCR confidence threshold is 98% per checked field (CAP-4); below it, the invoice goes to the admin queue.
+- OCR confidence threshold is 90% per checked field (CAP-4; Dj lowered it from 98% on 2026-09-30, because phone photos rarely reach 98% even when read correctly); below it, the invoice goes to the admin queue.
 - PO and goods-received data come from an external DB, simulated for now; the source must be swappable without changing the capabilities that use it.
 - Invoice images and admin corrections are retained for 1 month (PoC).
 - All capabilities are in scope; no minimal-first slice. CAP-19 is could-have.

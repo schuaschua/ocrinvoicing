@@ -17,9 +17,9 @@ import { fieldLabel, type FlagBox } from "./boxes";
 import { Masked } from "./MaskedValue";
 
 /** P-9 / AD-18: below this a field shows its confidence badge. */
-export const CONFIDENCE_THRESHOLD = 0.98;
+export const CONFIDENCE_THRESHOLD = 0.9;
 
-/** DESIGN.md Confidence badge, announced as "Confidence 91%". Never rounded up to 98. */
+/** DESIGN.md Confidence badge, announced as "Confidence 84%". Rounded down, so it never reads 90. */
 export function ConfidenceBadge({ confidence }: { confidence: number | null }) {
   if (confidence === null || confidence >= CONFIDENCE_THRESHOLD) return null;
   const percent = Math.floor(confidence * 100);
@@ -58,7 +58,7 @@ interface FieldListProps {
 
 /**
  * The item's current fields (EXPERIENCE.md Field list, UX-DR11): each with its value,
- * a confidence badge below 98 % and its flag state; a flagged field with a box carries
+ * a confidence badge below 90 % and its flag state; a flagged field with a box carries
  * the box's number. Choosing a field highlights its box; choosing a box focuses its
  * field here.
  */

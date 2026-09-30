@@ -287,9 +287,12 @@ module "function_apps" {
 }
 
 # azapi, not the AVM module: avm-res-web-site 0.23.0 (the latest) has no input for
-# scaleAndConcurrency.triggers. A PATCH of this one field on the site the module owns
-# (terraform.md rule 2), which ignores the path (ignore_body_changes above); a full PUT
-# would re-send siteConfig fields Flex rejects (ARM 51021).
+# scaleAndConcurrency.triggers. A PATCH on the site the module owns (terraform.md rule
+# 2), which ignores the triggers path (ignore_body_changes above); a full PUT would
+# re-send siteConfig fields Flex rejects (ARM 51021). Flex replaces functionAppConfig
+# as a whole ("Runtime name and version must be provided", Dev build #20), so the
+# PATCH carries all of it, with the same values the module is given, as
+# `az functionapp scale config set` does.
 resource "azapi_resource_action" "http_concurrency" {
   for_each = local.http_per_instance_concurrency
 
@@ -299,8 +302,27 @@ resource "azapi_resource_action" "http_concurrency" {
   body = {
     properties = {
       functionAppConfig = {
+        deployment = {
+          storage = {
+            type  = "blobcontainer"
+            value = "${local.blob_endpoint}/${azurerm_storage_container.deployment[each.key].name}"
+            authentication = {
+              type                           = "userassignedidentity"
+              userAssignedIdentityResourceId = var.identities[each.key].resource_id
+            }
+          }
+        }
+        runtime = {
+          name    = local.runtime_name
+          version = local.runtime_version
+        }
+        # The platform's value on these sites (read 2026-09-30); sent so the PATCH
+        # can't reset it.
+        siteUpdateStrategy = { type = "Recreate" }
         scaleAndConcurrency = {
-          triggers = { http = { perInstanceConcurrency = each.value } }
+          maximumInstanceCount = local.maximum_instance_counts[each.key]
+          instanceMemoryMB     = local.instance_memory_mb
+          triggers             = { http = { perInstanceConcurrency = each.value } }
         }
       }
     }

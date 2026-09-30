@@ -22,13 +22,17 @@ PAGE_SIZE = 50
 class SearchQuery:
     """Which page, and the filters (all optional, combined with AND): a supplier, a
     set of statuses, an invoice number already normalised (`normalise_invoice_number`)
-    and the 5 low bytes of a supplier reference (`parse_reference`)."""
+    and the 5 low bytes of a supplier reference (`parse_reference`). `text` is the
+    one-box search, already trimmed: an invoice matches when it is its supplier
+    reference, its normalised invoice number, or is contained in its supplier's name
+    (any case)."""
 
     page: int = 1
     supplier_id: UUID | None = None
     statuses: frozenset[InvoiceStatus] = frozenset()
     invoice_number: str | None = None
     reference: bytes | None = None
+    text: str | None = None
 
     @property
     def offset(self) -> int:

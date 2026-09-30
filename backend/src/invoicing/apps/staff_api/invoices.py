@@ -4,7 +4,10 @@
   combined): `page` (1 or more), `supplier_id` (a UUID), `status` (AD-3 codes,
   comma-separated), `invoice_number` (matched on the AD-18 current value, normalised
   like the duplicate check) and `reference` (a supplier reference, `R-` and 8
-  characters, any case). Anything else in them is 400 `VALIDATION_FAILED`.
+  characters, any case), and `q`, the one search box: 1 to 64 characters after
+  trimming, matching an invoice's supplier reference, its normalised invoice number
+  or its supplier's name (contains, any case). Anything else in them is 400
+  `VALIDATION_FAILED`.
 - `GET api/invoices/{invoice_id}`: its current fields (bank fields only as
   `bank_on_file`, never a value or mask), lines, status history (actor categories
   only) and accounts reference. No image endpoint on this surface.
@@ -41,6 +44,8 @@ from invoicing.ports.invoice_search import (
 _PAGE = re.compile(r"[1-9][0-9]{0,5}")
 # Longer than any invoice number; refused unread beyond it.
 MAX_INVOICE_NUMBER = 64
+# The one search box (`q`), after trimming.
+MAX_SEARCH_TEXT = 64
 _CENT = Decimal("0.01")
 _PIPELINE = "pipeline:"
 _ADMIN = "admin:"
@@ -96,12 +101,19 @@ def _query(req: func.HttpRequest) -> SearchQuery:
         reference = parse_reference(reference_text)
         if reference is None:
             raise ValidationFailedError("reference must be R- and 8 letters or digits.")
+    text: str | None = None
+    q_text = params.get("q")
+    if q_text is not None:
+        text = q_text.strip()
+        if not text or len(text) > MAX_SEARCH_TEXT:
+            raise ValidationFailedError(f"q must be 1 to {MAX_SEARCH_TEXT} characters.")
     return SearchQuery(
         page=page,
         supplier_id=supplier_id,
         statuses=frozenset(statuses),
         invoice_number=number,
         reference=reference,
+        text=text,
     )
 
 

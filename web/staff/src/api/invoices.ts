@@ -38,6 +38,8 @@ export interface InvoiceQuery {
   statuses: readonly InvoiceStatus[];
   invoiceNumber: string | null;
   reference: string | null;
+  /** The one search box, sent as `q`: an invoice number, supplier or reference. */
+  text: string | null;
 }
 
 export interface InvoiceDetail {
@@ -144,6 +146,7 @@ export async function searchInvoices(
     params.set("invoice_number", query.invoiceNumber);
   }
   if (query.reference !== null) params.set("reference", query.reference);
+  if (query.text !== null) params.set("q", query.text);
   const body = await apiRequest<unknown>(`/api/invoices?${params}`, { signal });
   if (!isWire(body) || !Array.isArray(body.items)) throw broken();
   return {

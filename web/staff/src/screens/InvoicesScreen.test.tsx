@@ -88,10 +88,12 @@ describe("3.4 search all invoices", () => {
     // --- Every invoice first; statuses as labels, "Re-checking" after a correction.
     fetchMock.mockImplementation(async (input) => {
       const url = new URL(String(input), "http://localhost");
-      if (url.searchParams.has("reference")) return answer(page([ROWS[1]]));
-      if (url.searchParams.has("invoice_number")) {
+      const q = url.searchParams.get("q");
+      if (q === "zzz") return answer(page([]));
+      if (q === "INV-9999") {
         return answer({ code: "VALIDATION_FAILED", message: "x" }, 400);
       }
+      if (q !== null) return answer(page([ROWS[1]]));
       return answer(page(ROWS));
     });
     const list = render(<InvoicesScreen />);
@@ -111,54 +113,66 @@ describe("3.4 search all invoices", () => {
     );
     expect(screen.getByText("2 invoices found")).toBeInTheDocument();
 
-    // --- Search: the form's values become the query; a status label is its codes.
+    // --- Search: one box plus Status, no other filter; a status label is its codes.
+    const box = screen.getByLabelText(strings.invoices.filters.search);
+    expect(box).toHaveAccessibleDescription(
+      strings.invoices.filters.searchHint,
+    );
+    expect(screen.getAllByRole("combobox")).toHaveLength(1);
+    expect(screen.getAllByRole("searchbox")).toHaveLength(1);
     fireEvent.change(screen.getByLabelText(strings.invoices.filters.status), {
       target: { value: "Posting" },
     });
-    fireEvent.change(screen.getByLabelText(strings.invoices.filters.supplier), {
-      target: { value: ALPHA },
+    // A reference, a number or a supplier name all go in the one box, trimmed.
+    for (const typed of [" r-00000001 ", "INV 001", "alpha"]) {
+      fireEvent.change(box, { target: { value: typed } });
+      fireEvent.click(
+        screen.getByRole("button", { name: strings.invoices.search }),
+      );
+      await waitFor(() =>
+        expect(requested().at(-1)?.searchParams.get("q")).toBe(typed.trim()),
+      );
+      await waitFor(() =>
+        expect(screen.getAllByTestId("invoice-row")).toHaveLength(1),
+      );
+      const sent = requested().at(-1)!;
+      expect(sent.searchParams.get("status")).toBe("ready_to_post,posting");
+      expect(sent.searchParams.get("page")).toBe("1");
+      for (const old of ["supplier_id", "invoice_number", "reference"]) {
+        expect(sent.searchParams.has(old)).toBe(false);
+      }
+    }
+
+    // --- No match says so, from the box alone (any status).
+    fireEvent.change(screen.getByLabelText(strings.invoices.filters.status), {
+      target: { value: "" },
     });
-    fireEvent.change(
-      screen.getByLabelText(strings.invoices.filters.reference),
-      {
-        target: { value: " r-00000001 " },
-      },
-    );
+    fireEvent.change(box, { target: { value: "zzz" } });
     fireEvent.click(
       screen.getByRole("button", { name: strings.invoices.search }),
     );
-    await waitFor(() =>
-      expect(screen.getAllByTestId("invoice-row")).toHaveLength(1),
-    );
-    const sent = requested().at(-1)!;
-    expect(sent.searchParams.get("status")).toBe("ready_to_post,posting");
-    expect(sent.searchParams.get("supplier_id")).toBe(ALPHA);
-    expect(sent.searchParams.get("reference")).toBe("r-00000001");
-    expect(sent.searchParams.get("page")).toBe("1");
+    expect(
+      await screen.findByText(strings.invoices.noMatch),
+    ).toBeInTheDocument();
 
-    // --- A refused search says what to check.
-    fireEvent.change(
-      screen.getByLabelText(strings.invoices.filters.invoiceNumber),
-      { target: { value: "--" } },
-    );
-    fireEvent.change(
-      screen.getByLabelText(strings.invoices.filters.reference),
-      {
-        target: { value: "" },
-      },
-    );
+    // --- A refused search says so. Defensive: the box (64 characters at most, blank
+    // sends no q) can't produce a refusal, so the server is mocked refusing one.
+    fireEvent.change(box, { target: { value: "INV-9999" } });
     fireEvent.click(
       screen.getByRole("button", { name: strings.invoices.search }),
     );
     expect(await screen.findByRole("alert")).toHaveTextContent(
       strings.invoices.badSearch,
     );
-    // The supplier options outlive the failed search.
-    expect(
-      within(
-        screen.getByLabelText(strings.invoices.filters.supplier),
-      ).getByRole("option", { name: "Synthetic Alpha Building Supplies" }),
-    ).toBeInTheDocument();
+
+    // --- Clear empties the box and sends no q.
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.invoices.clear }),
+    );
+    await waitFor(() =>
+      expect(requested().at(-1)?.searchParams.has("q")).toBe(false),
+    );
+    expect(box).toHaveValue("");
     list.unmount();
 
     // --- Paging: Next keeps the filters; an empty page past the end goes to the last.
@@ -173,6 +187,9 @@ describe("3.4 search all invoices", () => {
     await screen.findAllByTestId("invoice-row");
     fireEvent.change(screen.getByLabelText(strings.invoices.filters.status), {
       target: { value: "Posted" },
+    });
+    fireEvent.change(screen.getByLabelText(strings.invoices.filters.search), {
+      target: { value: "alpha" },
     });
     fireEvent.click(
       screen.getByRole("button", { name: strings.invoices.search }),
@@ -195,6 +212,8 @@ describe("3.4 search all invoices", () => {
     );
     expect(requested()[2]?.searchParams.get("status")).toBe("posted");
     expect(requested()[3]?.searchParams.get("status")).toBe("posted");
+    expect(requested()[2]?.searchParams.get("q")).toBe("alpha");
+    expect(requested()[3]?.searchParams.get("q")).toBe("alpha");
     paged.unmount();
 
     // --- Detail: summary, fields, bank on file only, lines, history by category.

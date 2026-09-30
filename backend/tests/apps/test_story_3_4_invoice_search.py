@@ -165,7 +165,8 @@ def test_story_3_4_invoice_search(
     before the SPA catch-all; newest first with received, supplier, number, total,
     status, reference and after-correction; supplier, status, invoice number (current
     value, normalised) and reference (any case, spaces, several matches) filters,
-    combined; 50 a page with the total; 400 for a bad query naming no value; the
+    combined; the one search box `q` (reference, number or supplier name, wildcards
+    literal); 50 a page with the total; 400 for a bad query naming no value; the
     detail's current fields, lines, history (actor categories only) and accounts
     reference; bank fields only as on file, never a value; 404 for an unknown id;
     finance allowed; other roles 403 on search and 404 on detail with nothing read;
@@ -355,6 +356,28 @@ def test_story_3_4_invoice_search(
             str(twin)
         ]
         assert ids({"reference": reference, "status": "in_admin_queue"}) == []
+
+        # --- One search box (`q`): reference, number or supplier name.
+        assert ids({"q": reference}) == [str(twin), str(posted)]
+        assert ids({"q": f" {reference[2:].lower()} "}) == [str(twin), str(posted)]
+        assert ids({"q": "inv-001"}) == [str(posted)]
+        assert ids({"q": "inv 002"}) == [str(rechecking)]
+        assert ids({"q": "alpha"}) == [str(queued), str(posted)]
+        assert ids({"q": "BETA traders"}) == [str(twin), str(rechecking)]
+        assert ids({"q": "alpha", "status": "posted"}) == [str(posted)]
+        assert ids({"q": reference, "status": "rejected"}) == [str(twin)]
+        assert ids({"q": "zzz"}) == []
+        assert ids({"q": "Z" * 64}) == []
+        assert ids({"q": reference, "supplier_id": str(SUPPLIER_ALPHA)}) == [
+            str(posted)
+        ]
+        # LIKE wildcards are literal: no supplier name holds "%" or "_".
+        assert ids({"q": "%"}) == []
+        assert ids({"q": "_"}) == []
+        for q in ("   ", "", "Z" * 65):
+            status, body = call(search, "/api/invoices", {"q": q}, "admin")
+            assert (status, body["code"]) == (400, "VALIDATION_FAILED"), q
+            assert "Z" * 65 not in body["message"]
 
         # --- A bad query is 400, naming no value.
         for params in (

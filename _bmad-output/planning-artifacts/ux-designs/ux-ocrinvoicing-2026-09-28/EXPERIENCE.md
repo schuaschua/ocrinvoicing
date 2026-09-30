@@ -43,7 +43,7 @@ sources:
 | Admin queue | admin | Sidebar; the admin's landing page | Every invoice waiting for a person, filterable by reason and age (CAP-9) |
 | Admin item | admin | Admin queue row | Image, fields and reasons; Correct, Approve, Re-extract or Reject (CAP-8, CAP-9, CAP-10) |
 | Goods-in scan | goods_in | The goods_in role's landing page | Pick a delivery, photograph the paper invoice, send (CAP-2) |
-| Invoices | admin, finance | Sidebar | Search all invoices by supplier, number or status, with the posting result |
+| Invoices | admin, finance | Sidebar | Search all invoices with one box for invoice number, supplier name or supplier reference, plus status, with the posting result |
 | Overdue POs | admin, procurement, finance | Sidebar | POs past their expected date with no invoice, grouped by supplier, with the date the list was made (CAP-12) |
 | Suppliers | procurement, finance, management | Sidebar; procurement's landing page | Supplier list, with a search by supplier name (Flow 5) |
 | Supplier scorecard | procurement, finance, management | Suppliers row, or links elsewhere | On-time rate and price trend per material (CAP-17). A Deliveries tab *(could-have, CAP-19)* shows the three dates (PO promised date, delivery date on the invoice, date received) and the gaps between them in days. |

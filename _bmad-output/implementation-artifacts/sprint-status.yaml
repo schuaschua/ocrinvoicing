@@ -42,34 +42,34 @@ development_status:
   1-4-react-web-app-skeletons: review
   1-5-monitoring-and-alerts: review
   1-6-load-suppliers-and-issue-upload-links: review
-  1-7-supplier-opens-their-link: review
-  1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference: review
-  1-9-on-device-photo-quality-check-with-send-anyway: review
+  1-7-supplier-opens-their-link: done
+  1-8-supplier-sends-a-photo-or-pdf-and-gets-a-reference: done
+  1-9-on-device-photo-quality-check-with-send-anyway: done
   epic-1-retrospective: optional
 
   epic-2: in-progress
-  2-1-server-quality-check-creates-the-invoice-record: review
+  2-1-server-quality-check-creates-the-invoice-record: done
   2-2-the-pipeline-never-loses-an-invoice: review
   2-3-invoice-fields-are-extracted-by-document-intelligence: review
   2-4-simulated-po-and-goods-received-data: review
   2-5-validation-checks-confidence-po-match-and-printed-supplier: review
-  2-6-validation-catches-duplicates-date-mismatches-and-bank-chang: review
+  2-6-validation-catches-duplicates-date-mismatches-and-bank-chang: done
   2-7-staff-sign-in-and-see-only-their-surfaces: review
-  2-8-admin-queue-list: review
+  2-8-admin-queue-list: done
   2-9-admin-item-shows-the-crop-fields-and-bank-change-details: review
-  2-10-admin-corrects-re-extracts-or-rejects: review
-  2-11-opt-in-keyboard-shortcuts-for-the-admin-queue: review
+  2-10-admin-corrects-re-extracts-or-rejects: done
+  2-11-opt-in-keyboard-shortcuts-for-the-admin-queue: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
-  3-1-simulated-accounts-system: review
-  3-2-clean-invoices-post-automatically: review
-  3-3-admin-approves-exceptions-after-checking-them: review
-  3-4-search-all-invoices: review
+  epic-3: done
+  3-1-simulated-accounts-system: done
+  3-2-clean-invoices-post-automatically: done
+  3-3-admin-approves-exceptions-after-checking-them: done
+  3-4-search-all-invoices: done
   epic-3-retrospective: optional
 
   epic-4: in-progress
-  4-1-goods-in-scans-a-paper-invoice-against-a-delivery: review
+  4-1-goods-in-scans-a-paper-invoice-against-a-delivery: done
   4-2-overdue-po-list: backlog
   4-3-suppliers-see-weekly-reminders-on-their-upload-page: backlog
   4-4-suppliers-list-and-supplier-page: backlog

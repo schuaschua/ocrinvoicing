@@ -57,15 +57,11 @@ const EMPTY: InvoiceQuery = {
   statuses: [],
   invoiceNumber: null,
   reference: null,
+  text: null,
 };
 
 export function invoicePath(invoiceId: string): string {
   return `/invoices/${encodeURIComponent(invoiceId)}`;
-}
-
-function text(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed === "" ? null : trimmed;
 }
 
 /** A plain left click; a modified one keeps the browser's own behaviour (new tab). */
@@ -81,29 +77,24 @@ function plainClick(event: MouseEvent): boolean {
 
 /**
  * Invoices (Story 3.4, EXPERIENCE.md Invoices): every invoice, newest first, 50 a
- * page, searched by supplier, status, invoice number or supplier reference. Statuses
- * show as labels, never codes. The supplier name links to the invoice's detail.
+ * page, searched by status and one box for an invoice number, supplier name or
+ * supplier reference. Statuses show as labels, never codes. The supplier name links
+ * to the invoice's detail.
  */
 export function InvoicesScreen() {
   const title = strings.surfaces.invoices;
   const heading = usePageHeading(pageTitle(title));
   const s = strings.invoices;
   const ids = {
-    supplier: useId(),
+    search: useId(),
     status: useId(),
-    number: useId(),
-    reference: useId(),
     hint: useId(),
   };
   // The form's fields, applied as the query only on Search.
-  const [supplier, setSupplier] = useState("");
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
-  const [number, setNumber] = useState("");
-  const [reference, setReference] = useState("");
   const [query, setQuery] = useState<InvoiceQuery>(EMPTY);
   const [attempt, setAttempt] = useState(0);
-  // The supplier options outlive a failed search, so a chosen supplier stays shown.
-  const [suppliers, setSuppliers] = useState<InvoicePage["suppliers"]>([]);
   const [result, setResult] = useState<{ key: string; state: State } | null>(
     null,
   );
@@ -122,7 +113,6 @@ export function InvoicesScreen() {
           setQuery((q) => ({ ...q, page: last }));
           return;
         }
-        setSuppliers(data.suppliers);
         setResult({ key, state: { kind: "ready", data } });
       },
       (error: unknown) => {
@@ -149,20 +139,17 @@ export function InvoicesScreen() {
   function onSearch(event: FormEvent) {
     event.preventDefault();
     const option = STATUS_OPTIONS.find((o) => o.label === status);
+    const text = search.trim();
     setQuery({
-      page: 1,
-      supplierId: supplier === "" ? null : supplier,
+      ...EMPTY,
       statuses: option?.codes ?? [],
-      invoiceNumber: text(number),
-      reference: text(reference),
+      text: text === "" ? null : text,
     });
   }
 
   function onClear() {
-    setSupplier("");
+    setSearch("");
     setStatus("");
-    setNumber("");
-    setReference("");
     setQuery(EMPTY);
   }
 
@@ -176,7 +163,8 @@ export function InvoicesScreen() {
     query.supplierId !== null ||
     query.statuses.length > 0 ||
     query.invoiceNumber !== null ||
-    query.reference !== null;
+    query.reference !== null ||
+    query.text !== null;
   const loading = state.kind === "loading";
   // While the next page loads, the last answer stays, so the paging buttons keep focus.
   const previous = result?.state.kind === "ready" ? result.state.data : null;
@@ -193,28 +181,28 @@ export function InvoicesScreen() {
       </h1>
       <form
         role="search"
-        // Top-aligned: the reference hint under its input must not lift that input
-        // above the others (the buttons sit level with the inputs, below the labels).
+        // Top-aligned: the search hint under its input must not lift that input
+        // above the Status select (the buttons sit level with the inputs).
         className="flex flex-wrap items-start gap-4"
         onSubmit={onSearch}
       >
-        <div className="flex max-w-full min-w-0 flex-col gap-1">
-          <label htmlFor={ids.supplier} className="text-sm font-medium">
-            {s.filters.supplier}
+        <div className="flex w-full max-w-sm min-w-0 flex-col gap-1">
+          <label htmlFor={ids.search} className="text-sm font-medium">
+            {s.filters.search}
           </label>
-          <select
-            id={ids.supplier}
+          <input
+            id={ids.search}
+            type="search"
             className={control}
-            value={supplier}
-            onChange={(event) => setSupplier(event.target.value)}
-          >
-            <option value="">{s.filters.allSuppliers}</option>
-            {suppliers.map((option) => (
-              <option key={option.supplierId} value={option.supplierId}>
-                {option.supplierName ?? strings.queue.unknownSupplier}
-              </option>
-            ))}
-          </select>
+            value={search}
+            maxLength={64}
+            autoComplete="off"
+            aria-describedby={ids.hint}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <p id={ids.hint} className="text-sm text-muted-foreground">
+            {s.filters.searchHint}
+          </p>
         </div>
         <div className="flex max-w-full min-w-0 flex-col gap-1">
           <label htmlFor={ids.status} className="text-sm font-medium">
@@ -234,37 +222,9 @@ export function InvoicesScreen() {
             ))}
           </select>
         </div>
-        <div className="flex max-w-full min-w-0 flex-col gap-1">
-          <label htmlFor={ids.number} className="text-sm font-medium">
-            {s.filters.invoiceNumber}
-          </label>
-          <input
-            id={ids.number}
-            className={control}
-            value={number}
-            maxLength={64}
-            autoComplete="off"
-            onChange={(event) => setNumber(event.target.value)}
-          />
-        </div>
-        <div className="flex max-w-full min-w-0 flex-col gap-1">
-          <label htmlFor={ids.reference} className="text-sm font-medium">
-            {s.filters.reference}
-          </label>
-          <input
-            id={ids.reference}
-            className={control}
-            value={reference}
-            maxLength={16}
-            autoComplete="off"
-            aria-describedby={ids.hint}
-            onChange={(event) => setReference(event.target.value)}
-          />
-          <p id={ids.hint} className="text-sm text-muted-foreground">
-            {s.filters.referenceHint}
-          </p>
-        </div>
-        <div className="flex gap-2 sm:mt-6">
+        {/* Level with the controls, below their labels (text-sm line plus gap), once
+            they sit in one row. */}
+        <div className="flex gap-2 sm:pt-6">
           <Button type="submit">{s.search}</Button>
           <Button type="button" variant="outline" onClick={onClear}>
             {s.clear}

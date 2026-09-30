@@ -381,13 +381,10 @@ export const strings = {
     search: "Search",
     clear: "Clear",
     filters: {
-      supplier: "Supplier",
-      allSuppliers: "All suppliers",
+      search: "Invoice number, supplier or reference",
+      searchHint: "Like INV-1042, a supplier name or R-7Q4KXM2D",
       status: "Status",
       allStatuses: "All statuses",
-      invoiceNumber: "Invoice number",
-      reference: "Supplier reference",
-      referenceHint: "Like R-7Q4KXM2D",
     },
     columns: {
       received: "Received",
@@ -398,8 +395,8 @@ export const strings = {
       reference: "Reference",
     },
     noNumber: "Not read yet",
-    /** The server refused the search (a malformed reference or number). */
-    badSearch: "Check the invoice number and reference, then search again.",
+    /** The server refused the search (the box itself never sends a refused one). */
+    badSearch: "That search couldn't be run. Change it and search again.",
     detail: {
       back: "Back to invoices",
       heading: (supplier: string) => `Invoice from ${supplier}`,

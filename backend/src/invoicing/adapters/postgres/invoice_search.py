@@ -20,6 +20,7 @@ from sqlalchemy import (
     Engine,
     LargeBinary,
     func,
+    or_,
     select,
     type_coerce,
 )
@@ -33,7 +34,7 @@ from invoicing.adapters.postgres.schema import (
     invoice_line,
     status_history,
 )
-from invoicing.adapters.postgres.suppliers import supplier_names
+from invoicing.adapters.postgres.suppliers import supplier, supplier_names
 from invoicing.domain.actions import shown
 from invoicing.domain.current_values import (
     ADMIN_SOURCE,
@@ -43,7 +44,7 @@ from invoicing.domain.current_values import (
     current_values,
 )
 from invoicing.domain.extraction import is_bank_field_id
-from invoicing.domain.reference import REFERENCE_BYTES
+from invoicing.domain.reference import REFERENCE_BYTES, parse_reference
 from invoicing.domain.validation import (
     INVOICE_NUMBER,
     INVOICE_TOTAL,
@@ -183,6 +184,28 @@ def _number_matches(connection: Connection, number: str) -> list[UUID]:
     return matches
 
 
+def _text_matches(connection: Connection, text: str) -> ColumnElement[bool]:
+    """The one-box search: the invoice's supplier reference, its normalised invoice
+    number, or a supplier whose master name contains `text` (any case)."""
+    matches: list[ColumnElement[bool]] = [
+        invoice.c.supplier_id.in_(
+            select(supplier.c.id).where(
+                # A bound parameter with LIKE's wildcards escaped.
+                supplier.c.name.icontains(text, autoescape=True)
+            )
+        )
+    ]
+    reference = parse_reference(text)
+    if reference is not None:
+        matches.append(
+            _reference_of(invoice.c.id) == type_coerce(reference, LargeBinary)
+        )
+    number = normalise_invoice_number(text)
+    if number:
+        matches.append(invoice.c.id.in_(_number_matches(connection, number)))
+    return or_(*matches)
+
+
 def _conditions(
     connection: Connection, query: SearchQuery
 ) -> list[ColumnElement[bool]]:
@@ -201,6 +224,8 @@ def _conditions(
         conditions.append(
             invoice.c.id.in_(_number_matches(connection, query.invoice_number))
         )
+    if query.text is not None:
+        conditions.append(_text_matches(connection, query.text))
     return conditions
 
 

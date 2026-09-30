@@ -5,7 +5,7 @@ Queue and timer triggers only, never HTTP routes (AD-1). Story 2.1 adds the `qua
 stage on `q-quality`; Story 2.2 the poison triggers, the AD-7 database wait and the
 sweeper timer; Story 2.3 the `extract` stage on `q-extract`; Story 2.5 the `validate`
 stage on `q-validate`, and Story 2.6 its duplicate, date and bank checks; Story 3.2 the
-`post` stage on `q-post`.
+`post` stage on `q-post`; Story 4.2 the AD-13 analytics refresh timer.
 """
 
 import azure.functions as func
@@ -20,6 +20,7 @@ from invoicing.adapters.document_intelligence import DocumentIntelligenceAnalyze
 from invoicing.adapters.documents import load_quality_thresholds
 from invoicing.adapters.key_vault import BankKeysLoader
 from invoicing.adapters.metrics import OpenTelemetryMetrics
+from invoicing.adapters.postgres.analytics import PostgresAnalyticsStore
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.postgres.extraction import PostgresExtractionRepository
 from invoicing.adapters.postgres.invoices import PostgresInvoiceRepository
@@ -31,6 +32,7 @@ from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.table_reminders import TableReminderStore
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import load_settings, start_telemetry
+from invoicing.apps.pipeline.analytics_refresh import REFRESH_SCHEDULE, AnalyticsRefresh
 from invoicing.apps.pipeline.dbwait import wait_for_database
 from invoicing.apps.pipeline.extract import ExtractDependencies, extract_handler
 from invoicing.apps.pipeline.poison import poison_handler
@@ -152,6 +154,9 @@ poison_stages = {
     for stage in Stage
 }
 sweeper_job = Sweeper(invoices, upload_keys, images, queue, metrics)
+# Story 4.2: the AD-13 job, the only writer of `analytics`; purchasing through its
+# adapter only (AD-10).
+analytics_job = AnalyticsRefresh(purchasing, PostgresAnalyticsStore(engine))
 
 
 # The queue trigger reads through the host storage connection (AzureWebJobsStorage,
@@ -241,3 +246,17 @@ async def sweeper(timer: func.TimerRequest) -> None:
     """The sweeper: re-enqueue stuck invoices and orphaned uploads, expire upload keys
     (Story 2.2)."""
     await sweeper_job.run()
+
+
+# AD-13: weekdays at 01:30, 04:30 and 08:30 UTC; the first run that finds the database
+# up does the day's work. No run at start-up: a cold start is not a schedule.
+@app.timer_trigger(
+    arg_name="timer",
+    schedule=REFRESH_SCHEDULE,
+    run_on_startup=False,
+    use_monitor=True,
+)
+async def analytics_refresh(timer: func.TimerRequest) -> None:
+    """The analytics refresh job: rebuild the overdue list once a weekday (Story
+    4.2)."""
+    await analytics_job.run()

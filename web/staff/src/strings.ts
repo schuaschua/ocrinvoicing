@@ -511,6 +511,19 @@ export const strings = {
     unavailable:
       "Scanning is unavailable until the system is back (weekdays 9am). Keep the paper invoice with the delivery.",
   },
+  /** Story 4.2: Overdue POs (EXPERIENCE.md: grouped by supplier, with the date the
+   * list was made; CAP-12). */
+  overdue: {
+    asOf: (date: string) => `As of ${date}`,
+    neverMade:
+      "The overdue list is made each weekday morning. Check back after it's made.",
+    none: "No overdue POs.",
+    unknownSupplier: "Unknown supplier",
+    columns: {
+      po: "PO",
+      expected: "Expected",
+    },
+  },
   /** Screens not built yet show their heading and this line. */
   placeholder: "This page isn't ready yet.",
   /** EXPERIENCE.md staff surface table, one name per surface. */

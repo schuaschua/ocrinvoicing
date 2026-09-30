@@ -176,3 +176,28 @@ di_operation = Table(
     Column("operation_location", Text, nullable=False),
     Column("created_at", TIMESTAMP(timezone=True), nullable=False),
 )
+
+# --- `analytics` (Story 4.2, AD-13): written only by the analytics refresh job, read
+# by staff-api. Its own metadata, like the schema it lives in.
+ANALYTICS = "analytics"
+
+analytics_metadata = MetaData(schema=ANALYTICS)
+
+# CAP-12: the overdue list, replaced as a whole by each day's run.
+overdue_po = Table(
+    "overdue_po",
+    analytics_metadata,
+    Column("po_number", Text, primary_key=True),
+    Column("supplier_id", Uuid, nullable=False),
+    Column("expected_date", Date, nullable=False),
+)
+
+# One row per job and Singapore date that ran: the once-a-day guard and the date the
+# list was made.
+job_run = Table(
+    "job_run",
+    analytics_metadata,
+    Column("job", Text, primary_key=True),
+    Column("run_date", Date, primary_key=True),
+    Column("finished_at", TIMESTAMP(timezone=True), nullable=False),
+)

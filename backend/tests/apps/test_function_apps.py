@@ -86,6 +86,13 @@ def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper
     # AD-2: every 15 minutes, NCRONTAB in UTC; no run on a cold start.
     assert timer["schedule"] == "0 */15 * * * *"
     assert timer["runOnStartup"] is False and timer["useMonitor"] is True
+    # Story 4.2 (AD-13): the analytics refresh, weekdays at 01:30, 04:30 and 08:30 UTC.
+    (refresh,) = [
+        b.get_dict_repr() for b in functions["analytics_refresh"].get_bindings()
+    ]
+    assert refresh["type"] == "timerTrigger"
+    assert refresh["schedule"] == "0 30 1,4,8 * * 1-5"
+    assert refresh["runOnStartup"] is False and refresh["useMonitor"] is True
 
 
 def test_story_1_3_a_missing_empty_or_malformed_setting_stops_the_app_naming_it_only(

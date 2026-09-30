@@ -97,3 +97,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-1-goods-in-scans-paper-invoice.md`
   summary: Decide whether a goods-in scan should record which staff member scanned it (key row, blob metadata or log).
   evidence: Unverified, medium if required. The principal is not stored anywhere; settle it by checking the spine's audit requirements for staff-originated invoices.
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-2-overdue-po-list.md`
+  summary: The Overdue POs screen's error and Try again path, and the client's malformed-payload rejection, have no test.
+  evidence: OverduePosScreen.test.tsx covers only 200 responses; skipped for the 200-case cap. Fold into the existing "4.2 Overdue POs" case when room allows.
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-2-overdue-po-list.md`
+  summary: A failed analytics refresh run logs no `analytics_refresh.failed` event or metric, so a list that stays stale for days raises no alert.
+  evidence: Only DatabaseOfflineError is caught (apps/pipeline/analytics_refresh.py); other errors reach the host log only. Worth pairing with the Epic 5 alerts.

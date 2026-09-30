@@ -20,7 +20,7 @@ read (a search text, a name, the file) is ever logged.
 """
 
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import azure.functions as func
@@ -28,8 +28,8 @@ import azure.functions as func
 from invoicing.adapters.http import Endpoint, json_response
 from invoicing.adapters.principal import staff_endpoint
 from invoicing.apps.intake_upload import UploadOwner, accept_upload, checked_upload
+from invoicing.domain.dates import singapore_date
 from invoicing.domain.errors import DeliveryNotFoundError, ValidationFailedError
-from invoicing.domain.exif_time import SINGAPORE
 from invoicing.domain.ids import parse_uuid
 from invoicing.domain.roles import StaffPrincipal, Surface
 from invoicing.ports.blobs import ImageStore
@@ -48,11 +48,6 @@ QUERY_MESSAGE = "Search with 2 to 64 characters of a PO number or supplier name.
 
 def _now() -> datetime:
     return datetime.now(UTC)
-
-
-def _today(now: datetime) -> date:
-    # "Today" at the loading dock: the Singapore date (spine: Dates).
-    return now.astimezone(SINGAPORE).date()
 
 
 def _newest_first(delivery: Delivery) -> tuple[int, str, int]:
@@ -83,7 +78,7 @@ def goods_in_endpoints(
     async def deliveries(
         req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
     ) -> func.HttpResponse:
-        today = _today(now())
+        today = singapore_date(now())
         text = req.params.get("q")
         if text is None:
             found = list(await purchasing.list_deliveries(today))

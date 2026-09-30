@@ -171,15 +171,89 @@ naming() {
 }
 
 resource_group="$(naming rg_name "$env")"
-published=()
+
+# package_hash APP - one hash of every file in the app's package (path and content), so
+# the same code always gives the same hash whatever the zip's timestamps.
+package_hash() {
+  python3 - "$build_dir/$1" <<'PY'
+import hashlib, os, sys
+root = sys.argv[1]
+digest = hashlib.sha256()
+for folder, dirs, files in os.walk(root):
+    dirs.sort()
+    for name in sorted(files):
+        path = os.path.join(folder, name)
+        digest.update(os.path.relpath(path, root).encode() + b"\0")
+        with open(path, "rb") as handle:
+            digest.update(handle.read())
+print(digest.hexdigest())
+PY
+}
+
+# The hash of each app's last deploy to this environment that passed the health checks.
+# It lives in main's workspace on the CI VM, which builds keep (Dj, 2026-09-30: the
+# serial deploy of all four apps took 12 minutes). A missing file means "deploy".
+state_dir="${CI_DEPLOY_STATE_DIR:-$CI_WORK/code-deploy-state/$env}"
+# CI_DEPLOY_ALL=1 (the Jenkinsfile sets it when <env>/app changed: an app or its
+# deployment storage may have been recreated) forgets every record first.
+if [[ "${CI_DEPLOY_ALL:-}" == 1 ]]; then
+  rm -rf "$state_dir"
+  log "publishing every app: <env>/app changed in this run"
+fi
+mkdir -p "$state_dir"
+# A failed publish or health check forgets every record, so the next run republishes
+# everything instead of skipping an app that may be broken.
+forget_deploys() { rm -rf "$state_dir"; }
+declare -A hash
+to_publish=()
 for app in "${APPS[@]}"; do
-  function_app="$(naming function_app_name "$env" "$app")"
-  log "publishing $app to $function_app in $resource_group"
-  az functionapp deployment source config-zip --resource-group "$resource_group" \
-    --name "$function_app" --src "$build_dir/$app.zip" --build-remote true ||
-    die "publishing $app failed; already published: ${published[*]:-none}"
-  published+=("$app")
-  log "published $app ($function_app)"
+  hash[$app]="$(package_hash "$app")"
+  if [[ -f "$state_dir/$app.sha256" && "$(<"$state_dir/$app.sha256")" == "${hash[$app]}" ]]; then
+    log "$app unchanged since its last deploy to $env: not published"
+  else
+    to_publish+=("$app")
+  fi
+done
+
+# The publishes run side by side (each is mostly Azure's remote build and restart); each
+# app's output goes to its own log, printed once all have finished. Every name is looked
+# up before the first job starts, so a failed lookup never leaves publishes running.
+declare -A function_app_of pid
+for app in "${APPS[@]}"; do
+  function_app_of[$app]="$(naming function_app_name "$env" "$app")"
+done
+for app in "${to_publish[@]}"; do
+  log "publishing $app to ${function_app_of[$app]} in $resource_group"
+  (
+    # Each job gets its own copy of the az profile: parallel az processes writing one
+    # token cache can fail.
+    if [[ -n "${AZURE_CONFIG_DIR:-}" && -d "$AZURE_CONFIG_DIR" ]]; then
+      rm -rf "$build_dir/azure-$app"
+      cp -R "$AZURE_CONFIG_DIR" "$build_dir/azure-$app"
+      export AZURE_CONFIG_DIR="$build_dir/azure-$app"
+    fi
+    az functionapp deployment source config-zip --resource-group "$resource_group" \
+      --name "${function_app_of[$app]}" --src "$build_dir/$app.zip" --build-remote true
+  ) >"$build_dir/$app.publish.log" 2>&1 &
+  pid[$app]=$!
+done
+published=()
+failed=()
+for app in "${to_publish[@]}"; do
+  if wait "${pid[$app]}"; then
+    published+=("$app")
+  else
+    failed+=("$app")
+  fi
+  cat "$build_dir/$app.publish.log"
+done
+rm -rf "$build_dir"/azure-* # az profile copies hold tokens
+if ((${#failed[@]})); then
+  forget_deploys
+  die "publishing ${failed[*]} failed; already published: ${published[*]:-none}"
+fi
+for app in "${published[@]}"; do
+  log "published $app (${function_app_of[$app]})"
 done
 
 # health_ok APP HOST VERSION - GET /api/health until it returns 200 with VERSION.
@@ -212,8 +286,17 @@ print(re.search(r"^__version__ = \"([^\"]+)\"", open(sys.argv[1], encoding="utf-
   # A Flex Consumption app reports its host name under `properties` only.
   host="$(az functionapp show --resource-group "$resource_group" --name "$function_app" \
     --query "defaultHostName || properties.defaultHostName" -o tsv)"
-  [[ -n "$host" ]] || die "no host name reported for $function_app; published: ${published[*]}"
-  health_ok "$app" "$host" "$version" ||
-    die "$app did not report healthy version $version; published: ${published[*]}"
+  [[ -n "$host" ]] || {
+    forget_deploys
+    die "no host name reported for $function_app; published: ${published[*]:-none}"
+  }
+  health_ok "$app" "$host" "$version" || {
+    forget_deploys
+    die "$app did not report healthy version $version; published: ${published[*]:-none}"
+  }
 done
-log "code deploy to $env done; published: ${published[*]}"
+# Only now, with the HTTP apps healthy, is each published package recorded as deployed.
+for app in "${published[@]}"; do
+  printf '%s\n' "${hash[$app]}" >"$state_dir/$app.sha256"
+done
+log "code deploy to $env done; published: ${published[*]:-none}"

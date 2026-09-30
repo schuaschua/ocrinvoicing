@@ -227,7 +227,11 @@ pipeline {
               steps {
                 script {
                   if (runStep('dev_code', 'ci/code-deploy.sh --check dev')) {
-                    asDeployIdentity('dev') { sh 'ci/code-deploy.sh dev' }
+                    // dev/app changed in this run: an app or its deployment storage may
+                    // have been recreated, so no app is skipped as unchanged.
+                    withEnv(["CI_DEPLOY_ALL=${HAS_WORK.dev_app ? '1' : ''}"]) {
+                      asDeployIdentity('dev') { sh 'ci/code-deploy.sh dev' }
+                    }
                   }
                 }
               }

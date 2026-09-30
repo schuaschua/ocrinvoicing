@@ -60,6 +60,8 @@ def _jenkinsfile_guards() -> None:
     assert "when { not { branch 'main' } }" in checks[:600]
     assert "parallel {" in checks and checks.index("stage('terraform')") > checks.index("parallel {")
     assert "TF_PLUGIN_CACHE_DIR = '/var/jenkins_home/" in text
+    # Branch workspaces and the tests' leftover volumes are removed after the checks.
+    assert "cleanup {" in checks and "deleteDir()" in checks and "docker volume prune --force" in checks
     weekly = _code(WEEKLY)
     assert re.findall(r"ci/checks\.sh (\w+)", weekly) == ["audit"]
     casc = (JENKINS_DIR / "casc.yaml").read_text(encoding="utf-8")

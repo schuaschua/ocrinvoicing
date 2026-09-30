@@ -157,6 +157,14 @@ pipeline {
           // Branch builds end here, so this is their result.
           script { if (env.BRANCH_NAME != 'main') { postFinalStatus() } }
         }
+        // A branch workspace holds about 5 GB (dependencies, virtualenvs, providers), and
+        // the backend tests' PostgreSQL containers leave anonymous volumes behind; kept,
+        // they filled the VM's 61 GB disk (2026-09-30). Only volumes no container uses
+        // are pruned, never jenkins_home. The shared caches stay in jenkins_home.
+        cleanup {
+          deleteDir()
+          sh 'docker volume prune --force || true'
+        }
       }
     }
 

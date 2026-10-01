@@ -1,7 +1,7 @@
 """Staff-api's dashboard data (Story 5.1, AD-13, AD-20, P-10): read-only, from the
 `analytics` schema the refresh job writes, never from the invoice tables. Stories 5.3
 to 5.6 add the methods their dashboards need; Story 5.3 serves Price comparison and
-Story 5.4 the Watchlist.
+Story 5.4 the Watchlist, Story 5.5 the supplier scorecard.
 
 Every method raises `DatabaseOfflineError` (domain/errors.py) when the database can't
 be reached at all (AD-7); a failing query raises as it is."""
@@ -89,6 +89,18 @@ class Watchlist:
     has_price_points: bool
 
 
+@dataclass(frozen=True)
+class Scorecard:
+    """One supplier's scorecard (Story 5.5, CAP-17), in one snapshot: its on-time rate
+    and average days late (None with no receipt lines), its price points dated
+    `since` or later by material, invoice date, posted time, invoice id and line,
+    and the names of those materials (`analytics.material`)."""
+
+    on_time: SupplierOnTime | None
+    points: tuple[PricePoint, ...]
+    material_names: Mapping[UUID, str]
+
+
 class DashboardReader(Protocol):
     """The dashboards' reads of `analytics` (staff-api, SELECT only)."""
 
@@ -124,4 +136,8 @@ class DashboardReader(Protocol):
 
     async def watchlist(self, today: date) -> Watchlist:
         """The watchlist on the Singapore date `today` (Story 5.4)."""
+        ...
+
+    async def scorecard(self, supplier_id: UUID, since: date) -> Scorecard:
+        """`supplier_id`'s scorecard with price points from `since` on (Story 5.5)."""
         ...

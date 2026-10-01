@@ -38,6 +38,7 @@ from invoicing.ports.dashboards import (
     Alert,
     Material,
     PriceComparison,
+    Scorecard,
     SupplierMonthRow,
     Watchlist,
     WatchlistRow,
@@ -82,6 +83,9 @@ class PostgresDashboardReader:
 
     async def watchlist(self, today: date) -> Watchlist:
         return await asyncio.to_thread(self._read, _watchlist, today)
+
+    async def scorecard(self, supplier_id: UUID, since: date) -> Scorecard:
+        return await asyncio.to_thread(self._read, _scorecard, (supplier_id, since))
 
 
 def _price_points(connection: Connection, since: date) -> tuple[PricePoint, ...]:
@@ -292,4 +296,61 @@ def _watchlist(connection: Connection, today: date) -> Watchlist:
         on_time={item.supplier_id: item for item in _on_time_rates(connection, None)},
         material_names=names,
         has_price_points=has_points,
+    )
+
+
+def _scorecard(connection: Connection, key: tuple[UUID, date]) -> Scorecard:
+    supplier_id, since = key
+    on_time = connection.execute(
+        select(
+            supplier_on_time.c.supplier_id,
+            supplier_on_time.c.receipts,
+            supplier_on_time.c.on_time,
+            supplier_on_time.c.on_time_rate,
+            supplier_on_time.c.avg_days_late,
+        ).where(supplier_on_time.c.supplier_id == supplier_id)
+    ).first()
+    points = tuple(
+        PricePoint(**row._asdict())
+        for row in connection.execute(
+            select(
+                price_point.c.invoice_id,
+                price_point.c.line_no,
+                price_point.c.supplier_id,
+                price_point.c.material_id,
+                price_point.c.invoice_date,
+                price_point.c.unit_price,
+                price_point.c.posted_at,
+            )
+            .where(
+                price_point.c.supplier_id == supplier_id,
+                price_point.c.invoice_date >= since,
+            )
+            # Same-day prices: the later posted is the latest (Story 5.5).
+            .order_by(
+                price_point.c.material_id,
+                price_point.c.invoice_date,
+                price_point.c.posted_at,
+                price_point.c.invoice_id,
+                price_point.c.line_no,
+            )
+        )
+    )
+    materials = sorted({point.material_id for point in points})
+    names = (
+        {
+            row.material_id: row.name
+            for row in connection.execute(
+                select(material.c.material_id, material.c.name).where(
+                    material.c.material_id.in_(materials)
+                )
+            )
+        }
+        if materials
+        else {}
+    )
+    return Scorecard(
+        on_time=None if on_time is None else SupplierOnTime(**on_time._asdict()),
+        points=points,
+        material_names=names,
     )

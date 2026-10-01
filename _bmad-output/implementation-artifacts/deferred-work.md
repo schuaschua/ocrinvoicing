@@ -124,3 +124,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-5-delivery-dates.md`
   summary: `PurchasingPort.supplier_delivery_dates` is not in the purchasing contract suite, and same-day delivery ordering is untested.
   evidence: Only the sim adapter exists and the staff-api test pins its behaviour; add the contract method when the real purchasing adapter starts.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-5-supplier-scorecard.md`
+  summary: The Scorecard tab's error and 404 states are untested, and it shows no "as of" date for the refresh-computed on-time rate.
+  evidence: Skipped for the 200-case cap; freshness pairs with 5.1's deferred `as_of` read.

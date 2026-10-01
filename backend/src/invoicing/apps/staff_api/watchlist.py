@@ -64,7 +64,7 @@ def _money(value: Decimal | str) -> str:
     return str(Decimal(value).quantize(_CENT))
 
 
-def _days(value: Decimal) -> str:
+def days_text(value: Decimal) -> str:
     """An average number of days, 2 decimals (`supplier_on_time.avg_days_late`)."""
     return str(value.quantize(_CENT))
 
@@ -163,7 +163,7 @@ def watchlist_endpoint(
             held = found.on_time.get(supplier_id)
             if rule != RULE_LATE or held is None:
                 return None
-            return _days(held.avg_days_late)
+            return days_text(held.avg_days_late)
 
         entries: list[tuple[date, str, dict[str, Any]]] = []
         for supplier_id in listed:

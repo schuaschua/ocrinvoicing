@@ -268,10 +268,17 @@ materials_api, price_comparison_api = price_comparison_endpoints(
 
 
 # Story 4.4: the suppliers list and one supplier's page shell, id and name only (AD-11).
-# Story 4.5: its Deliveries tab, from the purchasing port (AD-10).
-supplier_list_api, supplier_detail_api, supplier_deliveries_api = suppliers_endpoints(
+# Story 4.5: its Deliveries tab, from the purchasing port (AD-10). Story 5.5: its
+# Scorecard tab, from `analytics` only (SELECT).
+(
+    supplier_list_api,
+    supplier_detail_api,
+    supplier_deliveries_api,
+    supplier_scorecard_api,
+) = suppliers_endpoints(
     PostgresSupplierDirectory(engine),
     purchasing_port(settings.purchasing_adapter, engine),
+    PostgresDashboardReader(engine),
     platform_auth_trusted=settings.platform_auth_trusted,
 )
 
@@ -326,6 +333,13 @@ async def supplier_deliveries(req: func.HttpRequest) -> func.HttpResponse:
     received dates and the gaps in days (procurement, finance and management): 200,
     401, 404 or 503."""
     return await supplier_deliveries_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}/scorecard", methods=["GET"])
+async def supplier_scorecard(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's on-time rate and price trend per material over the last 365
+    days (procurement, finance and management): 200, 401, 404 or 503."""
+    return await supplier_scorecard_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

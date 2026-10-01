@@ -54,6 +54,19 @@ export function rateText(rate: string): string {
   return `${percentText((Number(rate) * 100).toFixed(1))}%`;
 }
 
+/** An on-time rate as `rateText` shows it, except that it never reads 100% while
+ * some receipts were late, nor 0% while some were on time (99.9% and 0.1%). */
+export function onTimeRateText(
+  rate: string,
+  onTime: number,
+  receipts: number,
+): string {
+  const text = rateText(rate);
+  if (text === "100%" && onTime < receipts) return "99.9%";
+  if (text === "0%" && onTime > 0) return "0.1%";
+  return text;
+}
+
 /** "8" for "8.00", "7.5" for "7.50": a 2-decimal number of days, for display only. */
 export function daysText(days: string): string {
   return days.includes(".") ? days.replace(/\.?0+$/, "") : days;

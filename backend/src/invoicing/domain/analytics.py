@@ -2,7 +2,7 @@
 daily summaries. The adapter reads the rows and writes what these return. Story 5.3
 adds the price-rise rule (CAP-14), evaluated in the same step, and Story 5.4 the
 watchlist rules (CAP-15) after it, with the alternatives ranking (CAP-16) staff-api
-applies at read time.
+applies at read time; Story 5.5 the scorecard's price change (CAP-17).
 
 Months are the first day of a Singapore month. Money is `Decimal` rounded half-up to
 2 places, rates to 4 (`numeric(18,2)` and `numeric(5,4)` in `analytics`). The
@@ -10,7 +10,7 @@ currency is the configured invoice currency (SGD, AD-20), so none is carried.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -506,3 +506,12 @@ def alternatives(
         Alternative(p.supplier_id, p.unit_price, on_time_rates.get(p.supplier_id))
         for p in ranked
     ]
+
+
+def change_pct(prices: Sequence[Decimal]) -> Decimal | None:
+    """Story 5.5 (CAP-17): the change from the first to the latest of a material's
+    prices in the window, `(latest - first) / first * 100`, rounded half-up to 2
+    places; None with fewer than 2 prices (or a first price that isn't above 0)."""
+    if len(prices) < 2 or prices[0] <= 0:
+        return None
+    return money((prices[-1] - prices[0]) / prices[0] * 100)

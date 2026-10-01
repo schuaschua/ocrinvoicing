@@ -79,6 +79,21 @@ export function statusLabel(
   return statusLabels[status] ?? FALLBACK_STATUS;
 }
 
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -650,8 +665,33 @@ export const strings = {
         scorecard: "Scorecard",
         deliveries: "Deliveries",
       },
-      scorecardComing:
-        "The scorecard is coming: on-time rate and price trend per material.",
+    },
+    /** Story 5.5: the Scorecard tab (CAP-17): on-time rate and price trend per
+     * material over the last 12 months. */
+    scorecard: {
+      empty: "No posted invoices yet for this period.",
+      onTimeHeading: "On-time deliveries",
+      onTime: (rate: string, receipts: number) =>
+        `On time ${rate} of ${plural(receipts, "receipt", "receipts")} in the last 12 months`,
+      /** A 2-decimal average already trimmed for display ("1.2", "-0.5"). */
+      average: (days: string) => {
+        if (days === "0") return "On time on average";
+        const early = days.startsWith("-");
+        const size = early ? days.slice(1) : days;
+        return `On average ${size} ${size === "1" ? "day" : "days"} ${early ? "early" : "late"}`;
+      },
+      noReceipts: "No goods received in the last 12 months.",
+      up: (material: string, pct: string, since: string) =>
+        `${material} up ${pct}% since ${since}`,
+      down: (material: string, pct: string, since: string) =>
+        `${material} down ${pct}% since ${since}`,
+      unchanged: (material: string, since: string) =>
+        `${material} unchanged since ${since}`,
+      onePrice: (price: string) => `One price so far: ${price}`,
+      price: "Price",
+      /** "Oct 2025" from a YYYY-MM-DD date. */
+      monthYear: (date: string) =>
+        `${MONTHS[Number(date.slice(5, 7)) - 1] ?? ""} ${date.slice(0, 4)}`,
     },
     /** Story 4.5: the Deliveries tab (CAP-19): where a supplier's delays come from. */
     deliveries: {

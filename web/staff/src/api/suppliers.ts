@@ -161,3 +161,85 @@ export async function getSupplierDeliveries(
   }
   return { items: body.items.map(delivery), truncated: body.truncated };
 }
+
+/** A supplier's on-time record over the last 12 months (Story 5.5, CAP-17, AD-20):
+ * receipt lines on time out of all of them. Numbers are the server's strings. */
+export interface SupplierOnTime {
+  /** 4-decimal share, "0.8000". */
+  rate: string;
+  receipts: number;
+  onTime: number;
+  /** 2-decimal days; negative is early on average. */
+  avgDaysLate: string;
+}
+
+export interface MaterialTrend {
+  materialId: string;
+  name: string;
+  /** First to latest price in the window, 2-decimal percent; null with one price. */
+  changePct: string | null;
+  latestUnitPrice: string;
+  /** Oldest first; dates are YYYY-MM-DD, prices 2-decimal strings. */
+  points: { invoiceDate: string; unitPrice: string }[];
+}
+
+export interface SupplierScorecard {
+  /** Null when no goods were received in the last 12 months. */
+  onTime: SupplierOnTime | null;
+  /** By name. */
+  materials: MaterialTrend[];
+}
+
+function str(value: unknown): string {
+  if (typeof value !== "string") throw broken();
+  return value;
+}
+
+function onTime(value: unknown): SupplierOnTime | null {
+  if (value === null) return null;
+  if (!isWire(value)) throw broken();
+  const receipts = num(value.receipts);
+  const held = num(value.on_time);
+  if (receipts === null || held === null) throw broken();
+  return {
+    rate: str(value.rate),
+    receipts,
+    onTime: held,
+    avgDaysLate: str(value.avg_days_late),
+  };
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function trend(value: unknown): MaterialTrend {
+  if (!isWire(value) || !Array.isArray(value.points)) throw broken();
+  return {
+    materialId: str(value.material_id),
+    name: str(value.name),
+    changePct: value.change_pct === null ? null : str(value.change_pct),
+    latestUnitPrice: str(value.latest_unit_price),
+    points: value.points.map((point: unknown) => {
+      if (!isWire(point)) throw broken();
+      const invoiceDate = str(point.invoice_date);
+      if (!ISO_DATE.test(invoiceDate)) throw broken();
+      return {
+        invoiceDate,
+        unitPrice: str(point.unit_price),
+      };
+    }),
+  };
+}
+
+/** A supplier's scorecard (`GET /api/suppliers/{id}/scorecard`); rejects with
+ * `ApiError` 404 for an unknown supplier. */
+export async function getSupplierScorecard(
+  supplierId: string,
+  signal?: AbortSignal,
+): Promise<SupplierScorecard> {
+  const body = await apiRequest<unknown>(
+    `/api/suppliers/${encodeURIComponent(supplierId)}/scorecard`,
+    { signal },
+  );
+  if (!isWire(body) || !Array.isArray(body.materials)) throw broken();
+  return { onTime: onTime(body.on_time), materials: body.materials.map(trend) };
+}

@@ -22,6 +22,7 @@ from sqlalchemy import Engine, create_engine, text
 from apps.test_staff_me import header
 from conftest import PostgresServer, login_engine
 from contracts.purchasing_contract import CEMENT, SUPPLIER_ALPHA
+from invoicing.adapters.postgres.dashboards import PostgresDashboardReader
 from invoicing.adapters.postgres.suppliers import PostgresSupplierDirectory
 from invoicing.adapters.principal import PRINCIPAL_HEADER
 from invoicing.adapters.purchasing_factory import purchasing_port
@@ -108,8 +109,12 @@ def test_story_4_5_deliveries_api(
     purchasing = _Counting(purchasing_port("sim", staff))
 
     def deliveries(supplier_id: str, *roles: str, now: datetime = NOW) -> Any:
-        _, _, endpoint = suppliers_endpoints(
-            directory, purchasing, platform_auth_trusted=True, clock=lambda: now
+        _, _, endpoint, _ = suppliers_endpoints(
+            directory,
+            purchasing,
+            PostgresDashboardReader(staff),
+            platform_auth_trusted=True,
+            clock=lambda: now,
         )
         request = func.HttpRequest(
             method="GET",

@@ -13,26 +13,42 @@ Flow 5, AD-11):
   days_late, days_to_receive, days_overall}], truncated}`. Read from `PurchasingPort`
   only (AD-10), after the supplier is found in the master; the gaps come from the
   domain (domain/deliveries.py).
+- `GET api/suppliers/{supplier_id}/scorecard` (Story 5.5, CAP-17, AD-20): `{on_time:
+  {rate, receipts, on_time, avg_days_late} | null, materials: [{material_id, name,
+  change_pct, latest_unit_price, points: [{invoice_date, unit_price}]}]}`. `on_time`
+  is the supplier's `analytics.supplier_on_time` row (receipt lines of the last 365
+  days), null with none. Each material has its posted prices of the last 365 days
+  (Singapore date, today included), oldest first; `change_pct` is first to latest in
+  percent, null with one price. Materials by name; one `analytics.material` hasn't
+  named yet is left out until the refresh job names it, as on Price comparison.
+  Money and `change_pct` are 2-decimal strings, `rate` 4-decimal, `avg_days_late`
+  2-decimal. Read from `DashboardReader` only (AD-13: never the invoice or
+  purchasing tables), after the supplier is found in the master.
 
 Only `master.supplier.id` and `name` are read: never a tax id, phone or bank field.
 `Surface.SUPPLIERS` and `Surface.SUPPLIER_SCORECARD`: 401 signed out; any other role
-gets 403 on the list and 404 on one supplier or its deliveries (security.md rule 5), before anything is
+gets 403 on the list and 404 on one supplier, its deliveries or its scorecard
+(security.md rule 5), before anything is
 read. Read-only; no value sent or read is ever logged."""
 
 import re
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID
 
 import azure.functions as func
 
 from invoicing.adapters.http import Endpoint, json_response
 from invoicing.adapters.principal import NOT_FOUND_MESSAGE, staff_endpoint
+from invoicing.apps.staff_api.watchlist import days_text
+from invoicing.domain.analytics import PricePoint, change_pct, money
 from invoicing.domain.dates import singapore_date
 from invoicing.domain.deliveries import delivery_gaps
 from invoicing.domain.errors import NotFoundError, ValidationFailedError
 from invoicing.domain.ids import parse_uuid
 from invoicing.domain.roles import StaffPrincipal, Surface
+from invoicing.ports.dashboards import DashboardReader, Scorecard
 from invoicing.ports.purchasing import (
     SUPPLIER_DELIVERIES_MAX,
     PurchasingPort,
@@ -45,6 +61,14 @@ _PAGE = re.compile(r"[1-9][0-9]{0,5}")
 MAX_SEARCH_TEXT = 64
 # Story 4.5: how far back the Deliveries tab looks.
 DELIVERY_DAYS = 365
+# Story 5.5 (AD-20): how far back the Scorecard's price trend looks.
+SCORECARD_DAYS = 365
+_RATE = Decimal("0.0001")
+
+
+def _unsigned_zero(value: Decimal) -> Decimal:
+    """`value`, with a negative zero (-0.00) as 0.00."""
+    return abs(value) if value == 0 else value
 
 
 def _now() -> datetime:
@@ -70,6 +94,47 @@ def _delivery_item(entry: SupplierDelivery) -> dict[str, object]:
     }
 
 
+def _scorecard_body(found: Scorecard, today: date) -> dict[str, object]:
+    by_material: dict[UUID, list[PricePoint]] = {}
+    for point in found.points:  # by material, then oldest first
+        if point.invoice_date <= today:
+            by_material.setdefault(point.material_id, []).append(point)
+    named = [
+        (found.material_names[m], m) for m in by_material if m in found.material_names
+    ]
+    held = found.on_time
+    on_time = (
+        None
+        if held is None
+        else {
+            "rate": str(held.on_time_rate.quantize(_RATE, rounding=ROUND_HALF_UP)),
+            "receipts": held.receipts,
+            "on_time": held.on_time,
+            "avg_days_late": days_text(_unsigned_zero(held.avg_days_late)),
+        }
+    )
+    materials = []
+    for name, material_id in sorted(named, key=lambda n: (n[0].casefold(), n)):
+        points = by_material[material_id]
+        change = change_pct([p.unit_price for p in points])
+        materials.append(
+            {
+                "material_id": str(material_id),
+                "name": name,
+                "change_pct": None if change is None else str(_unsigned_zero(change)),
+                "latest_unit_price": str(money(points[-1].unit_price)),
+                "points": [
+                    {
+                        "invoice_date": p.invoice_date.isoformat(),
+                        "unit_price": str(money(p.unit_price)),
+                    }
+                    for p in points
+                ],
+            }
+        )
+    return {"on_time": on_time, "materials": materials}
+
+
 def _query(req: func.HttpRequest) -> tuple[str | None, int]:
     """The validated (text, page); the messages never echo the value sent."""
     page = 1
@@ -91,13 +156,14 @@ def _query(req: func.HttpRequest) -> tuple[str | None, int]:
 def suppliers_endpoints(
     directory: SupplierDirectory,
     purchasing: PurchasingPort,
+    dashboards: DashboardReader,
     *,
     platform_auth_trusted: bool,
     clock: Callable[[], datetime] | None = None,
-) -> tuple[Endpoint, Endpoint, Endpoint]:
-    """(list, one supplier, its deliveries). `platform_auth_trusted` has no default:
-    the wiring must always pass the setting (AD-14: fail closed). `clock` defaults to
-    the current UTC time."""
+) -> tuple[Endpoint, Endpoint, Endpoint, Endpoint]:
+    """(list, one supplier, its deliveries, its scorecard). `platform_auth_trusted`
+    has no default: the wiring must always pass the setting (AD-14: fail closed).
+    `clock` defaults to the current UTC time."""
 
     async def known_supplier(req: func.HttpRequest) -> tuple[UUID, str]:
         """The route's supplier and its master name; 404 when unknown or malformed."""
@@ -155,6 +221,18 @@ def suppliers_endpoints(
             correlation_id=correlation_id,
         )
 
+    async def supplier_scorecard(
+        req: func.HttpRequest, correlation_id: UUID, principal: StaffPrincipal
+    ) -> func.HttpResponse:
+        # The master first: an unknown supplier is 404 before analytics is read.
+        supplier_id, _ = await known_supplier(req)
+        today = singapore_date((clock or _now)())
+        since = today - timedelta(days=SCORECARD_DAYS - 1)
+        found = await dashboards.scorecard(supplier_id, since)
+        return json_response(
+            _scorecard_body(found, today), status=200, correlation_id=correlation_id
+        )
+
     return (
         staff_endpoint(
             supplier_list,
@@ -169,6 +247,12 @@ def suppliers_endpoints(
         ),
         staff_endpoint(
             supplier_deliveries,
+            surface=Surface.SUPPLIER_SCORECARD,
+            platform_auth_trusted=platform_auth_trusted,
+            hide_from_others=True,
+        ),
+        staff_endpoint(
+            supplier_scorecard,
             surface=Surface.SUPPLIER_SCORECARD,
             platform_auth_trusted=platform_auth_trusted,
             hide_from_others=True,

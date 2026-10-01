@@ -33,6 +33,7 @@ from invoicing.apps.staff_api.overdue import overdue_endpoint
 from invoicing.apps.staff_api.price_comparison import price_comparison_endpoints
 from invoicing.apps.staff_api.queue import queue_endpoint
 from invoicing.apps.staff_api.settings import StaffApiSettings
+from invoicing.apps.staff_api.suppliers import suppliers_endpoints
 from invoicing.apps.staff_api.watchlist import watchlist_endpoint
 from invoicing.domain.errors import ErrorCode
 
@@ -266,6 +267,15 @@ materials_api, price_comparison_api = price_comparison_endpoints(
 )
 
 
+# Story 4.4: the suppliers list and one supplier's page shell, id and name only (AD-11).
+# Story 4.5: its Deliveries tab, from the purchasing port (AD-10).
+supplier_list_api, supplier_detail_api, supplier_deliveries_api = suppliers_endpoints(
+    PostgresSupplierDirectory(engine),
+    purchasing_port(settings.purchasing_adapter, engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
 @app.route(route="api/materials", methods=["GET"])
 async def materials(req: func.HttpRequest) -> func.HttpResponse:
     """The materials with posted prices, by name (procurement and finance): 200, 401,
@@ -294,6 +304,28 @@ async def watchlist(req: func.HttpRequest) -> func.HttpResponse:
     """The watchlisted suppliers with their evidence and ranked alternatives
     (procurement and management): 200, 401, 403 or 503."""
     return await watchlist_api(req)
+
+
+@app.route(route="api/suppliers", methods=["GET"])
+async def supplier_list(req: func.HttpRequest) -> func.HttpResponse:
+    """Suppliers by name, 50 a page, searched by name (procurement, finance and
+    management): 200, 400, 401, 403 or 503."""
+    return await supplier_list_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}", methods=["GET"])
+async def supplier_detail(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's id and name (procurement, finance and management): 200, 401,
+    404 or 503."""
+    return await supplier_detail_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}/deliveries", methods=["GET"])
+async def supplier_deliveries(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's deliveries of the last 365 days with promised, delivered and
+    received dates and the gaps in days (procurement, finance and management): 200,
+    401, 404 or 503."""
+    return await supplier_deliveries_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

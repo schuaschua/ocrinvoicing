@@ -16,6 +16,9 @@ from decimal import Decimal
 from typing import Protocol
 from uuid import UUID
 
+# Story 4.5: the most deliveries a supplier page lists.
+SUPPLIER_DELIVERIES_MAX = 200
+
 
 @dataclass(frozen=True)
 class PoLine:
@@ -104,6 +107,15 @@ class ReceiptLine:
     received_date: date
 
 
+@dataclass(frozen=True)
+class SupplierDelivery:
+    """One delivery of a supplier's PO with its three dates (Story 4.5, CAP-19)."""
+
+    po_number: str
+    delivery_no: int
+    dates: DeliveryDates
+
+
 class PurchasingPort(Protocol):
     """Read-only access to POs, deliveries and goods receipts (AD-10)."""
 
@@ -156,4 +168,13 @@ class PurchasingPort(Protocol):
     async def material_names(self, material_ids: Iterable[UUID]) -> dict[UUID, str]:
         """The name of each of `material_ids` purchasing knows; an unknown id has no
         entry (Story 5.3: the analytics refresh job's material names, AD-10)."""
+        ...
+
+    async def supplier_delivery_dates(
+        self, supplier_id: UUID, since: date
+    ) -> tuple[SupplierDelivery, ...]:
+        """The deliveries of the supplier's POs dated `since` or later, newest first,
+        then by PO number and delivery number, each with the same three dates as
+        `get_delivery_dates` (Story 4.5). At most `SUPPLIER_DELIVERIES_MAX + 1`, so a
+        caller showing `SUPPLIER_DELIVERIES_MAX` can tell the list was cut."""
         ...

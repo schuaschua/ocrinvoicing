@@ -621,6 +621,66 @@ export const strings = {
     range: (what: string, low: string, high: string) =>
       `${what} from ${low} to ${high}`,
   },
+  /** Story 4.4: the suppliers list and a supplier's page (EXPERIENCE.md Suppliers,
+   * Supplier scorecard; Flow 5). */
+  suppliers: {
+    found: (n: number) => `${plural(n, "supplier", "suppliers")} found`,
+    empty: "No suppliers yet.",
+    noMatch: "No suppliers match this search.",
+    tableLabel: "Suppliers",
+    searchLabel: "Supplier name",
+    search: "Search",
+    clear: "Clear",
+    columns: {
+      name: "Supplier",
+    },
+    /** The server refused the search (the box itself never sends a refused one). */
+    badSearch: "That search couldn't be run. Change it and search again.",
+    pagination: {
+      label: "Supplier list pages",
+      previous: "Previous page",
+      next: "Next page",
+      status: (page: number, pages: number) => `Page ${page} of ${pages}`,
+    },
+    page: {
+      back: "Back to suppliers",
+      notFound: "This supplier can't be found.",
+      tabsLabel: "Supplier details",
+      tabs: {
+        scorecard: "Scorecard",
+        deliveries: "Deliveries",
+      },
+      scorecardComing:
+        "The scorecard is coming: on-time rate and price trend per material.",
+    },
+    /** Story 4.5: the Deliveries tab (CAP-19): where a supplier's delays come from. */
+    deliveries: {
+      tableLabel: "Deliveries",
+      none: "No deliveries in the last 12 months.",
+      truncated: (n: number) => `Showing the newest ${n} deliveries.`,
+      columns: {
+        po: "PO",
+        delivery: "Delivery",
+        promised: "Promised",
+        delivered: "Delivered",
+        received: "Received",
+        late: "Delivered vs promised",
+        toReceive: "Delivered to received",
+        overall: "Received vs promised",
+      },
+      deliveryNo: (n: number) => `#${n}`,
+      /** A date or gap the server doesn't have yet (not received). */
+      missing: "—",
+      /** Delivered or received against promised: positive is late. */
+      lateness: (days: number) =>
+        days > 0
+          ? `${plural(days, "day", "days")} late`
+          : days < 0
+            ? `${plural(-days, "day", "days")} early`
+            : "On time",
+      days: (days: number) => plural(days, "day", "days"),
+    },
+  },
   /** Screens not built yet show their heading and this line. */
   placeholder: "This page isn't ready yet.",
   /** EXPERIENCE.md staff surface table, one name per surface. */

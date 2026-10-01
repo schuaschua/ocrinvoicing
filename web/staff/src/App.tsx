@@ -17,6 +17,8 @@ import { OverduePosScreen } from "@/screens/OverduePosScreen";
 import { PriceComparisonScreen } from "@/screens/PriceComparisonScreen";
 import { QueueScreen } from "@/screens/QueueScreen";
 import { SignedOut, signInHref } from "@/screens/SignedOut";
+import { SupplierScreen } from "@/screens/SupplierScreen";
+import { SuppliersScreen } from "@/screens/SuppliersScreen";
 import { SurfacePage } from "@/screens/SurfacePage";
 import { WatchlistScreen } from "@/screens/WatchlistScreen";
 import { Nav } from "@/shell/Nav";
@@ -58,7 +60,7 @@ function routeFor(me: Me, path: string): Route {
   return { kind: "page", surface };
 }
 
-/** The invoice id of `/queue/:invoiceId` or `/invoices/:invoiceId`. */
+/** The id of `/queue/:invoiceId`, `/invoices/:invoiceId` or `/suppliers/:supplierId`. */
 function itemIdFrom(path: string): string {
   const segment = path.split("/")[2] ?? "";
   try {
@@ -230,6 +232,10 @@ export function App() {
       content = <PriceComparisonScreen key={path} />;
     } else if (route.surface.id === "watchlist") {
       content = <WatchlistScreen key={path} />;
+    } else if (route.surface.id === "suppliers") {
+      content = <SuppliersScreen key={path} />;
+    } else if (route.surface.id === "supplier_scorecard") {
+      content = <SupplierScreen key={path} supplierId={itemIdFrom(path)} />;
     } else {
       content = <SurfacePage key={path} surface={route.surface} />;
     }

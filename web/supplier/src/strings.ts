@@ -87,6 +87,12 @@ export function fileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** A PO number as people say it: "PO 45016" for "PO-45016" or "45016" (as on the
+ * staff app). */
+export function poLabel(poNumber: string): string {
+  return `PO ${poNumber.replace(/^PO[-\s]*/i, "")}`;
+}
+
 /** A page title: the screen's own words, then the company name. */
 export function pageTitle(text: string): string {
   return `${text} – Babaloo`;
@@ -114,6 +120,13 @@ export const strings = {
     /** EXPERIENCE.md "Capture button": camera permission denied or blocked in-app. */
     cameraUnavailable:
       "Camera not available here. Tap Choose file to pick a photo, or open this link in your phone's browser.",
+    /** Story 4.3 (FR13): the weekly reminder banner, read-only. */
+    reminders: (poNumbers: readonly string[]) => {
+      const labels = poNumbers.map(poLabel).join(", ");
+      return poNumbers.length === 1
+        ? `1 delivery is waiting for an invoice: ${labels}.`
+        : `${poNumbers.length} deliveries are waiting for an invoice: ${labels}.`;
+    },
   },
   /** Why a chosen file can't be sent (AD-6: JPEG, PNG or PDF, 4 MB or less). */
   fileRefused: {

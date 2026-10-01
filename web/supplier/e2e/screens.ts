@@ -7,8 +7,10 @@ import type { ApiAnswer, Screen } from "./checks.ts";
 // Synthetic: base64url of 32 bytes of 0x5a, canonical like a real link token.
 const TOKEN = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo";
 
+// Upload home also asks for the supplier's reminders (Story 4.3).
 const LINK_OK: Record<string, ApiAnswer> = {
   "/api/link": { status: 200, body: { supplier_name: "Lim Leather Trading" } },
+  "/api/reminders": { status: 200, body: { po_numbers: [] } },
 };
 
 async function atHome(page: Page): Promise<void> {
@@ -73,13 +75,15 @@ export const SCREENS: Screen[] = [
     story: "1.7",
     name: "upload home",
     path: `/u#${TOKEN}`,
+    // With the Story 4.3 reminder banner.
     api: {
-      "/api/link": {
+      ...LINK_OK,
+      "/api/reminders": {
         status: 200,
-        body: { supplier_name: "Lim Leather Trading" },
+        body: { po_numbers: ["PO-45012", "PO-45019"] },
       },
     },
-    ready: "Uploading for Lim Leather Trading",
+    ready: "2 deliveries are waiting for an invoice: PO 45012, PO 45019.",
   },
   {
     story: "1.7",

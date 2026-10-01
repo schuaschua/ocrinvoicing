@@ -1,8 +1,8 @@
 """Fakes for the pipeline tests: blob storage, queues, metrics, the `uploadkeys` table
-(Story 2.2) and the `supplierreminders` table (Story 2.6). Nothing reaches Azure (coding-style.md rule 23)."""
+(Story 2.2) and the `supplierreminders` table (Stories 2.6 and 4.3). Nothing reaches Azure (coding-style.md rule 23)."""
 
 import socket
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from uuid import UUID
@@ -166,11 +166,21 @@ class FakeUploadKeys:
 
 
 class FakeReminders:
-    """`ReminderStore` that records each delete; `failing` makes every delete raise."""
+    """`ReminderStore` that records each delete, and `ReminderWriter` that records each
+    replacement (Story 4.3); `failing` makes every call raise."""
 
     def __init__(self) -> None:
         self.deleted: list[tuple[UUID, str]] = []
+        self.replaced: list[dict[UUID, list[str]]] = []
         self.failing = False
+
+    async def replace_all(
+        self, rows_by_supplier: Mapping[UUID, Sequence[str]], still_owed: object
+    ) -> int:
+        if self.failing:
+            raise ServiceUnavailableError()
+        self.replaced.append({k: list(v) for k, v in rows_by_supplier.items()})
+        return sum(len(v) for v in rows_by_supplier.values())
 
     async def delete(self, supplier_id: UUID, po_number: str) -> None:
         if self.failing:

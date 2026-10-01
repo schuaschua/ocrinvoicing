@@ -103,3 +103,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-2-overdue-po-list.md`
   summary: A failed analytics refresh run logs no `analytics_refresh.failed` event or metric, so a list that stays stale for days raises no alert.
   evidence: Only DatabaseOfflineError is caught (apps/pipeline/analytics_refresh.py); other errors reach the host log only. Worth pairing with the Epic 5 alerts.
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-3-supplier-weekly-reminders.md`
+  summary: Story 4.3's Table key-length rule (512 UTF-16 units in `storable()`) and the supplier web client's rejection of a malformed `/api/reminders` body have no test.
+  evidence: The in-memory FakeTable enforces no key length; the server's response shape is pinned by `test_story_4_3_reminders_api`. Add when the 200-case cap allows.

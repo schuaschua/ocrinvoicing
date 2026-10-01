@@ -54,13 +54,16 @@ function FileIcon() {
  * photo the camera (with a hint to use Choose file when the browser lists no camera),
  * Choose file a JPEG, PNG or PDF. A chosen file the page can already
  * tell is unsendable is refused here, with the reason; any other goes to `onFile`,
- * with the input it came from.
+ * with the input it came from. `reminders` (Story 4.3) are the supplier's overdue PO
+ * numbers, shown in a read-only banner when there are any.
  */
 export function UploadHome({
   supplierName,
+  reminders = [],
   onFile,
 }: {
   supplierName: string;
+  reminders?: readonly string[];
   onFile: (file: File, source: CaptureSource) => void;
 }) {
   const heading = usePageHeading(strings.uploadHome.pageTitle);
@@ -110,6 +113,16 @@ export function UploadHome({
       <h1 ref={heading} tabIndex={-1} className="text-xl">
         {strings.uploadHome.uploadingFor} <strong>{supplierName}</strong>
       </h1>
+      {/* Present from the start, so the reminders are announced when they arrive;
+          the banner's look only while it has text. */}
+      <p
+        role="status"
+        className={
+          reminders.length > 0 ? "rounded-md bg-muted px-3 py-2" : undefined
+        }
+      >
+        {reminders.length > 0 ? strings.uploadHome.reminders(reminders) : null}
+      </p>
       {/* Present from the start, so a refusal is announced when it appears. */}
       <p role="alert">{notice}</p>
       <div className="mt-auto flex flex-col gap-3">

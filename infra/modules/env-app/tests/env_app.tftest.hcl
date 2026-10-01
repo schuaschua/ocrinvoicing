@@ -301,15 +301,39 @@ run "story_1_3_env_app_applied" {
     condition     = [for ra in azurerm_role_assignment.runtime : ra.principal_id if ra.role_definition_name == "Cognitive Services User"] == ["10000000-0000-0000-0000-000000000003"]
     error_message = "only the pipeline identity may call Document Intelligence (AD-8: one caller)."
   }
-  # Story 2.3: di_pages_used_pct alerts Dj at 80 % of the page cap (AD-8, AD-17).
+  # Stories 2.2 and 2.3 (fix-log-based-alerts): three log search alerts on this
+  # environment's Application Insights traces, each on its own log event, notifying
+  # the action group. ar-01 splits by queue; ar-03 fires at 80 % of the page cap.
+  assert {
+    condition = alltrue([
+      for metric, alert in output.metric_alerts :
+      alert.action_group_ids == [var.action_group_id] &&
+      alert.scopes == toset([var.application_insights_id]) &&
+      startswith(alert.criteria.query, "traces\n| where message startswith \"${lookup({ poison_message = "poison.done", stuck_invoices = "sweeper.done", di_pages_used_pct = "extract.di_usage" }, metric)} \"")
+    ])
+    error_message = "each pipeline alert must search its own log event (poison.done, sweeper.done, extract.di_usage) in this environment's Application Insights traces and notify the action group."
+  }
   assert {
     condition = (
+      output.metric_alerts["poison_message"].criteria.time_aggregation_method == "Count" &&
+      output.metric_alerts["poison_message"].criteria.operator == "GreaterThan" &&
+      output.metric_alerts["poison_message"].criteria.threshold == 0 &&
+      output.metric_alerts["poison_message"].criteria.dimensions == ["queue"] &&
+      output.metric_alerts["poison_message"].window_duration == "PT1H" &&
+      output.metric_alerts["stuck_invoices"].criteria.metric_measure_column == "stuck" &&
+      output.metric_alerts["stuck_invoices"].criteria.operator == "GreaterThan" &&
+      output.metric_alerts["stuck_invoices"].criteria.threshold == 0 &&
+      strcontains(output.metric_alerts["poison_message"].criteria.query, "queue = tostring(customDimensions.queue)") &&
+      strcontains(output.metric_alerts["stuck_invoices"].criteria.query, "stuck = coalesce(toint(customDimensions.requeued), 0) + coalesce(toint(customDimensions.orphans), 0)") &&
+      strcontains(output.metric_alerts["di_pages_used_pct"].criteria.query, "pages_used_pct = coalesce(todouble(customDimensions.pages_used_pct), 0.0)") &&
       output.metric_alerts["di_pages_used_pct"].name == "babaloo-sea-lng-ar-03" &&
-      output.metric_alerts["di_pages_used_pct"].criteria == { metric_name = "di_pages_used_pct", operator = "GreaterThanOrEqual", threshold = 80 } &&
-      output.metric_alerts["di_pages_used_pct"].action_group_ids == [var.action_group_id] &&
-      output.metric_alerts["di_pages_used_pct"].scopes == toset([var.application_insights_id])
+      output.metric_alerts["di_pages_used_pct"].criteria.metric_measure_column == "pages_used_pct" &&
+      output.metric_alerts["di_pages_used_pct"].criteria.time_aggregation_method == "Maximum" &&
+      output.metric_alerts["di_pages_used_pct"].criteria.operator == "GreaterThanOrEqual" &&
+      output.metric_alerts["di_pages_used_pct"].criteria.threshold == 80 &&
+      output.metric_alerts["di_pages_used_pct"].window_duration == "PT6H"
     )
-    error_message = "di_pages_used_pct must alert the action group at 80 % of the cap, on this environment's Application Insights."
+    error_message = "ar-01 must fire on any poison.done per queue in an hour, ar-02 on requeued + orphans above 0, and ar-03 at 80 % of the DI page cap, each reading its fields from customDimensions (AD-17)."
   }
   # --- http_concurrency
   # Dev walkthrough 2026-09-30: supplier-api (no database) serves 8 requests per

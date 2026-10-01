@@ -30,7 +30,7 @@ import logging
 from collections.abc import Awaitable
 from dataclasses import dataclass
 
-from invoicing.adapters.logging import log_event
+from invoicing.adapters.logging import log_event, log_unsampled_event
 from invoicing.domain.errors import DatabaseOfflineError, ServiceUnavailableError
 from invoicing.domain.sweep import (
     CONSUMED_QUEUES,
@@ -116,7 +116,7 @@ class Sweeper:
     def _finish(self, result: SweepResult) -> SweepResult:
         stuck = result.requeued + result.orphans
         self.metrics.emit_metric(MetricName.STUCK_INVOICES, stuck)
-        log_event(
+        log_unsampled_event(
             _logger,
             "sweeper.done",
             level=logging.WARNING if stuck or result.failures else logging.INFO,

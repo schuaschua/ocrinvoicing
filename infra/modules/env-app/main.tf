@@ -2,7 +2,7 @@
 # plan with its own user-assigned identity from <env>/foundation, their deployment
 # containers, app settings (no secrets) and the AD-17 runtime role assignments.
 # The ACS Email Sender assignment (5.2) is added later; Story 1.5 added the telemetry
-# settings, Story 2.2 the pipeline's poison_message and stuck_invoices metric alerts,
+# settings, Story 2.2 the pipeline's poison_message and stuck_invoices alerts,
 # Story 2.3 the pipeline's DI settings, its Cognitive Services User assignment and the
 # di_pages_used_pct alert, Story 2.7 staff-api's built-in auth, and Story 3.1
 # accounts-sim's built-in auth and database settings, and Story 3.2 the pipeline's
@@ -472,38 +472,43 @@ resource "azapi_update_resource" "accounts_sim_auth" {
   body      = { properties = local.accounts_sim_auth }
 }
 
-# --- Metric alerts (AD-17): the pipeline's custom metrics, sent to Dj ---------------------
+# --- Log alerts (AD-17): the pipeline's log events, sent to Dj ----------------------------
 #
-# Storage queue metrics have no per-queue breakdown, so these alert on Application
-# Insights custom metrics. <env>/foundation turns on alerting on custom metric
-# dimensions, which keeps `queue`. The metrics exist only once the app first emits
-# them, so validation is skipped when the rule is created.
+# Storage queue metrics have no per-queue breakdown, and the pipeline's OpenTelemetry
+# custom metrics never reached Application Insights in Dev (plan fix-log-based-alerts),
+# so these rules search the `traces` table for the log events that do arrive. Each
+# query finds its event by the start of `message` and reads the event's fields from
+# customDimensions (Dj, 2026-09-30). The pipeline logs these three events outside any
+# trace, so sampling never drops them. The rules run as Azure Monitor in this
+# subscription, so they need no managed identity. The custom metrics are still
+# emitted; nothing alerts on them.
 
 locals {
-  # Where OpenTelemetry custom metrics land in Application Insights.
-  # [ASSUMPTION] Confirm in the portal's metric namespaces after the first poison message.
-  custom_metrics_namespace = "azure.applicationinsights"
-  resource_group_name      = element(split("/", var.resource_group_id), 4)
+  resource_group_name = element(split("/", var.resource_group_id), 4)
 }
 
-# poison_message{queue}: more than 0 in an hour, one alert per poison queue (AD-2).
-resource "azurerm_monitor_metric_alert" "poison_message" {
-  name                = var.metric_alert_names["poison_message"]
-  resource_group_name = local.resource_group_name
-  scopes              = [var.application_insights_id]
-  description         = "A pipeline message failed 5 times and reached a poison queue (AD-2). Its invoice is in the admin queue as PROCESSING_FAILED, or the trigger logged a code (poison.done)."
-  severity            = 2
-  frequency           = "PT15M"
-  window_size         = "PT1H"
-  auto_mitigate       = true
+# poison.done{queue}: any in the last hour, one alert per poison queue (AD-2).
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "poison_message" {
+  name                    = var.metric_alert_names["poison_message"]
+  resource_group_name     = local.resource_group_name
+  location                = var.location
+  scopes                  = [var.application_insights_id]
+  description             = "A pipeline message failed 5 times and reached a poison queue (AD-2). Its invoice is in the admin queue as PROCESSING_FAILED, or the trigger logged a code (poison.done)."
+  severity                = 2
+  evaluation_frequency    = "PT15M"
+  window_duration         = "PT1H"
+  auto_mitigation_enabled = true
 
   criteria {
-    metric_namespace       = local.custom_metrics_namespace
-    metric_name            = "poison_message"
-    aggregation            = "Total"
-    operator               = "GreaterThan"
-    threshold              = 0
-    skip_metric_validation = true
+    query                   = <<-KQL
+      traces
+      | where message startswith "poison.done "
+      | extend queue = tostring(customDimensions.queue)
+      | project timestamp, queue
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
 
     # Split by queue: each poison queue fires on its own.
     dimension {
@@ -514,63 +519,75 @@ resource "azurerm_monitor_metric_alert" "poison_message" {
   }
 
   action {
-    action_group_id = var.action_group_id
+    action_groups = [var.action_group_id]
   }
 
   tags = var.tags
 }
 
-# stuck_invoices: the sweeper re-enqueued at least one invoice (AD-2). It runs every
-# 15 minutes and emits 0 on a clean sweep, so the alert resolves by itself.
-resource "azurerm_monitor_metric_alert" "stuck_invoices" {
-  name                = var.metric_alert_names["stuck_invoices"]
-  resource_group_name = local.resource_group_name
-  scopes              = [var.application_insights_id]
-  description         = "The sweeper found invoices stranded for over an hour and queued them again (AD-2). See sweeper.requeued in the pipeline's logs."
-  severity            = 2
-  frequency           = "PT15M"
-  window_size         = "PT30M"
-  auto_mitigate       = true
+# sweeper.done with requeued + orphans above 0: the sweeper re-enqueued at least one
+# stranded invoice (AD-2). It runs every 15 minutes and logs 0 on a clean sweep, so
+# the alert resolves by itself.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "stuck_invoices" {
+  name                    = var.metric_alert_names["stuck_invoices"]
+  resource_group_name     = local.resource_group_name
+  location                = var.location
+  scopes                  = [var.application_insights_id]
+  description             = "The sweeper found invoices stranded for over an hour and queued them again (AD-2). See the requeued and orphans fields of sweeper.done in the pipeline's logs."
+  severity                = 2
+  evaluation_frequency    = "PT15M"
+  window_duration         = "PT30M"
+  auto_mitigation_enabled = true
 
   criteria {
-    metric_namespace       = local.custom_metrics_namespace
-    metric_name            = "stuck_invoices"
-    aggregation            = "Maximum"
-    operator               = "GreaterThan"
-    threshold              = 0
-    skip_metric_validation = true
+    query                   = <<-KQL
+      traces
+      | where message startswith "sweeper.done "
+      | extend stuck = coalesce(toint(customDimensions.requeued), 0) + coalesce(toint(customDimensions.orphans), 0)
+      | project timestamp, stuck
+    KQL
+    time_aggregation_method = "Maximum"
+    metric_measure_column   = "stuck"
+    operator                = "GreaterThan"
+    threshold               = 0
   }
 
   action {
-    action_group_id = var.action_group_id
+    action_groups = [var.action_group_id]
   }
 
   tags = var.tags
 }
 
-# di_pages_used_pct: this environment's DI pages this month as a percentage of its cap
-# (AD-8). The extract stage emits it after each analysis; the alert fires at 80 %.
-resource "azurerm_monitor_metric_alert" "di_pages_used_pct" {
-  name                = var.metric_alert_names["di_pages_used_pct"]
-  resource_group_name = local.resource_group_name
-  scopes              = [var.application_insights_id]
-  description         = "Document Intelligence pages used this month reached 80% of this environment's cap of ${var.di_monthly_page_cap} (AD-8). At 100% new invoices go to the admin queue as EXTRACTION_QUOTA until the month ends."
-  severity            = 2
-  frequency           = "PT1H"
-  window_size         = "PT6H"
-  auto_mitigate       = true
+# extract.di_usage pages_used_pct: this environment's DI pages this month as a
+# percentage of its cap (AD-8). The extract stage logs it after each analysis; the
+# alert fires at 80 %.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "di_pages_used_pct" {
+  name                    = var.metric_alert_names["di_pages_used_pct"]
+  resource_group_name     = local.resource_group_name
+  location                = var.location
+  scopes                  = [var.application_insights_id]
+  description             = "Document Intelligence pages used this month reached 80% of this environment's cap of ${var.di_monthly_page_cap} (AD-8). At 100% new invoices go to the admin queue as EXTRACTION_QUOTA until the month ends."
+  severity                = 2
+  evaluation_frequency    = "PT1H"
+  window_duration         = "PT6H"
+  auto_mitigation_enabled = true
 
   criteria {
-    metric_namespace       = local.custom_metrics_namespace
-    metric_name            = "di_pages_used_pct"
-    aggregation            = "Maximum"
-    operator               = "GreaterThanOrEqual"
-    threshold              = 80
-    skip_metric_validation = true
+    query                   = <<-KQL
+      traces
+      | where message startswith "extract.di_usage "
+      | extend pages_used_pct = coalesce(todouble(customDimensions.pages_used_pct), 0.0)
+      | project timestamp, pages_used_pct
+    KQL
+    time_aggregation_method = "Maximum"
+    metric_measure_column   = "pages_used_pct"
+    operator                = "GreaterThanOrEqual"
+    threshold               = 80
   }
 
   action {
-    action_group_id = var.action_group_id
+    action_groups = [var.action_group_id]
   }
 
   tags = var.tags

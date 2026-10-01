@@ -146,7 +146,7 @@ run "prod_foundation" {
   # Story 1.5: dimension alerting, Key Vault audit logs, budget through the action group.
   assert {
     condition     = output.application_insights.custom_metrics_opted_in_type == "WithDimensions"
-    error_message = "prod Application Insights must have alerting on custom metric dimensions on (AD-17)."
+    error_message = "prod Application Insights must keep custom metric dimensions on, for the still-emitted custom metrics; no alert depends on them (AD-17)."
   }
   assert {
     condition     = output.key_vault.audit_log_workspace_id == output.log_analytics_workspace_id

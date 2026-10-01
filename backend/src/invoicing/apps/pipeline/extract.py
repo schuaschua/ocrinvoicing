@@ -9,7 +9,7 @@
    if there is one, else send the original (pages reserved first, AD-8).
 4. Save the run, its fields (bank values encrypted, AD-11) and lines with
    `extracting -> awaiting_validation`, in one transaction; after the commit, enqueue
-   `q-validate` and emit `di_pages_used_pct`.
+   `q-validate`, emit `di_pages_used_pct` and log it (`extract.di_usage`).
 
 - The page cap, or a DI quota error: `route_to_admin(EXTRACTION_QUOTA)`.
 - DI 429: the same message goes back to `q-extract` after `Retry-After` and the
@@ -30,7 +30,7 @@ from enum import StrEnum
 from opentelemetry.trace import SpanKind
 from pydantic import ValidationError
 
-from invoicing.adapters.logging import log_event
+from invoicing.adapters.logging import log_event, log_unsampled_event
 from invoicing.adapters.telemetry import correlation_span
 from invoicing.apps.pipeline.quality import StageFailed, failure_code
 from invoicing.domain.errors import DatabaseOfflineError
@@ -109,9 +109,11 @@ def _redelivered(status: InvoiceStatus | None) -> ExtractOutcome:
 
 
 async def _emit_usage(deps: ExtractDependencies) -> None:
-    deps.metrics.emit_metric(
-        MetricName.DI_PAGES_USED_PCT, await deps.analyzer.pages_used_pct()
-    )
+    pages_used_pct = await deps.analyzer.pages_used_pct()
+    deps.metrics.emit_metric(MetricName.DI_PAGES_USED_PCT, pages_used_pct)
+    # AD-17: the ar-03 log alert reads this event; the custom metric never reached
+    # Application Insights in Dev (plan fix-log-based-alerts).
+    log_unsampled_event(_logger, "extract.di_usage", pages_used_pct=pages_used_pct)
 
 
 async def extract(message: QueueMessage, deps: ExtractDependencies) -> ExtractOutcome:

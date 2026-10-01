@@ -5,10 +5,12 @@ from enum import StrEnum
 from uuid import UUID
 
 import pytest
+from opentelemetry import trace
 
 from invoicing.adapters.logging import (
     event_fields,
     log_event,
+    log_unsampled_event,
     safe_fields,
 )
 from invoicing.adapters.telemetry import correlation_span
@@ -93,3 +95,18 @@ def test_story_1_5_a_correlation_span_unbinds_on_exit_and_on_error(
     with pytest.raises(RuntimeError), correlation_span("x", BOUND):
         raise RuntimeError
     assert _logged(caplog) == {}
+
+    # AD-17: an unsampled event is logged with no active span, even inside a trace, so
+    # trace-based log sampling never drops it.
+    logger = logging.getLogger("test.unsampled")
+
+    def note_span(record: logging.LogRecord) -> bool:
+        record.span = trace.get_current_span().get_span_context()
+        return True
+
+    logger.addFilter(note_span)
+    parent = trace.NonRecordingSpan(trace.SpanContext(1, 1, is_remote=False))
+    with caplog.at_level(logging.INFO, logger="test.unsampled"), trace.use_span(parent):
+        log_unsampled_event(logger, "poison.done")
+        log_event(logger, "thing.done")
+    assert [vars(r)["span"].is_valid for r in caplog.records[-2:]] == [False, True]

@@ -176,7 +176,7 @@ run "story_1_1_env_foundation_applied" {
   # Story 1.5: dimension alerting, Key Vault audit logs, and budgets through the action group.
   assert {
     condition     = azapi_update_resource.application_insights_custom_metric_dimensions.body.properties.CustomMetricsOptedInType == "WithDimensions" && output.application_insights.custom_metrics_opted_in_type == "WithDimensions"
-    error_message = "alerting on custom metric dimensions must be on (AD-17), or poison_message{queue} loses its queue."
+    error_message = "custom metric dimensions must stay on, kept for the still-emitted custom metrics; no alert depends on them (AD-17)."
   }
   assert {
     condition     = azapi_update_resource.application_insights_custom_metric_dimensions.resource_id == module.application_insights.resource_id && azapi_update_resource.application_insights_custom_metric_dimensions.type == "Microsoft.Insights/components@2020-02-02"

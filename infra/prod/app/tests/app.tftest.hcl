@@ -227,7 +227,7 @@ run "prod_app" {
     error_message = "every app must carry exactly the five P-17 tags."
   }
 
-  # Story 2.2: the two pipeline metric alerts, named per P-16, on this environment's
+  # Story 2.2: the pipeline log alerts, named per P-16, on this environment's
   # Application Insights and action group.
   assert {
     condition = { for metric, alert in output.metric_alerts : metric => alert.name } == {
@@ -235,7 +235,7 @@ run "prod_app" {
       stuck_invoices    = "babaloo-sea-lng-ar-12"
       di_pages_used_pct = "babaloo-sea-lng-ar-13"
     }
-    error_message = "the prod metric alerts must be ar-11 (poison_message), ar-12 (stuck_invoices) and ar-13 (di_pages_used_pct) (P-16)."
+    error_message = "the prod pipeline alerts must be ar-11 (poison_message), ar-12 (stuck_invoices) and ar-13 (di_pages_used_pct) (P-16)."
   }
   # Story 2.3 (AD-8): the prod pipeline identity alone is Cognitive Services User on the
   # shared DI resource, gets its endpoint and the prod cap of 400 pages, and Dj is
@@ -266,8 +266,18 @@ run "prod_app" {
     error_message = "the prod pipeline must call the shared DI endpoint with a cap of 400 pages a month in SGD (AD-8) and post to its own accounts-sim (Story 3.2), and staff-api (Story 2.8) must sign in to the prod database as its own identity with the same cap and currency."
   }
   assert {
-    condition     = output.metric_alerts["di_pages_used_pct"].criteria == { metric_name = "di_pages_used_pct", operator = "GreaterThanOrEqual", threshold = 80 }
-    error_message = "the prod di_pages_used_pct alert must fire at 80 % of the cap (AD-17)."
+    condition = alltrue([
+      for metric, binding in {
+        poison_message    = { event = "poison.done", measure = null, operator = "GreaterThan", threshold = 0 }
+        stuck_invoices    = { event = "sweeper.done", measure = "stuck", operator = "GreaterThan", threshold = 0 }
+        di_pages_used_pct = { event = "extract.di_usage", measure = "pages_used_pct", operator = "GreaterThanOrEqual", threshold = 80 }
+      } :
+      startswith(output.metric_alerts[metric].criteria.query, "traces\n| where message startswith \"${binding.event} \"") &&
+      output.metric_alerts[metric].criteria.metric_measure_column == binding.measure &&
+      output.metric_alerts[metric].criteria.operator == binding.operator &&
+      output.metric_alerts[metric].criteria.threshold == binding.threshold
+    ])
+    error_message = "the prod alerts must read poison.done (any), sweeper.done (stuck above 0) and extract.di_usage (pages_used_pct at 80 % of the cap) (AD-17)."
   }
   assert {
     condition = alltrue([
@@ -276,7 +286,7 @@ run "prod_app" {
       alert.action_group_ids == ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-11/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-11"] &&
       alert.tags.environment == "prod" && length(alert.tags) == 5
     ])
-    error_message = "the prod metric alerts must watch prod's Application Insights, notify prod's action group and carry the five P-17 tags."
+    error_message = "the prod pipeline alerts must watch prod's Application Insights, notify prod's action group and carry the five P-17 tags."
   }
 
   # OCR-129: staff-api reads pgp-private-key from the prod private-key vault in rg-22,

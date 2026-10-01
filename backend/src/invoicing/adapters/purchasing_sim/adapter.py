@@ -32,6 +32,7 @@ from invoicing.ports.purchasing import (
     OverduePo,
     PoLine,
     PurchaseOrder,
+    ReceiptLine,
 )
 
 # A delivery with its PO's supplier (the delivery table has none of its own).
@@ -96,6 +97,9 @@ class PurchasingSimAdapter:
 
     async def get_delivery_dates(self, po_number: str) -> tuple[DeliveryDates, ...]:
         return await asyncio.to_thread(self._read, self._delivery_dates, po_number)
+
+    async def receipt_lines(self, since: date) -> tuple[ReceiptLine, ...]:
+        return await asyncio.to_thread(self._read, self._receipt_lines, since)
 
     # --- one read each -----------------------------------------------------------------
 
@@ -283,6 +287,43 @@ class PurchasingSimAdapter:
                 delivery_id=row.delivery_id,
                 promised_date=row.promised,
                 delivered_date=row.delivery_date,
+                received_date=row.received_date,
+            )
+            for row in rows
+        )
+
+    @staticmethod
+    def _receipt_lines(connection: Connection, since: date) -> tuple[ReceiptLine, ...]:
+        rows = connection.execute(
+            select(
+                goods_receipt.c.receipt_id,
+                goods_receipt_line.c.po_line_id,
+                purchase_order.c.supplier_id,
+                po_line.c.material_id,
+                po_line.c.expected_date,
+                goods_receipt.c.received_date,
+            )
+            .join(
+                goods_receipt_line,
+                goods_receipt_line.c.receipt_id == goods_receipt.c.receipt_id,
+            )
+            .join(po_line, po_line.c.po_line_id == goods_receipt_line.c.po_line_id)
+            .join(delivery, delivery.c.delivery_id == goods_receipt.c.delivery_id)
+            .join(purchase_order, purchase_order.c.po_number == delivery.c.po_number)
+            .where(goods_receipt.c.received_date >= since)
+            .order_by(
+                goods_receipt.c.received_date,
+                goods_receipt.c.receipt_id,
+                goods_receipt_line.c.po_line_id,
+            )
+        ).all()
+        return tuple(
+            ReceiptLine(
+                receipt_id=row.receipt_id,
+                po_line_id=row.po_line_id,
+                supplier_id=row.supplier_id,
+                material_id=row.material_id,
+                expected_date=row.expected_date,
                 received_date=row.received_date,
             )
             for row in rows

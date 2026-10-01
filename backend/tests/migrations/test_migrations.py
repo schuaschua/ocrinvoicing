@@ -1,13 +1,15 @@
 """Story 2.1: the Alembic migrations (AD-11, AD-17 step 6) against PostgreSQL 18, run
 through the CLI exactly as ci/migrate.sh does: PG* variables and `-x` role names."""
 
+from typing import Any
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import Engine, create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from conftest import PostgresServer
+from invoicing.adapters.postgres.schema import analytics_metadata
 
 
 def _engine(server: PostgresServer, user: str, database: str) -> Engine:
@@ -133,6 +135,54 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             ):
                 connection.execute(text(statement))
     finally:
+        pipeline.dispose()
+    # Story 5.1 (AD-13): staff-api reads the summary tables and alerts and never
+    # writes them; the pipeline rewrites the summaries but never changes a row in
+    # place, moves the watermark but never erases it, and only stamps `emailed_at` on
+    # an alert, never changing or erasing one.
+    summaries = [
+        analytics_metadata.tables[f"analytics.{name}"]
+        for name in (
+            "price_point",
+            "invoice_fact",
+            "supplier_month",
+            "month_summary",
+            "supplier_month_flags",
+            "receipt_lateness",
+            "supplier_on_time",
+            "watermark",
+            "alert",
+        )
+    ]
+    staff = _engine(postgres_server, postgres_server.staff_api, intake_database)
+    pipeline = _engine(postgres_server, postgres_server.pipeline, intake_database)
+    try:
+        with staff.connect() as connection:
+            for table in summaries:
+                connection.execute(select(func.count()).select_from(table))
+        refused: list[tuple[Engine, Any]] = [
+            (staff, delete(table)) for table in summaries
+        ] + [
+            (staff, "INSERT INTO analytics.watermark VALUES ('x', now())"),
+            (staff, "UPDATE analytics.alert SET emailed_at = now()"),
+            (pipeline, "UPDATE analytics.price_point SET unit_price = 1"),
+            (pipeline, "UPDATE analytics.supplier_on_time SET receipts = 1"),
+            (pipeline, "DELETE FROM analytics.watermark"),
+            (pipeline, "DELETE FROM analytics.alert"),
+            (pipeline, "UPDATE analytics.alert SET kind = 'x'"),
+        ]
+        for engine, statement in refused:
+            with (
+                engine.connect() as connection,
+                pytest.raises(ProgrammingError, match="permission denied"),
+            ):
+                connection.execute(
+                    text(statement) if isinstance(statement, str) else statement
+                )
+        with pipeline.connect() as connection:
+            connection.execute(text("UPDATE analytics.alert SET emailed_at = now()"))
+    finally:
+        staff.dispose()
         pipeline.dispose()
     # Other logins have no grant on the schema at all.
     outsider = _engine(postgres_server, postgres_server.accounts_sim, intake_database)

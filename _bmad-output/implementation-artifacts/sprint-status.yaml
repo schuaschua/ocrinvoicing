@@ -76,8 +76,8 @@ development_status:
   4-5-delivery-dates-on-the-supplier-page-could-have: backlog
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-analytics-refresh-builds-the-summary-tables: backlog
+  epic-5: in-progress
+  5-1-analytics-refresh-builds-the-summary-tables: review
   5-2-staff-alert-emails: backlog
   5-3-price-comparison-with-price-rise-alerts: backlog
   5-4-supplier-watchlist-with-ranked-alternatives: backlog

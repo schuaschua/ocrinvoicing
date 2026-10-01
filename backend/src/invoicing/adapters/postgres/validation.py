@@ -10,12 +10,24 @@ transition is its first write, so when it changes nothing, nothing else is writt
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Connection, Engine, bindparam, exists, select, text, update
+from sqlalchemy import (
+    ARRAY,
+    BindParameter,
+    Connection,
+    Engine,
+    Uuid,
+    any_,
+    bindparam,
+    exists,
+    select,
+    text,
+    update,
+)
 
 from invoicing.adapters.postgres.engine import open_connection
 from invoicing.adapters.postgres.invoices import (
@@ -31,6 +43,7 @@ from invoicing.adapters.postgres.schema import (
 )
 from invoicing.adapters.postgres.suppliers import supplier_bank
 from invoicing.domain.current_values import (
+    CurrentValues,
     FieldValue,
     LineValue,
     RunRow,
@@ -133,6 +146,55 @@ def _runs(rows: Iterable[Any]) -> dict[UUID, list[RunRow]]:
     for row in rows:
         runs[row.invoice_id].append(RunRow(row.run_id, row.created_at))
     return runs
+
+
+def id_array(ids: Sequence[UUID]) -> BindParameter[Sequence[UUID]]:
+    """`ids` as one array parameter (`= ANY(:ids)`), never one bind per id, so a large
+    batch stays under PostgreSQL's 65,535-parameter limit."""
+    return bindparam("ids", ids, type_=ARRAY(Uuid))
+
+
+def current_values_of(
+    connection: Connection, ids: Iterable[UUID], field_ids: Iterable[str]
+) -> dict[UUID, CurrentValues]:
+    """The AD-18 current values (the `field_ids` fields and every line) of each
+    invoice in `ids` that has a run, in one read per table; never a bank ciphertext
+    (AD-11). Story 5.1's analytics refresh reads posted invoices through it."""
+    wanted = list(ids)
+    if not wanted:
+        return {}
+    runs = _runs(
+        connection.execute(
+            select(
+                extraction_run.c.invoice_id,
+                extraction_run.c.run_id,
+                extraction_run.c.created_at,
+            ).where(extraction_run.c.invoice_id == any_(id_array(wanted)))
+        )
+    )
+    fields: dict[UUID, list[FieldValue]] = defaultdict(list)
+    for row in connection.execute(
+        select(*_FIELD_COLUMNS).where(
+            invoice_field.c.invoice_id == any_(id_array(wanted)),
+            invoice_field.c.field_id.in_(list(field_ids)),
+        )
+    ):
+        fields[row.invoice_id].append(_field(row))
+    lines: dict[UUID, list[LineValue]] = defaultdict(list)
+    for row in connection.execute(
+        select(*_LINE_COLUMNS).where(
+            invoice_line.c.invoice_id == any_(id_array(wanted))
+        )
+    ):
+        lines[row.invoice_id].append(_line(row))
+    result: dict[UUID, CurrentValues] = {}
+    for invoice_id, invoice_runs in runs.items():
+        values = current_values(
+            invoice_runs, fields.get(invoice_id, []), lines.get(invoice_id, [])
+        )
+        if values is not None:
+            result[invoice_id] = values
+    return result
 
 
 class PostgresValidationRepository:

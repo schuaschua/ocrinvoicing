@@ -21,6 +21,7 @@ from invoicing.ports.purchasing import (
     GoodsReceipt,
     PurchaseOrder,
     PurchasingPort,
+    ReceiptLine,
 )
 
 SUPPLIER_ALPHA = UUID("01a0c450-6c00-7b7b-8aa9-4ccade9f5526")
@@ -92,6 +93,22 @@ class PurchasingContract:
         assert receipts[0].receipt_id != receipts[1].receipt_id
         # Story 2.5: each receipt names its delivery, so a goods-in scan finds its own.
         assert [r.delivery_id for r in receipts] == [DELIVERY_12_1, DELIVERY_12_2]
+
+        # --- Story 5.1: receipt lines from a date, each with its PO line's supplier,
+        # material and expected date (PO-45016's, received 29 Sep, comes after).
+        lines = run(purchasing.receipt_lines(date(2026, 9, 15)))
+        assert lines[0] == ReceiptLine(
+            receipts[1].receipt_id,
+            LINE_12_2,
+            SUPPLIER_ALPHA,
+            REBAR,
+            date(2026, 9, 12),
+            date(2026, 9, 15),
+        )
+        assert [line.received_date for line in lines] == [
+            date(2026, 9, 15),
+            date(2026, 9, 29),
+        ]
 
         # --- Story 4.1: a delivery with its PO's supplier, the day's deliveries, and
         # the search by PO prefix (any case, wildcards literal), newest first.

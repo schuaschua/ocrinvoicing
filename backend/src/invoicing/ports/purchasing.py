@@ -90,6 +90,20 @@ class DeliveryDates:
     received_date: date | None
 
 
+@dataclass(frozen=True)
+class ReceiptLine:
+    """One goods-receipt line with what lateness needs (Story 5.1, AD-20): its PO
+    line's supplier, material and `expected_date`, and the receipt's
+    `received_date`."""
+
+    receipt_id: UUID
+    po_line_id: UUID
+    supplier_id: UUID
+    material_id: UUID
+    expected_date: date
+    received_date: date
+
+
 class PurchasingPort(Protocol):
     """Read-only access to POs, deliveries and goods receipts (AD-10)."""
 
@@ -131,4 +145,10 @@ class PurchasingPort(Protocol):
     async def get_delivery_dates(self, po_number: str) -> tuple[DeliveryDates, ...]:
         """Promised, delivered and received dates per delivery of the PO, by delivery
         date; empty when it has none (or there is no such PO)."""
+        ...
+
+    async def receipt_lines(self, since: date) -> tuple[ReceiptLine, ...]:
+        """Every goods-receipt line whose receipt's `received_date` is `since` or
+        later, by received date, receipt and PO line (Story 5.1: the analytics
+        refresh job's lateness, AD-20)."""
         ...

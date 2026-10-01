@@ -106,3 +106,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-3-supplier-weekly-reminders.md`
   summary: Story 4.3's Table key-length rule (512 UTF-16 units in `storable()`) and the supplier web client's rejection of a malformed `/api/reminders` body have no test.
   evidence: The in-memory FakeTable enforces no key length; the server's response shape is pinned by `test_story_4_3_reminders_api`. Add when the 200-case cap allows.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-1-analytics-summary-tables.md`
+  summary: The dashboard repository has no "as of" read (the last `summaries` run), and the summary step's rollback, lock re-check and pure domain rules have no direct tests.
+  evidence: Dashboards (5.3–5.6) can show staleness from `job_run`; the other gaps were skipped for the 200-case cap.

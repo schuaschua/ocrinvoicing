@@ -1,6 +1,7 @@
 """The `analytics` schema (AD-13): written by the analytics refresh job only, read by
 staff-api's dashboards. Story 4.2 adds the overdue list (CAP-12); Story 4.3 the
-weekly supplier reminders' reads and guard (CAP-13).
+weekly supplier reminders' reads and guard (CAP-13); Story 5.1 the daily summary
+tables (AD-20), which staff-api reads through `ports/dashboards.py`.
 
 Every method raises `DatabaseOfflineError` (domain/errors.py) when the database can't
 be reached at all (AD-7); a failing query raises as it is."""
@@ -10,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
 
-from invoicing.ports.purchasing import OverduePo
+from invoicing.ports.purchasing import OverduePo, ReceiptLine
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,20 @@ class AnalyticsStore(Protocol):
 
     async def record_reminders(self, week: date, finished_at: datetime) -> None:
         """Record the week's reminders as written; recording it twice is fine."""
+        ...
+
+    async def summaries_done(self, run_date: date) -> bool:
+        """Whether `run_date`'s summaries were written (Story 5.1)."""
+        ...
+
+    async def refresh_summaries(
+        self, run_date: date, receipts: Sequence[ReceiptLine], finished_at: datetime
+    ) -> bool:
+        """In one transaction, under one lock (Story 5.1, AD-20): rewrite the price
+        points and facts of every invoice posted after the watermark minus 1 hour,
+        move the watermark on, recompute the other summary tables in full (lateness
+        from `receipts`), and record `run_date`'s run. False, with nothing written,
+        when `run_date` already ran."""
         ...
 
 

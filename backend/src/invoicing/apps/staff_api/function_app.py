@@ -256,8 +256,10 @@ async def overdue_pos(req: func.HttpRequest) -> func.HttpResponse:
 
 
 # Story 4.4: the suppliers list and one supplier's page shell, id and name only (AD-11).
-supplier_list_api, supplier_detail_api = suppliers_endpoints(
+# Story 4.5: its Deliveries tab, from the purchasing port (AD-10).
+supplier_list_api, supplier_detail_api, supplier_deliveries_api = suppliers_endpoints(
     PostgresSupplierDirectory(engine),
+    purchasing_port(settings.purchasing_adapter, engine),
     platform_auth_trusted=settings.platform_auth_trusted,
 )
 
@@ -274,6 +276,14 @@ async def supplier_detail(req: func.HttpRequest) -> func.HttpResponse:
     """One supplier's id and name (procurement, finance and management): 200, 401,
     404 or 503."""
     return await supplier_detail_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}/deliveries", methods=["GET"])
+async def supplier_deliveries(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's deliveries of the last 365 days with promised, delivered and
+    received dates and the gaps in days (procurement, finance and management): 200,
+    401, 404 or 503."""
+    return await supplier_deliveries_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

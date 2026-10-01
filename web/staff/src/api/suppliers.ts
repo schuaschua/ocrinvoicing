@@ -83,3 +83,81 @@ export async function getSupplier(
   );
   return row(body);
 }
+
+/** One delivery on a supplier's Deliveries tab (Story 4.5, CAP-19). Dates are
+ * YYYY-MM-DD; the gaps are whole days, worked out by the server, null when a date is
+ * missing. */
+export interface SupplierDelivery {
+  poNumber: string;
+  deliveryNo: number;
+  promisedDate: string | null;
+  deliveredDate: string | null;
+  receivedDate: string | null;
+  /** Delivered − promised: positive is late, negative early. */
+  daysLate: number | null;
+  /** Received − delivered. */
+  daysToReceive: number | null;
+  /** Received − promised. */
+  daysOverall: number | null;
+}
+
+export interface SupplierDeliveries {
+  /** Newest first, the last 12 months, at most 200. */
+  items: SupplierDelivery[];
+  /** True when there were more than the server sends. */
+  truncated: boolean;
+}
+
+function dateOrNull(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value === "string") return value;
+  throw broken();
+}
+
+function daysOrNull(value: unknown): number | null {
+  if (value === null) return null;
+  const n = num(value);
+  if (n === null) throw broken();
+  return n;
+}
+
+function delivery(value: unknown): SupplierDelivery {
+  if (
+    !isWire(value) ||
+    typeof value.po_number !== "string" ||
+    num(value.delivery_no) === null
+  ) {
+    throw broken();
+  }
+  return {
+    poNumber: value.po_number,
+    deliveryNo: value.delivery_no as number,
+    promisedDate: dateOrNull(value.promised_date),
+    deliveredDate: dateOrNull(value.delivered_date),
+    receivedDate: dateOrNull(value.received_date),
+    daysLate: daysOrNull(value.days_late),
+    daysToReceive: daysOrNull(value.days_to_receive),
+    daysOverall: daysOrNull(value.days_overall),
+  };
+}
+
+/** A supplier's deliveries with their dates and gaps
+ * (`GET /api/suppliers/{id}/deliveries`); rejects with `ApiError` 404 for an unknown
+ * supplier. */
+export async function getSupplierDeliveries(
+  supplierId: string,
+  signal?: AbortSignal,
+): Promise<SupplierDeliveries> {
+  const body = await apiRequest<unknown>(
+    `/api/suppliers/${encodeURIComponent(supplierId)}/deliveries`,
+    { signal },
+  );
+  if (
+    !isWire(body) ||
+    !Array.isArray(body.items) ||
+    typeof body.truncated !== "boolean"
+  ) {
+    throw broken();
+  }
+  return { items: body.items.map(delivery), truncated: body.truncated };
+}

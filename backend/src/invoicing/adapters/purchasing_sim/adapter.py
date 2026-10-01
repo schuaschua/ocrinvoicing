@@ -26,12 +26,14 @@ from invoicing.adapters.purchasing_sim.schema import (
     purchase_order,
 )
 from invoicing.ports.purchasing import (
+    SUPPLIER_DELIVERIES_MAX,
     Delivery,
     DeliveryDates,
     GoodsReceipt,
     OverduePo,
     PoLine,
     PurchaseOrder,
+    SupplierDelivery,
 )
 
 # A delivery with its PO's supplier (the delivery table has none of its own).
@@ -51,6 +53,44 @@ def _delivery(row: Row[Any]) -> Delivery:
         po_number=row.po_number,
         delivery_no=row.delivery_no,
         delivery_date=row.delivery_date,
+    )
+
+
+# CAP-19's promised date: the earliest `expected_date` of the PO lines the delivery's
+# receipt received, or of all the PO's lines while it has no receipt.
+_PO_EARLIEST = (
+    select(func.min(po_line.c.expected_date))
+    .where(po_line.c.po_number == delivery.c.po_number)
+    .correlate(delivery)
+    .scalar_subquery()
+)
+_RECEIVED_EARLIEST = (
+    select(func.min(po_line.c.expected_date))
+    .join(
+        goods_receipt_line,
+        goods_receipt_line.c.po_line_id == po_line.c.po_line_id,
+    )
+    .where(goods_receipt_line.c.receipt_id == goods_receipt.c.receipt_id)
+    .correlate(goods_receipt)
+    .scalar_subquery()
+)
+# Each delivery with its three dates; callers add the filter and the order.
+_DELIVERY_DATES = select(
+    delivery.c.delivery_id,
+    delivery.c.po_number,
+    delivery.c.delivery_no,
+    func.coalesce(_RECEIVED_EARLIEST, _PO_EARLIEST).label("promised"),
+    delivery.c.delivery_date,
+    goods_receipt.c.received_date,
+).outerjoin(goods_receipt, goods_receipt.c.delivery_id == delivery.c.delivery_id)
+
+
+def _dates(row: Row[Any]) -> DeliveryDates:
+    return DeliveryDates(
+        delivery_id=row.delivery_id,
+        promised_date=row.promised,
+        delivered_date=row.delivery_date,
+        received_date=row.received_date,
     )
 
 
@@ -96,6 +136,13 @@ class PurchasingSimAdapter:
 
     async def get_delivery_dates(self, po_number: str) -> tuple[DeliveryDates, ...]:
         return await asyncio.to_thread(self._read, self._delivery_dates, po_number)
+
+    async def supplier_delivery_dates(
+        self, supplier_id: UUID, since: date
+    ) -> tuple[SupplierDelivery, ...]:
+        return await asyncio.to_thread(
+            self._read, self._supplier_delivery_dates, (supplier_id, since)
+        )
 
     # --- one read each -----------------------------------------------------------------
 
@@ -250,40 +297,39 @@ class PurchasingSimAdapter:
     def _delivery_dates(
         connection: Connection, po_number: str
     ) -> tuple[DeliveryDates, ...]:
-        po_earliest = (
-            select(func.min(po_line.c.expected_date))
-            .where(po_line.c.po_number == po_number)
-            .scalar_subquery()
-        )
-        received_earliest = (
-            select(func.min(po_line.c.expected_date))
-            .join(
-                goods_receipt_line,
-                goods_receipt_line.c.po_line_id == po_line.c.po_line_id,
-            )
-            .where(goods_receipt_line.c.receipt_id == goods_receipt.c.receipt_id)
-            .correlate(goods_receipt)
-            .scalar_subquery()
-        )
         rows = connection.execute(
-            select(
-                delivery.c.delivery_id,
-                func.coalesce(received_earliest, po_earliest).label("promised"),
-                delivery.c.delivery_date,
-                goods_receipt.c.received_date,
+            _DELIVERY_DATES.where(delivery.c.po_number == po_number).order_by(
+                delivery.c.delivery_date, delivery.c.delivery_no
             )
-            .outerjoin(
-                goods_receipt, goods_receipt.c.delivery_id == delivery.c.delivery_id
+        ).all()
+        return tuple(_dates(row) for row in rows)
+
+    @staticmethod
+    def _supplier_delivery_dates(
+        connection: Connection, query: tuple[UUID, date]
+    ) -> tuple[SupplierDelivery, ...]:
+        supplier_id, since = query
+        rows = connection.execute(
+            _DELIVERY_DATES.join(
+                purchase_order, purchase_order.c.po_number == delivery.c.po_number
             )
-            .where(delivery.c.po_number == po_number)
-            .order_by(delivery.c.delivery_date, delivery.c.delivery_no)
+            .where(
+                purchase_order.c.supplier_id == supplier_id,
+                delivery.c.delivery_date >= since,
+            )
+            .order_by(
+                delivery.c.delivery_date.desc(),
+                delivery.c.po_number,
+                delivery.c.delivery_no,
+            )
+            # One past the page's cap, so the caller can tell the list was cut.
+            .limit(SUPPLIER_DELIVERIES_MAX + 1)
         ).all()
         return tuple(
-            DeliveryDates(
-                delivery_id=row.delivery_id,
-                promised_date=row.promised,
-                delivered_date=row.delivery_date,
-                received_date=row.received_date,
+            SupplierDelivery(
+                po_number=row.po_number,
+                delivery_no=row.delivery_no,
+                dates=_dates(row),
             )
             for row in rows
         )

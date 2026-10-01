@@ -106,3 +106,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-3-supplier-weekly-reminders.md`
   summary: Story 4.3's Table key-length rule (512 UTF-16 units in `storable()`) and the supplier web client's rejection of a malformed `/api/reminders` body have no test.
   evidence: The in-memory FakeTable enforces no key length; the server's response shape is pinned by `test_story_4_3_reminders_api`. Add when the 200-case cap allows.
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-4-suppliers-list.md`
+  summary: The Suppliers list's past-the-end paging clamp and the error/retry states of both supplier screens have no test.
+  evidence: SuppliersScreen.test.tsx covers only well-formed 200s; skipped for the 200-case cap.
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-4-suppliers-list.md`
+  summary: The Suppliers and Invoices search results are not announced to screen readers (no live region on the result count).
+  evidence: Both screens render the count in a plain paragraph; fix both together.

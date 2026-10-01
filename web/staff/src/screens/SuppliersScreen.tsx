@@ -8,11 +8,10 @@ import {
 
 import { ApiError } from "@/api";
 import {
-  searchInvoices,
-  type InvoicePage,
-  type InvoiceQuery,
-} from "@/api/invoices";
-import { Badge } from "@/components/ui/badge";
+  listSuppliers,
+  type SupplierPage,
+  type SupplierQuery,
+} from "@/api/suppliers";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -23,67 +22,36 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { amountText, dateTimeText } from "@/lib/format";
 import { plainClick } from "@/lib/links";
 import { navigate } from "@/router";
-import {
-  pageTitle,
-  statusLabel,
-  statusLabels,
-  strings,
-  type InvoiceStatus,
-} from "@/strings";
+import { pageTitle, strings } from "@/strings";
 
 import { usePageHeading } from "./usePageHeading";
 
 type State =
   | { kind: "loading" }
-  | { kind: "ready"; data: InvoicePage }
+  | { kind: "ready"; data: SupplierPage }
   | { kind: "error"; message: string };
 
-/** The status filter's options: one per label, each standing for all its codes. */
-const STATUS_OPTIONS: { label: string; codes: InvoiceStatus[] }[] = [];
-for (const [code, label] of Object.entries(statusLabels) as [
-  InvoiceStatus,
-  string,
-][]) {
-  const option = STATUS_OPTIONS.find((o) => o.label === label);
-  if (option) option.codes.push(code);
-  else STATUS_OPTIONS.push({ label, codes: [code] });
-}
+const EMPTY: SupplierQuery = { page: 1, text: null };
 
-const EMPTY: InvoiceQuery = {
-  page: 1,
-  supplierId: null,
-  statuses: [],
-  invoiceNumber: null,
-  reference: null,
-  text: null,
-};
-
-export function invoicePath(invoiceId: string): string {
-  return `/invoices/${encodeURIComponent(invoiceId)}`;
+export function supplierPath(supplierId: string): string {
+  return `/suppliers/${encodeURIComponent(supplierId)}`;
 }
 
 /**
- * Invoices (Story 3.4, EXPERIENCE.md Invoices): every invoice, newest first, 50 a
- * page, searched by status and one box for an invoice number, supplier name or
- * supplier reference. Statuses show as labels, never codes. The supplier name links
- * to the invoice's detail.
+ * Suppliers (Story 4.4, EXPERIENCE.md Suppliers, Flow 5): every supplier by name, 50
+ * a page, with a search by name. Each name links to the supplier's page. There is no
+ * supplier admin here (EXPERIENCE.md: no supplier master surface).
  */
-export function InvoicesScreen() {
-  const title = strings.surfaces.invoices;
+export function SuppliersScreen() {
+  const title = strings.surfaces.suppliers;
   const heading = usePageHeading(pageTitle(title));
-  const s = strings.invoices;
-  const ids = {
-    search: useId(),
-    status: useId(),
-    hint: useId(),
-  };
-  // The form's fields, applied as the query only on Search.
+  const s = strings.suppliers;
+  const searchId = useId();
+  // The box, applied as the query only on Search (Enter or the button).
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
-  const [query, setQuery] = useState<InvoiceQuery>(EMPTY);
+  const [query, setQuery] = useState<SupplierQuery>(EMPTY);
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{ key: string; state: State } | null>(
     null,
@@ -95,8 +63,10 @@ export function InvoicesScreen() {
 
   useEffect(() => {
     const controller = new AbortController();
-    searchInvoices(query, controller.signal).then(
+    listSuppliers(query, controller.signal).then(
       (data) => {
+        // A late answer must not overwrite a newer query or an unmounted screen.
+        if (controller.signal.aborted) return;
         // Past the end (fewer matches than when paged): to the last page.
         const last = Math.max(1, Math.ceil(data.total / data.pageSize));
         if (data.items.length === 0 && data.total > 0 && last < query.page) {
@@ -128,41 +98,27 @@ export function InvoicesScreen() {
 
   function onSearch(event: FormEvent) {
     event.preventDefault();
-    const option = STATUS_OPTIONS.find((o) => o.label === status);
     const text = search.trim();
-    setQuery({
-      ...EMPTY,
-      statuses: option?.codes ?? [],
-      text: text === "" ? null : text,
-    });
+    setQuery({ page: 1, text: text === "" ? null : text });
   }
 
   function onClear() {
     setSearch("");
-    setStatus("");
     setQuery(EMPTY);
   }
 
-  function open(event: MouseEvent, invoiceId: string) {
+  function open(event: MouseEvent, supplierId: string) {
     if (!plainClick(event)) return;
     event.preventDefault();
-    navigate(invoicePath(invoiceId));
+    navigate(supplierPath(supplierId));
   }
 
-  const filtered =
-    query.supplierId !== null ||
-    query.statuses.length > 0 ||
-    query.invoiceNumber !== null ||
-    query.reference !== null ||
-    query.text !== null;
   const loading = state.kind === "loading";
   // While the next page loads, the last answer stays, so the paging buttons keep focus.
   const previous = result?.state.kind === "ready" ? result.state.data : null;
   const data = state.kind === "ready" ? state.data : loading ? previous : null;
   const pages =
     data === null ? 1 : Math.max(1, Math.ceil(data.total / data.pageSize));
-  const control =
-    "min-h-tap-min w-full rounded-md border bg-background px-3 text-sm";
 
   return (
     <div className="flex flex-col gap-4">
@@ -171,50 +127,24 @@ export function InvoicesScreen() {
       </h1>
       <form
         role="search"
-        // Top-aligned: the search hint under its input must not lift that input
-        // above the Status select (the buttons sit level with the inputs).
-        className="flex flex-wrap items-start gap-4"
+        className="flex flex-wrap items-end gap-4"
         onSubmit={onSearch}
       >
         <div className="flex w-full max-w-sm min-w-0 flex-col gap-1">
-          <label htmlFor={ids.search} className="text-sm font-medium">
-            {s.filters.search}
+          <label htmlFor={searchId} className="text-sm font-medium">
+            {s.searchLabel}
           </label>
           <input
-            id={ids.search}
+            id={searchId}
             type="search"
-            className={control}
+            className="min-h-tap-min w-full rounded-md border bg-background px-3 text-sm"
             value={search}
             maxLength={64}
             autoComplete="off"
-            aria-describedby={ids.hint}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <p id={ids.hint} className="text-sm text-muted-foreground">
-            {s.filters.searchHint}
-          </p>
         </div>
-        <div className="flex max-w-full min-w-0 flex-col gap-1">
-          <label htmlFor={ids.status} className="text-sm font-medium">
-            {s.filters.status}
-          </label>
-          <select
-            id={ids.status}
-            className={control}
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="">{s.filters.allStatuses}</option>
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option.label} value={option.label}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        {/* Level with the controls, below their labels (text-sm line plus gap), once
-            they sit in one row. */}
-        <div className="flex gap-2 sm:pt-6">
+        <div className="flex gap-2">
           <Button type="submit">{s.search}</Button>
           <Button type="button" variant="outline" onClick={onClear}>
             {s.clear}
@@ -225,7 +155,7 @@ export function InvoicesScreen() {
       {loading && data === null ? (
         <div
           aria-hidden="true"
-          data-testid="invoices-loading"
+          data-testid="suppliers-loading"
           className="flex flex-col gap-3"
         >
           {[0, 1, 2, 3, 4].map((n) => (
@@ -246,7 +176,7 @@ export function InvoicesScreen() {
       ) : null}
 
       {data !== null && data.items.length === 0 ? (
-        <p>{filtered ? s.noMatch : s.empty}</p>
+        <p>{query.text !== null ? s.noMatch : s.empty}</p>
       ) : null}
 
       {data !== null && data.items.length > 0 ? (
@@ -255,44 +185,20 @@ export function InvoicesScreen() {
           <Table aria-label={s.tableLabel} aria-busy={loading}>
             <TableHeader>
               <TableRow>
-                <TableHead scope="col">{s.columns.received}</TableHead>
-                <TableHead scope="col">{s.columns.supplier}</TableHead>
-                <TableHead scope="col">{s.columns.invoiceNumber}</TableHead>
-                <TableHead scope="col" className="text-right">
-                  {s.columns.total}
-                </TableHead>
-                <TableHead scope="col">{s.columns.status}</TableHead>
-                <TableHead scope="col">{s.columns.reference}</TableHead>
+                <TableHead scope="col">{s.columns.name}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.items.map((item) => (
-                <TableRow key={item.invoiceId} data-testid="invoice-row">
-                  <TableCell className="numeric">
-                    {dateTimeText(item.receivedAt)}
-                  </TableCell>
+                <TableRow key={item.supplierId} data-testid="supplier-row">
                   <TableCell>
                     <a
-                      href={invoicePath(item.invoiceId)}
+                      href={supplierPath(item.supplierId)}
                       className="inline-flex min-h-tap-min items-center font-medium underline-offset-4 hover:underline"
-                      onClick={(event) => open(event, item.invoiceId)}
+                      onClick={(event) => open(event, item.supplierId)}
                     >
-                      {item.supplierName ?? strings.queue.unknownSupplier}
+                      {item.name}
                     </a>
-                  </TableCell>
-                  <TableCell>{item.invoiceNumber ?? s.noNumber}</TableCell>
-                  <TableCell className="numeric text-right">
-                    {amountText(item.amount, item.currency)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">
-                      {statusLabel(item.status, {
-                        afterCorrection: item.afterCorrection,
-                      })}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="numeric">
-                    {item.reference ?? ""}
                   </TableCell>
                 </TableRow>
               ))}
@@ -300,7 +206,7 @@ export function InvoicesScreen() {
           </Table>
           {pages > 1 ? (
             <nav
-              aria-label={strings.queue.pagination.label}
+              aria-label={s.pagination.label}
               className="flex flex-wrap items-center gap-2"
             >
               <Button
@@ -311,18 +217,16 @@ export function InvoicesScreen() {
                   setQuery((q) => ({ ...q, page: Math.max(1, q.page - 1) }))
                 }
               >
-                {strings.queue.pagination.previous}
+                {s.pagination.previous}
               </Button>
-              <p className="text-sm">
-                {strings.queue.pagination.status(data.page, pages)}
-              </p>
+              <p className="text-sm">{s.pagination.status(data.page, pages)}</p>
               <Button
                 type="button"
                 variant="outline"
                 disabled={loading || data.page >= pages}
                 onClick={() => setQuery((q) => ({ ...q, page: q.page + 1 }))}
               >
-                {strings.queue.pagination.next}
+                {s.pagination.next}
               </Button>
             </nav>
           ) : null}

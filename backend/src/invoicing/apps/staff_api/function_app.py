@@ -31,6 +31,7 @@ from invoicing.apps.staff_api.me import me_endpoint
 from invoicing.apps.staff_api.overdue import overdue_endpoint
 from invoicing.apps.staff_api.queue import queue_endpoint
 from invoicing.apps.staff_api.settings import StaffApiSettings
+from invoicing.apps.staff_api.suppliers import suppliers_endpoints
 from invoicing.domain.errors import ErrorCode
 
 # Fails at start-up, naming any missing setting.
@@ -252,6 +253,27 @@ async def overdue_pos(req: func.HttpRequest) -> func.HttpResponse:
     """POs past their expected date with no invoice, by supplier, with the date the
     list was made (admin, procurement and finance): 200, 401, 403 or 503."""
     return await overdue_api(req)
+
+
+# Story 4.4: the suppliers list and one supplier's page shell, id and name only (AD-11).
+supplier_list_api, supplier_detail_api = suppliers_endpoints(
+    PostgresSupplierDirectory(engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/suppliers", methods=["GET"])
+async def supplier_list(req: func.HttpRequest) -> func.HttpResponse:
+    """Suppliers by name, 50 a page, searched by name (procurement, finance and
+    management): 200, 400, 401, 403 or 503."""
+    return await supplier_list_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}", methods=["GET"])
+async def supplier_detail(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's id and name (procurement, finance and management): 200, 401,
+    404 or 503."""
+    return await supplier_detail_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

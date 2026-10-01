@@ -3,15 +3,16 @@
 `PostgresAnalyticsStore` is the analytics refresh job's writer (the pipeline login,
 the schema's only writer), which also serves Story 4.3's weekly reminders: the list,
 the invoiced re-check and the weekly guard, and Story 5.1's daily summaries (written
-by `analytics_summaries.py`). `PostgresOverdueReader` is staff-api's read (SELECT
-only).
+by `analytics_summaries.py`) and Story 5.3's material names. `PostgresOverdueReader`
+is staff-api's read (SELECT only).
 SQLAlchemy Core with bound parameters (security.md rule 21), on a worker thread
 (coding-style.md rule 11).
 """
 
 import asyncio
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, datetime
+from uuid import UUID
 
 from sqlalchemy import Connection, Engine, delete, exists, func, insert, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -21,7 +22,13 @@ from invoicing.adapters.postgres.analytics_summaries import (
     write_summaries,
 )
 from invoicing.adapters.postgres.engine import open_connection
-from invoicing.adapters.postgres.schema import invoice, job_run, overdue_po
+from invoicing.adapters.postgres.schema import (
+    invoice,
+    job_run,
+    material,
+    overdue_po,
+    price_point,
+)
 from invoicing.domain.status import InvoiceStatus
 from invoicing.ports.analytics import OverdueList
 from invoicing.ports.purchasing import OverduePo, ReceiptLine
@@ -183,13 +190,36 @@ class PostgresAnalyticsStore:
             # Read after the lock, as the overdue rebuild does.
             if _job_ran(connection, SUMMARIES_JOB, run_date):
                 return False
-            write_summaries(connection, receipts)
+            write_summaries(connection, receipts, finished_at)
             connection.execute(
                 insert(job_run).values(
                     job=SUMMARIES_JOB, run_date=run_date, finished_at=finished_at
                 )
             )
         return True
+
+    async def priced_materials(self) -> set[UUID]:
+        return await asyncio.to_thread(self._priced_materials)
+
+    def _priced_materials(self) -> set[UUID]:
+        with open_connection(self._engine) as connection:
+            return set(
+                connection.execute(
+                    select(price_point.c.material_id).distinct()
+                ).scalars()
+            )
+
+    async def replace_materials(self, names: Mapping[UUID, str]) -> None:
+        await asyncio.to_thread(self._replace_materials, dict(names))
+
+    def _replace_materials(self, names: dict[UUID, str]) -> None:
+        with open_connection(self._engine) as connection, connection.begin():
+            connection.execute(delete(material))
+            if names:
+                connection.execute(
+                    insert(material),
+                    [{"material_id": key, "name": name} for key, name in names.items()],
+                )
 
 
 class PostgresOverdueReader:

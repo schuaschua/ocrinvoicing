@@ -5,7 +5,10 @@ Posted invoices are processed incrementally: every invoice with `posted_at` afte
 watermark minus 1 hour (all of them on the first run) has its `price_point` and
 `invoice_fact` rows deleted and written again, so a rerun or an overlap never counts
 one twice, and a late commit is still picked up. Everything else is recomputed in
-full from `invoice_fact`, `intake` and the receipts passed in. The rules are
+full from `invoice_fact`, `intake` and the receipts passed in. Story 5.3 then stores
+each AD-20 price rise as one `alert`, once by its `dedupe_key`: an alert is never
+updated or deleted here (Story 5.2 stamps `emailed_at`), and a rise posted before the
+run's window is stored already marked emailed (`detail.backfilled`). The rules are
 `domain/analytics.py`'s. SQLAlchemy Core with bound parameters (security.md rule 21).
 """
 
@@ -27,6 +30,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from invoicing.adapters.postgres.schema import (
     admin_item,
+    alert,
     invoice,
     invoice_fact,
     month_summary,
@@ -40,15 +44,19 @@ from invoicing.adapters.postgres.schema import (
 )
 from invoicing.adapters.postgres.validation import current_values_of, id_array
 from invoicing.domain.analytics import (
+    PRICE_RISE,
     InvoiceFact,
     PricePoint,
+    PriceRise,
     days_late,
     month_summaries,
     on_time_rates,
     posted_summary,
+    price_rises,
     supplier_flags,
     supplier_months,
 )
+from invoicing.domain.ids import new_uuid7
 from invoicing.domain.reasons import ReasonCode
 from invoicing.domain.status import InvoiceStatus
 from invoicing.domain.validation import INVOICE_DATE, INVOICE_TOTAL
@@ -69,12 +77,16 @@ def _replace(connection: Connection, table: Table, rows: Iterable[Any]) -> None:
         connection.execute(insert(table), values)
 
 
-def _posted(connection: Connection) -> None:
-    """Rewrite the price points and facts of the invoices posted since the watermark
-    (minus the overlap)."""
-    held = connection.execute(
+def _watermark(connection: Connection) -> datetime | None:
+    held: datetime | None = connection.execute(
         select(watermark.c.posted_at).where(watermark.c.job == SUMMARIES_JOB)
     ).scalar()
+    return held
+
+
+def _posted(connection: Connection, held: datetime | None) -> None:
+    """Rewrite the price points and facts of the invoices posted since the watermark
+    `held` (minus the overlap)."""
     query = select(invoice.c.id, invoice.c.supplier_id, invoice.c.posted_at).where(
         invoice.c.posted_at.is_not(None)
     )
@@ -131,9 +143,76 @@ def _posted(connection: Connection) -> None:
     )
 
 
-def write_summaries(connection: Connection, receipts: Sequence[ReceiptLine]) -> None:
-    """Every summary write of one run, in the caller's transaction."""
-    _posted(connection)
+def _evidence(point: PricePoint) -> dict[str, str]:
+    return {
+        "invoice_id": str(point.invoice_id),
+        "invoice_date": point.invoice_date.isoformat(),
+        "unit_price": str(point.unit_price),
+    }
+
+
+def _alert_row(rise: PriceRise, held: datetime | None, at: datetime) -> dict[str, Any]:
+    current = rise.current
+    detail: dict[str, Any] = {
+        "supplier_id": str(current.supplier_id),
+        "material_id": str(current.material_id),
+        "pct": str(rise.pct),
+        "previous": _evidence(rise.previous),
+        "current": _evidence(current),
+    }
+    # A rise posted before this run's window (all of them on a first run) is history:
+    # stored for the page, but marked emailed so Story 5.2 never mails a backlog.
+    backfilled = held is None or current.posted_at <= held - OVERLAP
+    if backfilled:
+        detail["backfilled"] = True
+    return {
+        "alert_id": new_uuid7(),
+        "kind": PRICE_RISE,
+        "dedupe_key": rise.dedupe_key,
+        "supplier_id": current.supplier_id,
+        "material_id": current.material_id,
+        "detail": detail,
+        "emailed_at": at if backfilled else None,
+    }
+
+
+def _price_rise_alerts(
+    connection: Connection, held: datetime | None, at: datetime
+) -> None:
+    """AD-20 (Story 5.3): one alert per price rise over every price point, after this
+    run's points are written; `held` is the watermark this run started from. ON
+    CONFLICT DO NOTHING: a rerun, or a reprocessed invoice whose price is unchanged,
+    keeps the alert it had."""
+    points = [
+        PricePoint(**row._asdict())
+        for row in connection.execute(
+            select(
+                price_point.c.invoice_id,
+                price_point.c.line_no,
+                price_point.c.supplier_id,
+                price_point.c.material_id,
+                price_point.c.invoice_date,
+                price_point.c.unit_price,
+                price_point.c.posted_at,
+            )
+        )
+    ]
+    rows = [_alert_row(rise, held, at) for rise in price_rises(points)]
+    if rows:
+        connection.execute(
+            pg_insert(alert).on_conflict_do_nothing(index_elements=["dedupe_key"]),
+            rows,
+        )
+
+
+def write_summaries(
+    connection: Connection, receipts: Sequence[ReceiptLine], at: datetime
+) -> None:
+    """Every summary write of one run, in the caller's transaction; `at` is the run's
+    time."""
+    held = _watermark(connection)
+    _posted(connection, held)
+    _price_rise_alerts(connection, held, at)
 
     facts = [
         InvoiceFact(**row._asdict())

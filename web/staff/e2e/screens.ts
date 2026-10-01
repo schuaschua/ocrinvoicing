@@ -285,7 +285,76 @@ const GOODS_IN: Record<string, ApiAnswer> = {
   },
 };
 
+/** Story 5.3: Price comparison for a material (synthetic): the chart and its summary,
+ * suppliers' prices and a price-rise alert whose evidence links (finance). */
+const SOLES = "0192f0c1-7a2b-7c3d-8e4f-0000000053c1";
+const ALPHA = "01a0c450-6c00-7b7b-8aa9-4ccade9f5526";
+const BETA = "01a0c450-6c00-7b7b-8aa9-4ccade9f55b0";
+const PRICE_COMPARISON: Record<string, ApiAnswer> = {
+  "/api/materials": {
+    status: 200,
+    body: { items: [{ material_id: SOLES, name: "EVA soles" }] },
+  },
+  "/api/price-comparison": {
+    status: 200,
+    body: {
+      material_id: SOLES,
+      name: "EVA soles",
+      suppliers: [
+        {
+          supplier_id: BETA,
+          supplier_name: "Synthetic Beta Traders",
+          latest_unit_price: "4.20",
+          latest_invoice_date: "2026-09-15",
+          on_time_rate: null,
+        },
+        {
+          supplier_id: ALPHA,
+          supplier_name: "Synthetic Alpha Building Supplies",
+          latest_unit_price: "4.50",
+          latest_invoice_date: "2026-09-10",
+          on_time_rate: "0.8000",
+        },
+      ],
+      history: [
+        { supplier_id: ALPHA, invoice_date: "2026-09-01", unit_price: "4.00" },
+        { supplier_id: ALPHA, invoice_date: "2026-09-10", unit_price: "4.50" },
+        { supplier_id: BETA, invoice_date: "2026-09-02", unit_price: "4.30" },
+        { supplier_id: BETA, invoice_date: "2026-09-15", unit_price: "4.20" },
+      ],
+      alerts: [
+        {
+          alert_id: "0192f0c1-7a2b-7c3d-8e4f-0000000053d1",
+          created_at: "2026-10-01T01:30:00+00:00",
+          supplier_id: ALPHA,
+          supplier_name: "Synthetic Alpha Building Supplies",
+          pct: "12.50",
+          evidence: [
+            {
+              invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000001",
+              invoice_date: "2026-09-01",
+              unit_price: "4.00",
+            },
+            {
+              invoice_id: "0192f0c1-7a2b-7c3d-8e4f-000000000002",
+              invoice_date: "2026-09-10",
+              unit_price: "4.50",
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
 export const SCREENS: Screen[] = [
+  {
+    story: "5.3",
+    name: "price comparison with its chart and a price-rise alert",
+    path: "/price-comparison",
+    api: { ...me("finance"), ...PRICE_COMPARISON },
+    ready: "lowest latest price S$4.20 from Synthetic Beta Traders",
+  },
   {
     story: "4.1",
     name: "goods-in scan lists today's deliveries",

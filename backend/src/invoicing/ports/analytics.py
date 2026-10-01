@@ -1,15 +1,17 @@
 """The `analytics` schema (AD-13): written by the analytics refresh job only, read by
 staff-api's dashboards. Story 4.2 adds the overdue list (CAP-12); Story 4.3 the
 weekly supplier reminders' reads and guard (CAP-13); Story 5.1 the daily summary
-tables (AD-20), which staff-api reads through `ports/dashboards.py`.
+tables (AD-20), which staff-api reads through `ports/dashboards.py`; Story 5.3 the
+material names.
 
 Every method raises `DatabaseOfflineError` (domain/errors.py) when the database can't
 be reached at all (AD-7); a failing query raises as it is."""
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Protocol
+from uuid import UUID
 
 from invoicing.ports.purchasing import OverduePo, ReceiptLine
 
@@ -64,6 +66,14 @@ class AnalyticsStore(Protocol):
         move the watermark on, recompute the other summary tables in full (lateness
         from `receipts`), and record `run_date`'s run. False, with nothing written,
         when `run_date` already ran."""
+        ...
+
+    async def priced_materials(self) -> set[UUID]:
+        """Every material with a price point (Story 5.3)."""
+        ...
+
+    async def replace_materials(self, names: Mapping[UUID, str]) -> None:
+        """Replace `analytics.material` with `names` in one transaction (Story 5.3)."""
         ...
 
 

@@ -8,7 +8,7 @@ thread, so the Functions event loop is never blocked (coding-style.md rule 11).
 
 import asyncio
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -100,6 +100,12 @@ class PurchasingSimAdapter:
 
     async def receipt_lines(self, since: date) -> tuple[ReceiptLine, ...]:
         return await asyncio.to_thread(self._read, self._receipt_lines, since)
+
+    async def material_names(self, material_ids: Iterable[UUID]) -> dict[UUID, str]:
+        wanted = sorted(set(material_ids))
+        if not wanted:
+            return {}
+        return await asyncio.to_thread(self._read, self._material_names, wanted)
 
     # --- one read each -----------------------------------------------------------------
 
@@ -328,3 +334,14 @@ class PurchasingSimAdapter:
             )
             for row in rows
         )
+
+    @staticmethod
+    def _material_names(
+        connection: Connection, material_ids: list[UUID]
+    ) -> dict[UUID, str]:
+        rows = connection.execute(
+            select(material.c.material_id, material.c.name).where(
+                material.c.material_id.in_(material_ids)
+            )
+        ).all()
+        return {row.material_id: row.name for row in rows}

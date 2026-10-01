@@ -38,3 +38,18 @@ export function singaporeDateText(iso: string): string {
   if (Number.isNaN(at.getTime())) return iso;
   return SINGAPORE_DATE.format(at);
 }
+
+/** "S$4.20": a 2-decimal price string in the invoice currency (SGD, AD-20). */
+export function priceText(amount: string): string {
+  return `S$${amountText(amount, null)}`;
+}
+
+/** "2.5" for "2.50": a 2-decimal percentage without its trailing zeros. */
+export function percentText(pct: string): string {
+  return pct.includes(".") ? pct.replace(/\.?0+$/, "") : pct;
+}
+
+/** "80%" or "87.5%": a 4-decimal rate string as a percentage, for display only. */
+export function rateText(rate: string): string {
+  return `${percentText((Number(rate) * 100).toFixed(1))}%`;
+}

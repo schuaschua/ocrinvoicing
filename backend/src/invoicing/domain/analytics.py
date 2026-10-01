@@ -1,5 +1,6 @@
 """AD-20 analytics rules (Story 5.1): the pure part of the analytics refresh job's
-daily summaries. The adapter reads the rows and writes what these return.
+daily summaries. The adapter reads the rows and writes what these return. Story 5.3
+adds the price-rise rule (CAP-14), evaluated in the same step.
 
 Months are the first day of a Singapore month. Money is `Decimal` rounded half-up to
 2 places, rates to 4 (`numeric(18,2)` and `numeric(5,4)` in `analytics`). The
@@ -234,3 +235,51 @@ def on_time_rates(lateness: Iterable[tuple[UUID, int]]) -> list[SupplierOnTime]:
             )
         )
     return result
+
+
+# AD-20 (Story 5.3, CAP-14): a price rise is more than 2% above the previous price.
+PRICE_RISE_THRESHOLD = Decimal("0.02")
+PRICE_RISE = "price_rise"
+
+
+@dataclass(frozen=True)
+class PriceRise:
+    """A posted unit price more than 2% above the same supplier's previous posted
+    price for the material; `pct` is the rise in percent, 2 decimals."""
+
+    previous: PricePoint
+    current: PricePoint
+    pct: Decimal
+
+    @property
+    def dedupe_key(self) -> str:
+        """`analytics.alert.dedupe_key`: one alert per rising line, ever."""
+        return f"{PRICE_RISE}:{self.current.invoice_id}:{self.current.line_no}"
+
+
+def price_rises(points: Iterable[PricePoint]) -> list[PriceRise]:
+    """AD-20: per supplier and material, the price points in `invoice_date`, then
+    `invoice_id`, then `line_no` order; each one more than 2% above the last point of
+    the invoice before it (`(new - prev) / prev > 0.02`, exact) is a rise. Lines of
+    one invoice are never compared with each other, and the first invoice's price is
+    never a rise."""
+    series: dict[tuple[UUID, UUID], list[PricePoint]] = defaultdict(list)
+    for point in points:
+        series[point.supplier_id, point.material_id].append(point)
+    rises: list[PriceRise] = []
+    for key in sorted(series):
+        ordered = sorted(
+            series[key], key=lambda p: (p.invoice_date, p.invoice_id, p.line_no)
+        )
+        previous: PricePoint | None = None  # the earlier invoice's last point
+        last: PricePoint | None = None
+        for current in ordered:
+            if last is not None and last.invoice_id != current.invoice_id:
+                previous = last
+            last = current
+            if previous is None or previous.unit_price <= 0:
+                continue
+            change = (current.unit_price - previous.unit_price) / previous.unit_price
+            if change > PRICE_RISE_THRESHOLD:
+                rises.append(PriceRise(previous, current, money(change * 100)))
+    return rises

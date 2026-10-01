@@ -524,6 +524,51 @@ export const strings = {
       expected: "Expected",
     },
   },
+  /** Story 5.3: Price comparison (EXPERIENCE.md: suppliers' unit prices with their
+   * on-time rates, and price-rise alerts with their evidence; CAP-14). */
+  priceComparison: {
+    material: "Material",
+    empty: "No posted invoices yet for this period.",
+    noRecent: "No prices in the last 12 months for this material.",
+    price: "Price",
+    summary: (material: string, price: string, supplier: string) =>
+      `${material}: lowest latest price ${price} from ${supplier}.`,
+    chartTitle: "Unit price history",
+    suppliersHeading: "Suppliers",
+    suppliersLabel: "Suppliers' latest prices",
+    columns: {
+      supplier: "Supplier",
+      latestPrice: "Latest price",
+      latestDate: "Invoice date",
+      onTime: "On-time rate",
+    },
+    noRate: "No deliveries yet",
+    unknownSupplier: "Unknown supplier",
+    alertsHeading: "Price-rise alerts",
+    noAlerts: "No price rises.",
+    alert: (supplier: string, material: string, pct: string) =>
+      `Price rise: ${supplier}, ${material} +${pct}%`,
+    evidenceLabel: (supplier: string) => `Evidence for ${supplier}`,
+    evidenceColumns: {
+      date: "Invoice date",
+      price: "Unit price",
+      invoice: "Invoice",
+    },
+    openInvoice: "Open invoice",
+    readOnly: "Posted invoice",
+  },
+  /** Story 5.3: the reusable Chart (EXPERIENCE.md Chart pattern, UX-DR18). */
+  chart: {
+    viewTable: "View as table",
+    viewChart: "View as chart",
+    series: "Series",
+    x: "Date",
+    value: "Value",
+    legend: "Legend",
+    dates: "Dates",
+    range: (what: string, low: string, high: string) =>
+      `${what} from ${low} to ${high}`,
+  },
   /** Screens not built yet show their heading and this line. */
   placeholder: "This page isn't ready yet.",
   /** EXPERIENCE.md staff surface table, one name per surface. */

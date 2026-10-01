@@ -28,6 +28,17 @@ under job `summaries`. A failure is logged as `analytics_refresh.summaries_faile
 and leaves the day unrecorded, so the next run retries it; the run's result stays the
 overdue step's.
 
+Story 5.3 (CAP-14) evaluates the AD-20 price-rise rule inside that transaction, after
+the price points are written, storing each rise once as an `analytics.alert`. Then,
+at every run whose summary step got through (written now or earlier that day), the
+names of the materials with price points are read through
+`PurchasingPort.material_names` (AD-10) and replace `analytics.material`, so the
+dashboards never read purchasing; one purchasing can't name gets a placeholder name,
+logged as `analytics_refresh.materials_unnamed code=MATERIAL_UNKNOWN` with the count.
+A rise posted before the run's window (all of them on the first run) is stored with
+`emailed_at` set and `detail.backfilled`, so Story 5.2 never mails the history. A failure there is logged as
+`analytics_refresh.materials_failed` and retried by the next run.
+
 A stopped database (AD-7) is logged as `analytics_refresh.skipped code=DB_OFFLINE`,
 and the next run catches up. A run whose overdue step fails otherwise logs
 `analytics_refresh.overdue_failed`, leaves the previous list and its date, still
@@ -60,12 +71,19 @@ LATENESS_WINDOW = timedelta(days=364)
 REFRESHED = "refreshed"
 ALREADY_RAN = "already_ran"
 DB_OFFLINE = "DB_OFFLINE"
+# Story 5.3: a priced material purchasing has no name for.
+MATERIAL_UNKNOWN = "MATERIAL_UNKNOWN"
 
 _logger = logging.getLogger("invoicing.pipeline.analytics_refresh")
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def fallback_material_name(material_id: UUID) -> str:
+    """The name kept for a material purchasing doesn't name (Story 5.3)."""
+    return f"Material {str(material_id)[:8]}"
 
 
 @dataclass(frozen=True)
@@ -155,10 +173,45 @@ class AnalyticsRefresh:
         else:
             if written:
                 log_event(_logger, "analytics_refresh.summaries_done")
+            await self._material_names()
             return
         log_event(
             _logger,
             "analytics_refresh.summaries_failed",
+            level=logging.ERROR,
+            code=code,
+        )
+
+    async def _material_names(self) -> None:
+        """Story 5.3: the names of the materials with price points, from purchasing
+        (AD-10). Any failure is logged as `analytics_refresh.materials_failed`; the
+        next run tries again."""
+        try:
+            ids = await self.store.priced_materials()
+            names = await self.purchasing.material_names(ids)
+            # A priced material purchasing can't name keeps a placeholder, so its
+            # prices stay on the page.
+            missing = ids - names.keys()
+            if missing:
+                log_event(
+                    _logger,
+                    "analytics_refresh.materials_unnamed",
+                    level=logging.WARNING,
+                    code=MATERIAL_UNKNOWN,
+                    count=len(missing),
+                )
+            names = {**names, **{m: fallback_material_name(m) for m in missing}}
+            await self.store.replace_materials(names)
+        except DatabaseOfflineError:
+            code: str = DB_OFFLINE
+        except Exception as error:  # noqa: BLE001  # names never fail the run
+            # Only the type is logged, never the text.
+            code = type(error).__name__
+        else:
+            return
+        log_event(
+            _logger,
+            "analytics_refresh.materials_failed",
             level=logging.ERROR,
             code=code,
         )

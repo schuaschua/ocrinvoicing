@@ -152,6 +152,8 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             "supplier_on_time",
             "watermark",
             "alert",
+            # Story 5.3: material names, replaced as a whole.
+            "material",
         )
     ]
     staff = _engine(postgres_server, postgres_server.staff_api, intake_database)
@@ -170,6 +172,7 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             (pipeline, "DELETE FROM analytics.watermark"),
             (pipeline, "DELETE FROM analytics.alert"),
             (pipeline, "UPDATE analytics.alert SET kind = 'x'"),
+            (pipeline, "UPDATE analytics.material SET name = 'x'"),
         ]
         for engine, statement in refused:
             with (

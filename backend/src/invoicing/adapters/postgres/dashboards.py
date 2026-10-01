@@ -9,12 +9,14 @@ import asyncio
 from collections.abc import Callable
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import Connection, Engine, select
 
 from invoicing.adapters.postgres.engine import open_connection
 from invoicing.adapters.postgres.schema import (
     alert,
+    material,
     month_summary,
     price_point,
     supplier_month,
@@ -22,12 +24,18 @@ from invoicing.adapters.postgres.schema import (
     supplier_on_time,
 )
 from invoicing.domain.analytics import (
+    PRICE_RISE,
     MonthSummary,
     PricePoint,
     SupplierOnTime,
     month_start,
 )
-from invoicing.ports.dashboards import Alert, SupplierMonthRow
+from invoicing.ports.dashboards import (
+    Alert,
+    Material,
+    PriceComparison,
+    SupplierMonthRow,
+)
 
 
 class PostgresDashboardReader:
@@ -59,6 +67,12 @@ class PostgresDashboardReader:
 
     async def alerts(self, since: datetime) -> tuple[Alert, ...]:
         return await asyncio.to_thread(self._read, _alerts, since)
+
+    async def materials(self) -> tuple[Material, ...]:
+        return await asyncio.to_thread(self._read, _materials, None)
+
+    async def price_comparison(self, material_id: UUID) -> PriceComparison | None:
+        return await asyncio.to_thread(self._read, _price_comparison, material_id)
 
 
 def _price_points(connection: Connection, since: date) -> tuple[PricePoint, ...]:
@@ -151,19 +165,80 @@ def _month_summaries(connection: Connection, since: date) -> tuple[MonthSummary,
     return tuple(MonthSummary(**row._asdict()) for row in rows)
 
 
+_ALERTS = select(
+    alert.c.alert_id,
+    alert.c.kind,
+    alert.c.dedupe_key,
+    alert.c.supplier_id,
+    alert.c.material_id,
+    alert.c.detail,
+    alert.c.created_at,
+    alert.c.emailed_at,
+).order_by(alert.c.created_at.desc(), alert.c.alert_id)
+
+
 def _alerts(connection: Connection, since: datetime) -> tuple[Alert, ...]:
-    rows = connection.execute(
-        select(
-            alert.c.alert_id,
-            alert.c.kind,
-            alert.c.dedupe_key,
-            alert.c.supplier_id,
-            alert.c.material_id,
-            alert.c.detail,
-            alert.c.created_at,
-            alert.c.emailed_at,
-        )
-        .where(alert.c.created_at >= since)
-        .order_by(alert.c.created_at.desc(), alert.c.alert_id)
-    ).all()
+    rows = connection.execute(_ALERTS.where(alert.c.created_at >= since)).all()
     return tuple(Alert(**row._asdict()) for row in rows)
+
+
+def _materials(connection: Connection, _: None) -> tuple[Material, ...]:
+    rows = connection.execute(
+        select(material.c.material_id, material.c.name).order_by(
+            material.c.name, material.c.material_id
+        )
+    ).all()
+    return tuple(Material(**row._asdict()) for row in rows)
+
+
+def _price_comparison(
+    connection: Connection, material_id: UUID
+) -> PriceComparison | None:
+    name = connection.execute(
+        select(material.c.name).where(material.c.material_id == material_id)
+    ).scalar()
+    if name is None:
+        return None
+    points = tuple(
+        PricePoint(**row._asdict())
+        for row in connection.execute(
+            select(
+                price_point.c.invoice_id,
+                price_point.c.line_no,
+                price_point.c.supplier_id,
+                price_point.c.material_id,
+                price_point.c.invoice_date,
+                price_point.c.unit_price,
+                price_point.c.posted_at,
+            )
+            .where(price_point.c.material_id == material_id)
+            .order_by(
+                price_point.c.supplier_id,
+                price_point.c.invoice_date,
+                price_point.c.invoice_id,
+                price_point.c.line_no,
+            )
+        )
+    )
+    suppliers = sorted({point.supplier_id for point in points})
+    rates = (
+        {
+            row.supplier_id: row.on_time_rate
+            for row in connection.execute(
+                select(
+                    supplier_on_time.c.supplier_id, supplier_on_time.c.on_time_rate
+                ).where(supplier_on_time.c.supplier_id.in_(suppliers))
+            )
+        }
+        if suppliers
+        else {}
+    )
+    alerts = tuple(
+        Alert(**row._asdict())
+        for row in connection.execute(
+            _ALERTS.where(
+                alert.c.material_id == material_id, alert.c.kind == PRICE_RISE
+            )
+        )
+    )
+    return PriceComparison(Material(material_id, name), points, rates, alerts)

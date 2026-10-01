@@ -322,3 +322,12 @@ alert = Table(
     Column("emailed_at", TIMESTAMP(timezone=True)),
     UniqueConstraint("dedupe_key", name="uq_alert_dedupe_key"),
 )
+
+# Story 5.3 (migration 0012): the names of the materials with price points, from
+# purchasing (AD-10), so dashboards never read it.
+material = Table(
+    "material",
+    analytics_metadata,
+    Column("material_id", Uuid, primary_key=True),
+    Column("name", Text, nullable=False),
+)

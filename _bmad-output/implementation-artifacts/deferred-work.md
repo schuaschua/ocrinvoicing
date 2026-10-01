@@ -109,3 +109,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-5-1-analytics-summary-tables.md`
   summary: The dashboard repository has no "as of" read (the last `summaries` run), and the summary step's rollback, lock re-check and pure domain rules have no direct tests.
   evidence: Dashboards (5.3–5.6) can show staleness from `job_run`; the other gaps were skipped for the 200-case cap.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-3-price-comparison.md`
+  summary: Axe never checks the Chart's table view, the price-comparison alerts list is unbounded, and its newest-first order is untested.
+  evidence: The a11y screen captures the SVG view only; skipped for the 200-case cap.

@@ -14,6 +14,7 @@ import { Loading } from "@/screens/Loading";
 import { NoAccess } from "@/screens/NoAccess";
 import { Offline } from "@/screens/Offline";
 import { OverduePosScreen } from "@/screens/OverduePosScreen";
+import { PriceComparisonScreen } from "@/screens/PriceComparisonScreen";
 import { QueueScreen } from "@/screens/QueueScreen";
 import { SignedOut, signInHref } from "@/screens/SignedOut";
 import { SurfacePage } from "@/screens/SurfacePage";
@@ -224,6 +225,8 @@ export function App() {
       content = <InvoiceDetailScreen key={path} invoiceId={itemIdFrom(path)} />;
     } else if (route.surface.id === "overdue_pos") {
       content = <OverduePosScreen key={path} />;
+    } else if (route.surface.id === "price_comparison") {
+      content = <PriceComparisonScreen key={path} />;
     } else {
       content = <SurfacePage key={path} surface={route.surface} />;
     }

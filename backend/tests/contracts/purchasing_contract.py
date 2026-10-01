@@ -109,6 +109,12 @@ class PurchasingContract:
             date(2026, 9, 15),
             date(2026, 9, 29),
         ]
+        # --- Story 5.3: material names by id; an unknown id has none.
+        assert run(purchasing.material_names([CEMENT, REBAR, LINE_12_1])) == {
+            CEMENT: "Portland cement, 50 kg bag",
+            REBAR: "Steel rebar, 12 mm x 12 m",
+        }
+        assert run(purchasing.material_names([])) == {}
 
         # --- Story 4.1: a delivery with its PO's supplier, the day's deliveries, and
         # the search by PO prefix (any case, wildcards literal), newest first.

@@ -1,10 +1,11 @@
 """Staff-api's dashboard data (Story 5.1, AD-13, AD-20, P-10): read-only, from the
 `analytics` schema the refresh job writes, never from the invoice tables. Stories 5.3
-to 5.6 add the methods their dashboards need; nothing here is served over HTTP yet.
+to 5.6 add the methods their dashboards need; Story 5.3 serves Price comparison.
 
 Every method raises `DatabaseOfflineError` (domain/errors.py) when the database can't
 be reached at all (AD-7); a failing query raises as it is."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -41,6 +42,26 @@ class Alert:
     emailed_at: datetime | None
 
 
+@dataclass(frozen=True)
+class Material:
+    """A material with price points, named from purchasing (`analytics.material`)."""
+
+    material_id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
+class PriceComparison:
+    """Everything Price comparison shows for one material (Story 5.3, CAP-14): its
+    price points (by supplier, invoice date, invoice id and line), the on-time rate of
+    each of its suppliers that has one, and its price-rise alerts, newest first."""
+
+    material: Material
+    points: tuple[PricePoint, ...]
+    on_time_rates: Mapping[UUID, Decimal]
+    alerts: tuple[Alert, ...]
+
+
 class DashboardReader(Protocol):
     """The dashboards' reads of `analytics` (staff-api, SELECT only)."""
 
@@ -63,4 +84,13 @@ class DashboardReader(Protocol):
 
     async def alerts(self, since: datetime) -> tuple[Alert, ...]:
         """Alerts created at `since` or later, newest first."""
+        ...
+
+    async def materials(self) -> tuple[Material, ...]:
+        """Every material with price points, by name (Story 5.3)."""
+        ...
+
+    async def price_comparison(self, material_id: UUID) -> PriceComparison | None:
+        """`material_id`'s price comparison in one snapshot, or None when it is not a
+        material with price points (Story 5.3)."""
         ...

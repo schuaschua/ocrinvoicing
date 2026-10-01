@@ -9,7 +9,7 @@ Money is `Decimal` with 2 decimals, quantities `Decimal` with up to 3, dates `da
 raises as it is.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -151,4 +151,9 @@ class PurchasingPort(Protocol):
         """Every goods-receipt line whose receipt's `received_date` is `since` or
         later, by received date, receipt and PO line (Story 5.1: the analytics
         refresh job's lateness, AD-20)."""
+        ...
+
+    async def material_names(self, material_ids: Iterable[UUID]) -> dict[UUID, str]:
+        """The name of each of `material_ids` purchasing knows; an unknown id has no
+        entry (Story 5.3: the analytics refresh job's material names, AD-10)."""
         ...

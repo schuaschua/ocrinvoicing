@@ -95,6 +95,8 @@ describe("1.4 app shell", () => {
 });
 
 describe("2.7 staff sign in and see only their surfaces", () => {
+  // One merged test for the whole story (the 200-case cap); on the shared B2s CI VM it
+  // outgrows Vitest's 5 s default when builds overlap.
   it("signs staff in through /api/me, lands and guards each role, navigates, and handles session end, errors and offline", async () => {
     // --- asks /api/me who is signed in, then lands an admin and finance user on the admin queue with the union of surfaces
     {
@@ -232,6 +234,36 @@ describe("2.7 staff sign in and see only their surfaces", () => {
         );
         view.unmount();
       }
+
+      // Story 4.2: Overdue POs opens its own screen for procurement, not the
+      // placeholder.
+      openAt("/overdue-pos");
+      fetchMock.mockReset();
+      fetchMock.mockImplementation(async (input) =>
+        String(input) === "/api/overdue-pos"
+          ? answer(200, {
+              made_at: "2026-09-28T01:30:00+00:00",
+              suppliers: [
+                {
+                  supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+                  supplier_name: "Synthetic Alpha Building Supplies",
+                  pos: [{ po_number: "PO-45012", expected_date: "2026-09-01" }],
+                },
+              ],
+            })
+          : answer(200, { name: "Priya Tan", roles: ["procurement"] }),
+      );
+      const overdue = render(<App />);
+      const region = await screen.findByRole("region", {
+        name: "Synthetic Alpha Building Supplies",
+      });
+      expect(region).toHaveTextContent("PO 45012");
+      expect(
+        screen.getByText(strings.overdue.asOf("2026-09-28")),
+      ).toBeInTheDocument();
+      expect(window.location.pathname).toBe("/overdue-pos");
+      overdue.unmount();
+
       openAt(`/invoices/${invoiceId}`);
       fetchMock.mockReset();
       signedInAs("procurement");
@@ -469,5 +501,5 @@ describe("2.7 staff sign in and see only their surfaces", () => {
       ).toBeInTheDocument();
       expect(screen.queryByRole("navigation")).toBeNull();
     }
-  });
+  }, 20_000);
 });

@@ -14,6 +14,7 @@ from invoicing.adapters.logging import log_event
 from invoicing.adapters.postgres.admin_actions import PostgresAdminActions
 from invoicing.adapters.postgres.admin_item import PostgresAdminItemReader
 from invoicing.adapters.postgres.admin_queue import PostgresAdminQueueReader
+from invoicing.adapters.postgres.analytics import PostgresOverdueReader
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.postgres.invoice_search import PostgresInvoiceSearchReader
 from invoicing.adapters.postgres.suppliers import PostgresSupplierDirectory
@@ -27,6 +28,7 @@ from invoicing.apps.staff_api.goods_in import goods_in_endpoints
 from invoicing.apps.staff_api.invoices import invoices_endpoints
 from invoicing.apps.staff_api.item import item_endpoints
 from invoicing.apps.staff_api.me import me_endpoint
+from invoicing.apps.staff_api.overdue import overdue_endpoint
 from invoicing.apps.staff_api.queue import queue_endpoint
 from invoicing.apps.staff_api.settings import StaffApiSettings
 from invoicing.domain.errors import ErrorCode
@@ -235,6 +237,21 @@ async def goods_in_upload(req: func.HttpRequest) -> func.HttpResponse:
     """A paper invoice scanned against a delivery (goods_in only): 200, 400, 401, 403,
     404, 409, 413, 415 or 503."""
     return await goods_in_upload_api(req)
+
+
+# Story 4.2: the overdue list the AD-13 job made, read from `analytics` only (SELECT).
+overdue_api = overdue_endpoint(
+    PostgresOverdueReader(engine),
+    PostgresSupplierDirectory(engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/overdue-pos", methods=["GET"])
+async def overdue_pos(req: func.HttpRequest) -> func.HttpResponse:
+    """POs past their expected date with no invoice, by supplier, with the date the
+    list was made (admin, procurement and finance): 200, 401, 403 or 503."""
+    return await overdue_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

@@ -22,3 +22,19 @@ export function dateTimeText(iso: string): string {
   if (Number.isNaN(at.getTime())) return iso;
   return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}`;
 }
+
+// en-CA formats a date as YYYY-MM-DD.
+const SINGAPORE_DATE = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Singapore",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+/** A timestamp's Singapore date, as YYYY-MM-DD: the business day (spine: Dates),
+ * whatever the viewer's time zone. */
+export function singaporeDateText(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  return SINGAPORE_DATE.format(at);
+}

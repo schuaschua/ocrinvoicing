@@ -90,6 +90,50 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             )
     finally:
         staff.dispose()
+    # Story 4.2 (AD-11, AD-13): staff-api reads `analytics` and never writes it; the
+    # pipeline login (the refresh job) writes it, which the Story 4.2 tests prove.
+    staff = _engine(postgres_server, postgres_server.staff_api, intake_database)
+    try:
+        with staff.connect() as connection:
+            connection.execute(text("SELECT count(*) FROM analytics.overdue_po"))
+            connection.execute(text("SELECT count(*) FROM analytics.job_run"))
+        for statement in (
+            (
+                "INSERT INTO analytics.overdue_po (po_number, supplier_id,"
+                " expected_date) VALUES ('PO-1', gen_random_uuid(), '2026-09-01')"
+            ),
+            "UPDATE analytics.overdue_po SET po_number = 'x'",
+            "DELETE FROM analytics.overdue_po",
+            (
+                "INSERT INTO analytics.job_run (job, run_date, finished_at)"
+                " VALUES ('overdue_po', '2026-09-01', now())"
+            ),
+            "UPDATE analytics.job_run SET job = 'x'",
+            "DELETE FROM analytics.job_run",
+        ):
+            with (
+                staff.connect() as connection,
+                pytest.raises(ProgrammingError, match="permission denied"),
+            ):
+                connection.execute(text(statement))
+    finally:
+        staff.dispose()
+    # The pipeline rebuilds `overdue_po` but never rewrites a row, and can't erase or
+    # change a recorded run (the once-a-day guard).
+    pipeline = _engine(postgres_server, postgres_server.pipeline, intake_database)
+    try:
+        for statement in (
+            "UPDATE analytics.overdue_po SET po_number = 'x'",
+            "UPDATE analytics.job_run SET job = 'x'",
+            "DELETE FROM analytics.job_run",
+        ):
+            with (
+                pipeline.connect() as connection,
+                pytest.raises(ProgrammingError, match="permission denied"),
+            ):
+                connection.execute(text(statement))
+    finally:
+        pipeline.dispose()
     # Other logins have no grant on the schema at all.
     outsider = _engine(postgres_server, postgres_server.accounts_sim, intake_database)
     try:
@@ -100,6 +144,13 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             ),
         ):
             connection.execute(text("SELECT count(*) FROM intake.invoice"))
+        with (
+            outsider.connect() as connection,
+            pytest.raises(
+                ProgrammingError, match="permission denied for schema analytics"
+            ),
+        ):
+            connection.execute(text("SELECT count(*) FROM analytics.overdue_po"))
     finally:
         outsider.dispose()
 

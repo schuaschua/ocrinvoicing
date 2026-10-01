@@ -57,6 +57,17 @@ DISABLED_INSTRUMENTATIONS = (
 
 _logger = logging.getLogger("invoicing.telemetry")
 
+# The Azure SDK logs every request and response line of its HTTP pipeline at INFO
+# (headers redacted). The Functions host forwards them to Application Insights, where
+# they are noise against the daily cap (Dev walkthrough follow-up 5).
+SDK_HTTP_LOGGER = "azure.core.pipeline.policies.http_logging_policy"
+
+
+def quiet_sdk_http_logging() -> None:
+    """Keep only the Azure SDK's HTTP warnings and errors, whether or not telemetry
+    is on (the host forwards worker logs either way)."""
+    logging.getLogger(SDK_HTTP_LOGGER).setLevel(logging.WARNING)
+
 
 @dataclass(frozen=True)
 class TelemetryConfig:

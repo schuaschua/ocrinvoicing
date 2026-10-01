@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import uuid
 import zipfile
 from collections.abc import Iterator
@@ -364,6 +365,9 @@ def _deploy(work_dir: Path, *args: str, **env_extra: str) -> subprocess.Complete
         "FAKE_AZ_DEPLOY": "1",
         "FAKE_CURL_LOG": str(work_dir / "curl.log"),
         "FAKE_CURL_VERSION": VERSION,
+        # A fresh "last deployed" record per run, so no run skips an app; the skip check
+        # passes its own.
+        "CI_DEPLOY_STATE_DIR": tempfile.mkdtemp(prefix="deploy-state-", dir=work_dir),
     }
     env.update(env_extra)
     return _run("code-deploy.sh", *args, work_dir=work_dir, **env)
@@ -377,7 +381,9 @@ def _zip_names(path: Path) -> set[str]:
 def test_story_1_3_code_deploy(work_dir: Path) -> None:
     """code-deploy.sh. Covers: only git-tracked package files are shipped (no untracked module,
     no bytecode); the health check retries until the app answers; an unhealthy app fails the
-    deploy. Each run gets its own curl log."""
+    deploy; an app unchanged since its last healthy deploy is skipped, a changed one and
+    CI_DEPLOY_ALL=1 republish; a failed publish or health check forgets every record. Each
+    run gets its own curl log."""
     # Only git-tracked package files are shipped.
     result = _deploy(work_dir, "--build-only", "dev")
     assert result.returncode == 0, result.stdout + result.stderr
@@ -401,6 +407,42 @@ def test_story_1_3_code_deploy(work_dir: Path) -> None:
         f"supplier-api did not report healthy version {VERSION}; published: supplier-api staff-api pipeline accounts-sim"
         in result.stderr
     )
+
+    # The four apps publish side by side; an unchanged app is not published again once a
+    # deploy of it has passed the health checks, and a changed one is.
+    state = str(work_dir / "state-skip")
+    az_log = work_dir / "az.log"
+    result = _deploy(work_dir, "dev", CI_DEPLOY_STATE_DIR=state, FAKE_CURL_LOG=str(work_dir / "curl-skip-1.log"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "published: supplier-api staff-api pipeline accounts-sim" in result.stdout
+    assert sorted(Path(state).iterdir()) == sorted(Path(state) / f"{app}.sha256" for app in APPS)
+    deploys = az_log.read_text().count("config-zip")
+    result = _deploy(work_dir, "dev", CI_DEPLOY_STATE_DIR=state, FAKE_CURL_LOG=str(work_dir / "curl-skip-2.log"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert az_log.read_text().count("config-zip") == deploys
+    assert all(f"{app} unchanged since its last deploy to dev: not published" in result.stdout for app in APPS)
+    assert "code deploy to dev done; published: none" in result.stdout
+    # Every package holds the whole back-end package, so a back-end change republishes all
+    # four (only the web builds and the pipeline's thresholds differ between packages).
+    (work_dir / "backend" / "src" / "invoicing" / "apps" / "pipeline" / "host.json").write_text('{"version": "2.0"}\n')
+    result = _deploy(work_dir, "dev", CI_DEPLOY_STATE_DIR=state, FAKE_CURL_LOG=str(work_dir / "curl-skip-3.log"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "code deploy to dev done; published: supplier-api staff-api pipeline accounts-sim" in result.stdout
+
+    # CI_DEPLOY_ALL=1 (dev/app changed) republishes an unchanged app.
+    result = _deploy(work_dir, "dev", CI_DEPLOY_STATE_DIR=state, CI_DEPLOY_ALL="1", FAKE_CURL_LOG=str(work_dir / "curl-skip-4.log"))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "code deploy to dev done; published: supplier-api staff-api pipeline accounts-sim" in result.stdout
+
+    # A failed publish (reported with the ones that did publish) or a failed health check
+    # forgets every record, so the next run republishes everything.
+    result = _deploy(work_dir, "dev", CI_DEPLOY_STATE_DIR=state, CI_DEPLOY_ALL="1", FAKE_AZ_FAIL_NAME="babaloo-sea-lng-func-03", FAKE_CURL_LOG=str(work_dir / "curl-skip-5.log"))
+    assert result.returncode != 0
+    assert "publishing pipeline failed; already published: supplier-api staff-api accounts-sim" in result.stderr
+    assert not Path(state).exists()
+    result = _deploy(work_dir, "dev", CI_DEPLOY_STATE_DIR=state, FAKE_CURL_FAILURES="99", FAKE_CURL_LOG=str(work_dir / "curl-skip-6.log"))
+    assert result.returncode != 0
+    assert not Path(state).exists()
 
 
 # --- install-tools.sh --------------------------------------------------------------------

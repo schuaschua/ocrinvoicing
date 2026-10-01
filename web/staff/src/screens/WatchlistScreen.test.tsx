@@ -225,6 +225,21 @@ describe("5.4 Watchlist", () => {
     expect(scrolled.mock.contexts[0]).toBe(
       document.getElementById(`supplier-${ALPHA}`),
     );
+    cleanup();
+
+    // --- Story 5.2: the email's `?supplier=<id>` link does the same.
+    window.history.replaceState(null, "", `/watchlist?supplier=${ALPHA}`);
+    fetchMock.mockResolvedValueOnce(answer(WATCHLIST));
+    render(<WatchlistScreen />);
+    expect(
+      await screen.findByRole("heading", {
+        level: 2,
+        name: "Synthetic Alpha Building Supplies",
+      }),
+    ).toHaveFocus();
+    expect(scrolled.mock.contexts[1]).toBe(
+      document.getElementById(`supplier-${ALPHA}`),
+    );
     window.history.replaceState(null, "", "/watchlist");
     cleanup();
 

@@ -53,6 +53,19 @@ module "app" {
   action_group_id                        = local.foundation.action_group_id
   metric_alert_names                     = module.naming.metric_alert_names
   application_insights_connection_string = local.foundation.application_insights_connection_string
+  # Story 5.2 (AD-16): the pipeline's ACS Email Sender role and alert email settings,
+  # only once shared/foundation has ACS Email with a linked domain (null keeps both
+  # off). The role waits for the link, so the deploy chain that first creates ACS
+  # never assigns it before rbac-step3.sh has given this env's deploy identity the
+  # right to (infra/bootstrap/README.md "Email domain").
+  communication_service_id = local.email.sender_address == null ? null : local.email.communication_service_id
+  email_acs_endpoint       = local.email.acs_endpoint
+  email_sender_address     = local.email.sender_address
+  alert_recipients = {
+    finance     = var.alert_recipients_finance
+    procurement = var.alert_recipients_procurement
+    management  = var.alert_recipients_management
+  }
   # The only sampling (Application Insights samples nothing at ingestion).
   telemetry_sampling_ratio = var.telemetry_sampling_ratio
   tags                     = local.tags

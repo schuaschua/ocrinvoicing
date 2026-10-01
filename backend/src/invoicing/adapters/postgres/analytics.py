@@ -3,18 +3,20 @@
 `PostgresAnalyticsStore` is the analytics refresh job's writer (the pipeline login,
 the schema's only writer), which also serves Story 4.3's weekly reminders: the list,
 the invoiced re-check and the weekly guard, and Story 5.1's daily summaries (written
-by `analytics_summaries.py`) and Story 5.3's material names. `PostgresOverdueReader`
+by `analytics_summaries.py`) and Story 5.3's material names, and Story 5.2's alerts
+still to email (with the supplier's name, which the pipeline login may read in
+master) and their `emailed_at`. `PostgresOverdueReader`
 is staff-api's read (SELECT only).
 SQLAlchemy Core with bound parameters (security.md rule 21), on a worker thread
 (coding-style.md rule 11).
 """
 
 import asyncio
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import date, datetime
 from uuid import UUID
 
-from sqlalchemy import Connection, Engine, delete, exists, func, insert, select
+from sqlalchemy import Connection, Engine, delete, exists, func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from invoicing.adapters.postgres.analytics_summaries import (
@@ -23,12 +25,15 @@ from invoicing.adapters.postgres.analytics_summaries import (
 )
 from invoicing.adapters.postgres.engine import open_connection
 from invoicing.adapters.postgres.schema import (
+    alert,
     invoice,
     job_run,
     material,
     overdue_po,
     price_point,
 )
+from invoicing.adapters.postgres.suppliers import supplier
+from invoicing.domain.alert_email import PendingAlert
 from invoicing.domain.status import InvoiceStatus
 from invoicing.ports.analytics import OverdueList
 from invoicing.ports.purchasing import OverduePo, ReceiptLine
@@ -220,6 +225,103 @@ class PostgresAnalyticsStore:
                     insert(material),
                     [{"material_id": key, "name": name} for key, name in names.items()],
                 )
+
+    async def pending_alerts(
+        self, kinds: Collection[str], limit: int
+    ) -> list[PendingAlert]:
+        return await asyncio.to_thread(self._pending_alerts, sorted(kinds), limit)
+
+    def _pending_alerts(self, kinds: list[str], limit: int) -> list[PendingAlert]:
+        if not kinds:
+            return []
+        with open_connection(self._engine) as connection:
+            rows = connection.execute(
+                select(
+                    alert.c.alert_id,
+                    alert.c.kind,
+                    alert.c.supplier_id,
+                    supplier.c.name.label("supplier_name"),
+                    alert.c.material_id,
+                    alert.c.detail,
+                )
+                .select_from(
+                    alert.outerjoin(supplier, supplier.c.id == alert.c.supplier_id)
+                )
+                .where(
+                    alert.c.emailed_at.is_(None),
+                    alert.c.kind.in_(kinds),
+                    # Backfilled alerts are stored emailed; this also keeps out any
+                    # that weren't (5.3/5.4 history is never mailed).
+                    func.coalesce(alert.c.detail["backfilled"].astext, "") != "true",
+                )
+                .order_by(alert.c.created_at, alert.c.alert_id)
+                .limit(limit)
+            ).all()
+            # Tolerant per row: a detail that isn't a JSON object reads as empty,
+            # and the email step skips the alert as invalid.
+            details = {
+                row.alert_id: row.detail if isinstance(row.detail, dict) else {}
+                for row in rows
+            }
+            wanted = {row.material_id for row in rows if row.material_id is not None}
+            for detail in details.values():
+                evidence = detail.get("evidence")
+                for item in evidence if isinstance(evidence, list) else ():
+                    if isinstance(item, dict) and "material_id" in item:
+                        try:
+                            wanted.add(UUID(str(item["material_id"])))
+                        except ValueError:
+                            continue
+            names: dict[UUID, str] = (
+                {
+                    found.material_id: found.name
+                    for found in connection.execute(
+                        select(material.c.material_id, material.c.name).where(
+                            material.c.material_id.in_(sorted(wanted))
+                        )
+                    )
+                }
+                if wanted
+                else {}
+            )
+        return [
+            PendingAlert(
+                alert_id=row.alert_id,
+                kind=row.kind,
+                supplier_id=row.supplier_id,
+                supplier_name=row.supplier_name,
+                material_id=row.material_id,
+                detail=details[row.alert_id],
+                material_names=names,
+            )
+            for row in rows
+        ]
+
+    async def mark_emailed(self, alert_id: UUID, at: datetime) -> None:
+        await asyncio.to_thread(self._mark_emailed, alert_id, at)
+
+    def _mark_emailed(self, alert_id: UUID, at: datetime) -> None:
+        # AD-13: the pipeline login may UPDATE `emailed_at` and nothing else on alert.
+        with open_connection(self._engine) as connection, connection.begin():
+            connection.execute(
+                update(alert)
+                .where(alert.c.alert_id == alert_id, alert.c.emailed_at.is_(None))
+                .values(emailed_at=at)
+            )
+
+    async def mark_stale(self, created_before: datetime, at: datetime) -> int:
+        return await asyncio.to_thread(self._mark_stale, created_before, at)
+
+    def _mark_stale(self, created_before: datetime, at: datetime) -> int:
+        with open_connection(self._engine) as connection, connection.begin():
+            result = connection.execute(
+                update(alert)
+                .where(
+                    alert.c.emailed_at.is_(None), alert.c.created_at < created_before
+                )
+                .values(emailed_at=at)
+            )
+        return result.rowcount
 
 
 class PostgresOverdueReader:

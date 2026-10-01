@@ -1,5 +1,5 @@
-# AD-17 step 2: resources shared by Dev and Prod (AD-8, AD-12). ACS Email (AD-16)
-# is added here by Story 5.2 (Dj, 2026-09-30).
+# AD-17 step 2: resources shared by Dev and Prod (AD-8, AD-12), and ACS Email (AD-16,
+# Story 5.2), which exists only once Dj sets his email domain.
 
 module "naming" {
   source = "../../modules/naming"
@@ -150,4 +150,67 @@ resource "azurerm_consumption_budget_resource_group" "this" {
   lifecycle {
     ignore_changes = [time_period]
   }
+}
+
+# --- ACS Email (AD-16, Story 5.2) -------------------------------------------------------
+#
+# Nothing here exists until Dj sets email_custom_domain; the domain is linked and its
+# sender created only after email_domain_link_enabled, once its DNS records (the
+# email_domain_verification_records output, added by hand at the registrar) are
+# verified (infra/bootstrap/README.md). Sending is managed identity only: the
+# pipelines get the custom role ACS Email Sender in <env>/app.
+
+module "email_service" {
+  source  = "Azure/avm-res-communication-emailservice/azurerm"
+  version = "0.3.0"
+  count   = local.email_enabled ? 1 : 0
+
+  name          = local.names.email_service
+  location      = "global"
+  parent_id     = azurerm_resource_group.this.id
+  data_location = local.email.data_location
+  email_communication_service_domains = {
+    (local.email.domain_key) = {
+      name                             = var.email_custom_domain
+      domain_management                = "CustomerManaged"
+      user_engagement_tracking_enabled = false
+    }
+  }
+  # alerts@<domain>: only on a verified, linked domain.
+  email_communication_service_domain_sender_usernames = local.email_link_enabled ? {
+    (local.email.sender_username) = {
+      name                                        = local.email.sender_username
+      email_communication_service_domain_name_key = local.email.domain_key
+      display_name                                = "OCR invoicing alerts"
+    }
+  } : {}
+
+  enable_telemetry = true
+  tags             = local.tags
+}
+
+# azapi, not azurerm: azurerm_communication_service (4.81.0) has no disableLocalAuth
+# (access keys off, azure.md rule 8) and would keep the keys in state; there is no
+# AVM module for Communication Services. The domain link (association) is the
+# resource's own linkedDomains, so one resource owns it (terraform.md rule 2), and a
+# PUT can never drop it.
+resource "azapi_resource" "communication_service" {
+  count = local.email_enabled ? 1 : 0
+
+  type      = "Microsoft.Communication/communicationServices@2025-05-01"
+  name      = local.names.communication_service
+  parent_id = azurerm_resource_group.this.id
+  location  = "global"
+  body = {
+    properties = {
+      dataLocation     = local.email.data_location
+      disableLocalAuth = true
+      linkedDomains    = local.email_link_enabled ? [module.email_service[0].domain_resource_ids[local.email.domain_key]] : []
+    }
+  }
+  # dataLocation can't change in place.
+  replace_triggers_refs  = ["properties.dataLocation"]
+  response_export_values = ["properties.hostName"]
+
+  tags = local.tags
 }

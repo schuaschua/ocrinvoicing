@@ -64,6 +64,14 @@ APP_ONLY_SETTINGS = {
         # Story 3.2: this environment's accounts-sim and its registration's audience.
         "ACCOUNTS_BASE_URL": "https://babaloo-sea-lng-func-04.azurewebsites.net/api",
         "ACCOUNTS_AUDIENCE": "api://30000000-0000-0000-0000-0000000000b1",
+        # Story 5.2: alert emails off, as Terraform sets them while shared has no
+        # linked email domain (and no recipients).
+        "EMAIL_ACS_ENDPOINT": "",
+        "EMAIL_SENDER_ADDRESS": "",
+        "STAFF_APP_BASE_URL": "",
+        "ALERT_RECIPIENTS_FINANCE": "",
+        "ALERT_RECIPIENTS_PROCUREMENT": "",
+        "ALERT_RECIPIENTS_MANAGEMENT": "",
     },
 }
 

@@ -14,3 +14,9 @@ staff_api_client_id = "03943d18-836f-4685-abf7-39334e0c041b"
 # Story 3.1: the client id of babaloo-sea-lng-accounts-sim-dev, which
 # infra/bootstrap/app-registrations.sh prints (not a secret):
 accounts_sim_client_id = "5ab1d364-f5e2-4b82-911b-9b359855781f"
+#
+# Story 5.2: who gets the staff alert emails, per role (empty: nobody). They go out
+# only once shared/foundation has a linked email domain (infra/bootstrap/README.md).
+# alert_recipients_finance     = ["finance@example.com"]
+# alert_recipients_procurement = ["procurement@example.com"]
+# alert_recipients_management  = ["management@example.com"]

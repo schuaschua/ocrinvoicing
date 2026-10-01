@@ -127,3 +127,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-5-5-supplier-scorecard.md`
   summary: The Scorecard tab's error and 404 states are untested, and it shows no "as of" date for the refresh-computed on-time rate.
   evidence: Skipped for the 200-case cap; freshness pairs with 5.1's deferred `as_of` read.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-2-staff-alert-emails.md`
+  summary: Confirm on real Azure that the custom `ACS Email Sender` role (CommunicationServices/Read, EmailServices/write) allows a data-plane send; test the overdue-failure path with emails on and rbac-step3's "ACS not yet" skip.
+  evidence: Mock-only tests; the spine lists the role's exact actions as open. README step 8 checks it at switch-on.

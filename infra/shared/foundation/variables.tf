@@ -64,3 +64,20 @@ variable "budget_amount" {
     error_message = "budget_amount must be positive."
   }
 }
+
+variable "email_custom_domain" {
+  description = "Story 5.2 (AD-16): Dj's own domain that staff alert emails come from, e.g. alerts.example.com. Empty (the default) creates no ACS Email resource at all."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.email_custom_domain == "" || can(regex("^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$", var.email_custom_domain))
+    error_message = "email_custom_domain must be empty or a lowercase domain name such as alerts.example.com."
+  }
+}
+
+variable "email_domain_link_enabled" {
+  description = "Story 5.2: link the verified custom domain to Communication Services and create its alerts@ sender. Set to true only after the domain's DNS records are verified (infra/bootstrap/README.md)."
+  type        = bool
+  default     = false
+}

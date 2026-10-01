@@ -8,6 +8,13 @@ locals {
 
   foundation = data.terraform_remote_state.foundation.outputs
 
+  # Story 5.2: shared ACS Email through <env>/foundation; all null until shared has it
+  # (and while an older foundation state has no `email` output).
+  email = merge(
+    { communication_service_id = null, acs_endpoint = null, sender_address = null },
+    try(local.foundation.email, {}),
+  )
+
   # AD-8: this environment's share of F0's 500 pages a month (Dev 100, Prod 400).
   di_monthly_page_cap = 100
 }

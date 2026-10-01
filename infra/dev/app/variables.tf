@@ -40,3 +40,21 @@ variable "staff_api_client_id" {
   description = "Client id of babaloo-sea-lng-staff-api-<env>, printed by infra/bootstrap/app-registrations.sh (AD-14). Not a secret."
   type        = string
 }
+
+variable "alert_recipients_finance" {
+  description = "Story 5.2 (AD-16): finance's email addresses for price-rise alert emails (ALERT_RECIPIENTS_FINANCE). Empty by default: nobody."
+  type        = list(string)
+  default     = []
+}
+
+variable "alert_recipients_procurement" {
+  description = "Story 5.2 (AD-16): procurement's email addresses for price-rise and watchlist alert emails (ALERT_RECIPIENTS_PROCUREMENT). Empty by default: nobody."
+  type        = list(string)
+  default     = []
+}
+
+variable "alert_recipients_management" {
+  description = "Story 5.2 (AD-16): management's email addresses for watchlist alert emails (ALERT_RECIPIENTS_MANAGEMENT). Empty by default: nobody."
+  type        = list(string)
+  default     = []
+}

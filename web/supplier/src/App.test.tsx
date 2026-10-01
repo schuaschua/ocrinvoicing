@@ -163,7 +163,8 @@ describe("1.7 supplier opens their link", () => {
 
       fireEvent.click(screen.getByRole("button", { name: "Try again" }));
       expect(await home()).toBeInTheDocument();
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      // Four link checks, then the reminders (Story 4.3).
+      expect(fetchMock).toHaveBeenCalledTimes(5);
     }
 
     // --- shows the skeleton, then Waking up after 3 s, then the retryable error at 20 s
@@ -268,8 +269,8 @@ describe("1.8 supplier sends a photo or PDF and gets a reference", () => {
       fireEvent.click(screen.getByRole("button", { name: "Upload another" }));
       const again = await home();
       await waitFor(() => expect(again).toHaveFocus());
-      // The link is not checked again.
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      // The link (and the reminders, Story 4.3) are not fetched again.
+      expect(fetchMock).toHaveBeenCalledTimes(2);
     }
 
     // --- keeps one key per file across retries, and shows Link not working when the link stops
@@ -314,6 +315,86 @@ describe("1.8 supplier sends a photo or PDF and gets a reference", () => {
       expect(fetchMock.mock.calls.at(-1)![1]?.headers).not.toHaveProperty(
         "X-Upload-Token",
       );
+    }
+  });
+});
+
+describe("4.3 supplier sees the weekly reminders on Upload home", () => {
+  it("shows the read-only banner, singular or plural, and none when empty or failed, never blocking the upload", async () => {
+    function reminded(reminders: Response | Error) {
+      fetchMock.mockImplementation(async (path) => {
+        if (path === "/api/link") return answer(200, LINK_OK);
+        if (reminders instanceof Error) throw reminders;
+        return reminders.clone();
+      });
+    }
+
+    // --- two POs: plural, in the PO label format, after the link resolved
+    reminded(answer(200, { po_numbers: ["PO-45012", "PO-45019"] }));
+    render(<App token={TOKEN} />);
+    await home();
+    // The status region is there before its text, so the text is announced.
+    const status = screen.getByRole("status");
+    await waitFor(() =>
+      expect(status).toHaveTextContent(
+        "2 deliveries are waiting for an invoice: PO 45012, PO 45019.",
+      ),
+    );
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/link",
+      "/api/reminders",
+    ]);
+    expect(fetchMock.mock.calls[1]![1]?.headers).toMatchObject({
+      "X-Upload-Token": TOKEN,
+    });
+    // Read-only: nothing to press but the capture buttons.
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Take photo",
+      "Choose file",
+    ]);
+
+    // --- one PO: singular
+    fresh();
+    reminded(answer(200, { po_numbers: ["PO-45012"] }));
+    render(<App token={TOKEN} />);
+    await home();
+    // The status region is there before its text, so the text is announced.
+    const single = screen.getByRole("status");
+    await waitFor(() =>
+      expect(single).toHaveTextContent(
+        "1 delivery is waiting for an invoice: PO 45012.",
+      ),
+    );
+
+    // --- none, a 503 or a network failure: no banner, and the upload still works
+    for (const reminders of [
+      answer(200, { po_numbers: [] }),
+      answer(503, {
+        code: "SERVICE_UNAVAILABLE",
+        message: "The service is busy. Try again in a moment.",
+      }),
+      new TypeError("Failed to fetch"),
+    ]) {
+      fresh();
+      reminded(reminders);
+      render(<App token={TOKEN} />);
+      await home();
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      await act(async () => {});
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+      expect(screen.queryByText(/waiting for an invoice/)).toBeNull();
+      fireEvent.change(screen.getByTestId("choose-file-input"), {
+        target: {
+          files: [
+            new File([new Uint8Array([0xff, 0xd8, 0xff])], "inv.jpg", {
+              type: "image/jpeg",
+            }),
+          ],
+        },
+      });
+      expect(
+        screen.getByRole("heading", { name: "Check & send" }),
+      ).toBeInTheDocument();
     }
   });
 });

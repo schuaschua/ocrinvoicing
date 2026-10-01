@@ -5,7 +5,8 @@ Queue and timer triggers only, never HTTP routes (AD-1). Story 2.1 adds the `qua
 stage on `q-quality`; Story 2.2 the poison triggers, the AD-7 database wait and the
 sweeper timer; Story 2.3 the `extract` stage on `q-extract`; Story 2.5 the `validate`
 stage on `q-validate`, and Story 2.6 its duplicate, date and bank checks; Story 3.2 the
-`post` stage on `q-post`; Story 4.2 the AD-13 analytics refresh timer.
+`post` stage on `q-post`; Story 4.2 the AD-13 analytics refresh timer, and Story 4.3
+its weekly supplier reminders.
 """
 
 import azure.functions as func
@@ -155,8 +156,8 @@ poison_stages = {
 }
 sweeper_job = Sweeper(invoices, upload_keys, images, queue, metrics)
 # Story 4.2: the AD-13 job, the only writer of `analytics`; purchasing through its
-# adapter only (AD-10).
-analytics_job = AnalyticsRefresh(purchasing, PostgresAnalyticsStore(engine))
+# adapter only (AD-10). Story 4.3: it also writes the weekly supplier reminders.
+analytics_job = AnalyticsRefresh(purchasing, PostgresAnalyticsStore(engine), reminders)
 
 
 # The queue trigger reads through the host storage connection (AzureWebJobsStorage,
@@ -258,5 +259,5 @@ async def sweeper(timer: func.TimerRequest) -> None:
 )
 async def analytics_refresh(timer: func.TimerRequest) -> None:
     """The analytics refresh job: rebuild the overdue list once a weekday (Story
-    4.2)."""
+    4.2) and the supplier reminders once a week (Story 4.3)."""
     await analytics_job.run()

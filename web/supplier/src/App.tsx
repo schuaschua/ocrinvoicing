@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ApiError, setUploadToken } from "@/api";
 import { getLink } from "@/api/link";
+import { getReminders } from "@/api/reminders";
 import { CheckAndSend } from "@/screens/CheckAndSend";
 import { LinkError } from "@/screens/LinkError";
 import { LinkNotWorking } from "@/screens/LinkNotWorking";
@@ -51,6 +52,9 @@ export function App({ token }: { token: string | null }) {
     token === null ? { kind: "link-not-working" } : { kind: "loading" },
   );
   const [attempt, setAttempt] = useState(0);
+  // Story 4.3: the supplier's overdue PO numbers for Upload home's banner; empty
+  // until they arrive, and on any failure.
+  const [reminders, setReminders] = useState<readonly string[]>([]);
   // One upload key per file for the whole visit (AD-6): choosing the same file again,
   // for example after "Couldn't send", reuses its key, so it can't become a second
   // invoice. A file is known by its name, size and last-modified time.
@@ -74,9 +78,15 @@ export function App({ token }: { token: string | null }) {
     let cancelled = false;
     getLink(controller.signal).then(
       (link) => {
-        if (!cancelled) {
-          setScreen({ kind: "home", supplierName: link.supplier_name });
-        }
+        if (cancelled) return;
+        setScreen({ kind: "home", supplierName: link.supplier_name });
+        // After the link resolves, never in the way: a failure shows no banner.
+        getReminders(controller.signal).then(
+          (poNumbers) => {
+            if (!cancelled) setReminders(poNumbers);
+          },
+          () => undefined,
+        );
       },
       (error: unknown) => {
         // Only the effect's own cleanup is ignored; a timeout is a failure to show.
@@ -114,6 +124,7 @@ export function App({ token }: { token: string | null }) {
         {screen.kind === "home" && (
           <UploadHome
             supplierName={screen.supplierName}
+            reminders={reminders}
             onFile={(file, source) =>
               setScreen({
                 kind: "check",

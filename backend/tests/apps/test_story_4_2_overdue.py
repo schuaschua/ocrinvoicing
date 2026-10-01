@@ -24,7 +24,7 @@ import azure.functions as func
 import pytest
 from sqlalchemy import Engine, create_engine, text
 
-from apps._pipeline_fakes import stopped_database
+from apps._pipeline_fakes import FakeReminders, stopped_database
 from apps.test_staff_me import header
 from conftest import PostgresServer, login_engine
 from contracts.purchasing_contract import SUPPLIER_ALPHA
@@ -95,7 +95,10 @@ def test_story_4_2_refresh_job(
     clock = [_at(25)]
     store = PostgresAnalyticsStore(pipeline_engine)
     job = AnalyticsRefresh(
-        purchasing_port("sim", pipeline_engine), store, clock=lambda: clock[0]
+        purchasing_port("sim", pipeline_engine),
+        store,
+        FakeReminders(),
+        clock=lambda: clock[0],
     )
 
     def listed() -> tuple[datetime | None, list[str]]:
@@ -154,6 +157,7 @@ def test_story_4_2_refresh_job(
                 offline = AnalyticsRefresh(
                     purchasing_port("sim", stopped),
                     PostgresAnalyticsStore(stopped),
+                    FakeReminders(),
                     clock=lambda: datetime(2026, 10, 2, 1, 30, tzinfo=UTC),
                 )
                 assert asyncio.run(offline.run()) == "DB_OFFLINE"
@@ -225,6 +229,7 @@ def test_story_4_2_overdue_api(
         job = AnalyticsRefresh(
             purchasing_port("sim", pipeline_engine),
             PostgresAnalyticsStore(pipeline_engine),
+            FakeReminders(),
             clock=lambda: at,
         )
         assert asyncio.run(job.run()) == "refreshed"

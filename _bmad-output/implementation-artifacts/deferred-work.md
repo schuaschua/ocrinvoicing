@@ -112,3 +112,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-5-3-price-comparison.md`
   summary: Axe never checks the Chart's table view, the price-comparison alerts list is unbounded, and its newest-first order is untested.
   evidence: The a11y screen captures the SVG view only; skipped for the 200-case cap.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-4-watchlist.md`
+  summary: The Watchlist's 503 and error/retry paths are untested, and the populated page has no e2e screen of its own at desktop width.
+  evidence: Skipped for the 200-case cap; the populated page is checked behind the 2.7 sidebar Sheet screen.

@@ -557,6 +557,58 @@ export const strings = {
     openInvoice: "Open invoice",
     readOnly: "Posted invoice",
   },
+  /** Story 5.4: Watchlist (EXPERIENCE.md: watchlisted suppliers with their evidence
+   * and ranked alternatives; CAP-15, CAP-16). */
+  watchlist: {
+    empty: "No posted invoices yet for this period.",
+    none: "No suppliers on the watchlist.",
+    unknownSupplier: "Unknown supplier",
+    unknownMaterial: "Unknown material",
+    priceRises: (count: number) =>
+      `${count} price ${count === 1 ? "rise" : "rises"} in the last 12 months`,
+    late: (days: string) => `On average ${days} days late`,
+    lateNoAverage: "Late deliveries in the last 12 months",
+    onWatchlist: "On the watchlist",
+    priceGap: (material: string, pct: string) =>
+      `${material} ${pct}% above the cheapest supplier`,
+    since: (date: string) => `On the watchlist since ${date}`,
+    evidenceLabel: (supplier: string, rule: string) =>
+      `Evidence for ${supplier}: ${rule}`,
+    riseColumns: {
+      material: "Material",
+      date: "Invoice date",
+      previous: "Previous price",
+      price: "New price",
+      rise: "Rise",
+      invoice: "Invoice",
+    },
+    lateColumns: {
+      material: "Material",
+      received: "Received",
+      daysLate: "Days late",
+    },
+    gapColumns: {
+      material: "Material",
+      date: "Invoice date",
+      price: "Their price",
+      lowest: "Lowest price",
+      cheapest: "Cheapest supplier",
+      invoice: "Invoice",
+    },
+    plusPct: (pct: string) => `+${pct}%`,
+    alternativesHeading: "Alternatives",
+    alternativesFor: (material: string) => `Alternatives for ${material}`,
+    noAlternatives:
+      "No other supplier has invoiced this material in the last 90 days.",
+    alternativeColumns: {
+      supplier: "Supplier",
+      price: "Latest price",
+      onTime: "On-time rate",
+    },
+    noRate: "No deliveries yet",
+    openInvoice: "Open invoice",
+    readOnly: "Posted invoice",
+  },
   /** Story 5.3: the reusable Chart (EXPERIENCE.md Chart pattern, UX-DR18). */
   chart: {
     viewTable: "View as table",

@@ -417,12 +417,12 @@ def test_story_5_1_incremental_summaries(
     )
 
     # --- Staff-api reads dashboards through the repository, which knows only
-    # `analytics` tables. 5.1's data produces only price_rise alerts (Story 5.3's
-    # rule), so every alert read back is one.
+    # `analytics` tables. 5.1's data produces price_rise alerts (Story 5.3's rule);
+    # other kinds belong to later stories' tests.
     tables = [v for v in vars(dashboards_module).values() if isinstance(v, Table)]
     assert tables and {table.schema for table in tables} == {"analytics"}
     alerts = asyncio.run(reader.alerts(_at(1, 1, 0)))
-    assert {item.kind for item in alerts} == {"price_rise"}
+    assert [item for item in alerts if item.kind == "price_rise"]
 
 
 def test_story_5_1_lateness(

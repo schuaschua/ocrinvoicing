@@ -8,12 +8,15 @@ one twice, and a late commit is still picked up. Everything else is recomputed i
 full from `invoice_fact`, `intake` and the receipts passed in. Story 5.3 then stores
 each AD-20 price rise as one `alert`, once by its `dedupe_key`: an alert is never
 updated or deleted here (Story 5.2 stamps `emailed_at`), and a rise posted before the
-run's window is stored already marked emailed (`detail.backfilled`). The rules are
-`domain/analytics.py`'s. SQLAlchemy Core with bound parameters (security.md rule 21).
+run's window is stored already marked emailed (`detail.backfilled`). Story 5.4 then,
+last (it reads this run's on-time rates and receipt lateness), recomputes
+`watchlist` in full by the AD-20 rules on the run date, keeping `first_added_on` for
+a pair still listed, and stores one `watchlist` alert per newly listed pair. The rules
+are `domain/analytics.py`'s. SQLAlchemy Core with bound parameters (security.md rule 21).
 """
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -33,6 +36,7 @@ from invoicing.adapters.postgres.schema import (
     alert,
     invoice,
     invoice_fact,
+    job_run,
     month_summary,
     price_point,
     receipt_lateness,
@@ -40,14 +44,19 @@ from invoicing.adapters.postgres.schema import (
     supplier_month,
     supplier_month_flags,
     supplier_on_time,
+    watchlist,
     watermark,
 )
 from invoicing.adapters.postgres.validation import current_values_of, id_array
 from invoicing.domain.analytics import (
+    PRICE_GAP_WINDOW,
     PRICE_RISE,
+    WATCHLIST,
     InvoiceFact,
+    LateLine,
     PricePoint,
     PriceRise,
+    SupplierOnTime,
     days_late,
     month_summaries,
     on_time_rates,
@@ -55,6 +64,8 @@ from invoicing.domain.analytics import (
     price_rises,
     supplier_flags,
     supplier_months,
+    watchlist_dedupe_key,
+    watchlist_rules,
 )
 from invoicing.domain.ids import new_uuid7
 from invoicing.domain.reasons import ReasonCode
@@ -205,11 +216,121 @@ def _price_rise_alerts(
         )
 
 
+def _watchlist(connection: Connection, run_date: date, at: datetime) -> None:
+    """AD-20 (Story 5.4, CAP-15): replace the watchlist with the rules' result on the
+    Singapore `run_date`. A pair listed in the previous run keeps its
+    `first_added_on`; a new one (never listed, or dropped and back) gets `run_date`
+    and one alert, ON CONFLICT DO NOTHING so a rerun never adds a second. On the
+    first summaries run the listings are history, as Story 5.3's rises are: stored
+    already marked emailed (`detail.backfilled`), so Story 5.2 never mails them."""
+    backfilled = (
+        connection.execute(
+            select(job_run.c.run_date)
+            .where(job_run.c.job == SUMMARIES_JOB, job_run.c.run_date < run_date)
+            .limit(1)
+        ).first()
+        is None
+    )
+    rise_alerts: list[dict[str, Any]] = list(
+        connection.execute(
+            select(alert.c.detail).where(alert.c.kind == PRICE_RISE)
+        ).scalars()
+    )
+    on_time = [
+        SupplierOnTime(**row._asdict())
+        for row in connection.execute(
+            select(
+                supplier_on_time.c.supplier_id,
+                supplier_on_time.c.receipts,
+                supplier_on_time.c.on_time,
+                supplier_on_time.c.on_time_rate,
+                supplier_on_time.c.avg_days_late,
+            )
+        )
+    ]
+    late_lines = [
+        LateLine(**row._asdict())
+        for row in connection.execute(
+            select(
+                receipt_lateness.c.receipt_id,
+                receipt_lateness.c.po_line_id,
+                receipt_lateness.c.supplier_id,
+                receipt_lateness.c.material_id,
+                receipt_lateness.c.received_date,
+                receipt_lateness.c.days_late,
+            ).where(receipt_lateness.c.days_late > 0)
+        )
+    ]
+    points = [
+        PricePoint(**row._asdict())
+        for row in connection.execute(
+            select(
+                price_point.c.invoice_id,
+                price_point.c.line_no,
+                price_point.c.supplier_id,
+                price_point.c.material_id,
+                price_point.c.invoice_date,
+                price_point.c.unit_price,
+                price_point.c.posted_at,
+            ).where(price_point.c.invoice_date >= run_date - PRICE_GAP_WINDOW)
+        )
+    ]
+    hits = watchlist_rules(run_date, rise_alerts, on_time, late_lines, points)
+    listed: dict[tuple[UUID, str], date] = {
+        (row.supplier_id, row.rule): row.first_added_on
+        for row in connection.execute(
+            select(
+                watchlist.c.supplier_id, watchlist.c.rule, watchlist.c.first_added_on
+            )
+        )
+    }
+    rows: list[dict[str, Any]] = [
+        {
+            "supplier_id": hit.supplier_id,
+            "rule": hit.rule,
+            "first_added_on": listed.get((hit.supplier_id, hit.rule), run_date),
+            "evidence": list(hit.evidence),
+        }
+        for hit in hits
+    ]
+    connection.execute(delete(watchlist))
+    if rows:
+        connection.execute(insert(watchlist), rows)
+    alerts = [
+        {
+            "alert_id": new_uuid7(),
+            "kind": WATCHLIST,
+            "dedupe_key": watchlist_dedupe_key(
+                row["supplier_id"], row["rule"], row["first_added_on"]
+            ),
+            "supplier_id": row["supplier_id"],
+            "material_id": None,
+            "detail": {
+                "supplier_id": str(row["supplier_id"]),
+                "rule": row["rule"],
+                "evidence": row["evidence"],
+                **({"backfilled": True} if backfilled else {}),
+            },
+            "emailed_at": at if backfilled else None,
+        }
+        for row in rows
+        if (row["supplier_id"], row["rule"]) not in listed
+    ]
+    if alerts:
+        connection.execute(
+            pg_insert(alert).on_conflict_do_nothing(index_elements=["dedupe_key"]),
+            alerts,
+        )
+
+
 def write_summaries(
-    connection: Connection, receipts: Sequence[ReceiptLine], at: datetime
+    connection: Connection,
+    receipts: Sequence[ReceiptLine],
+    at: datetime,
+    run_date: date,
 ) -> None:
     """Every summary write of one run, in the caller's transaction; `at` is the run's
-    time."""
+    time and `run_date` its Singapore date."""
     held = _watermark(connection)
     _posted(connection, held)
     _price_rise_alerts(connection, held, at)
@@ -267,3 +388,4 @@ def write_summaries(
             for line in receipts
         ),
     )
+    _watchlist(connection, run_date, at)

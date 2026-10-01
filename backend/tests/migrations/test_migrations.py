@@ -154,6 +154,8 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             "alert",
             # Story 5.3: material names, replaced as a whole.
             "material",
+            # Story 5.4: the watchlist, replaced each run.
+            "watchlist",
         )
     ]
     staff = _engine(postgres_server, postgres_server.staff_api, intake_database)
@@ -173,6 +175,7 @@ def test_story_2_1_app_logins_cannot_delete_or_rewrite_history(
             (pipeline, "DELETE FROM analytics.alert"),
             (pipeline, "UPDATE analytics.alert SET kind = 'x'"),
             (pipeline, "UPDATE analytics.material SET name = 'x'"),
+            (pipeline, "UPDATE analytics.watchlist SET rule = 'x'"),
         ]
         for engine, statement in refused:
             with (

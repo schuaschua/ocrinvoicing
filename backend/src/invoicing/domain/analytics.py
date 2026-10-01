@@ -1,6 +1,8 @@
 """AD-20 analytics rules (Story 5.1): the pure part of the analytics refresh job's
 daily summaries. The adapter reads the rows and writes what these return. Story 5.3
-adds the price-rise rule (CAP-14), evaluated in the same step.
+adds the price-rise rule (CAP-14), evaluated in the same step, and Story 5.4 the
+watchlist rules (CAP-15) after it, with the alternatives ranking (CAP-16) staff-api
+applies at read time.
 
 Months are the first day of a Singapore month. Money is `Decimal` rounded half-up to
 2 places, rates to 4 (`numeric(18,2)` and `numeric(5,4)` in `analytics`). The
@@ -8,10 +10,11 @@ currency is the configured invoice currency (SGD, AD-20), so none is carried.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 from uuid import UUID
 
 from invoicing.domain.current_values import CurrentValues, FieldValue
@@ -283,3 +286,223 @@ def price_rises(points: Iterable[PricePoint]) -> list[PriceRise]:
             if change > PRICE_RISE_THRESHOLD:
                 rises.append(PriceRise(previous, current, money(change * 100)))
     return rises
+
+
+# --- Story 5.4 (AD-20, CAP-15, CAP-16): the watchlist rules and the alternatives.
+WATCHLIST = "watchlist"
+RULE_PRICE_RISES = "price_rises"
+RULE_LATE = "late"
+RULE_PRICE_GAP = "price_gap"
+# The order a supplier's rules are listed in.
+WATCHLIST_RULES = (RULE_PRICE_RISES, RULE_LATE, RULE_PRICE_GAP)
+# AD-20: 3 or more rises, 7 or more days late on average, 5% or more above the
+# cheapest supplier.
+MIN_PRICE_RISES = 3
+LATE_DAYS = Decimal("7.00")
+PRICE_GAP_THRESHOLD = Decimal("0.05")
+# The last 365 days and the last 90 days, today included: the earliest day counted
+# is today minus 364 (or 89).
+RISE_WINDOW = timedelta(days=364)
+PRICE_GAP_WINDOW = timedelta(days=89)
+# At most this many late receipt lines are kept as a `late` entry's evidence.
+LATE_EVIDENCE = 20
+
+
+@dataclass(frozen=True)
+class LateLine:
+    """One goods-receipt line's lateness (`analytics.receipt_lateness`)."""
+
+    receipt_id: UUID
+    po_line_id: UUID
+    supplier_id: UUID
+    material_id: UUID
+    received_date: date
+    days_late: int
+
+
+@dataclass(frozen=True)
+class WatchlistHit:
+    """A supplier listed under one rule on the run date, with its evidence (JSON
+    values, as `analytics.watchlist.evidence` keeps them)."""
+
+    supplier_id: UUID
+    rule: str
+    evidence: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class Alternative:
+    """Another supplier of a material, at its latest price in the last 90 days."""
+
+    supplier_id: UUID
+    latest_unit_price: Decimal
+    on_time_rate: Decimal | None
+
+
+def _latest_prices(
+    points: Iterable[PricePoint], today: date
+) -> dict[UUID, dict[UUID, PricePoint]]:
+    """Per material, each supplier's latest price point of the last 90 days (by
+    invoice date, then invoice id, then line)."""
+    since = today - PRICE_GAP_WINDOW
+    latest: dict[UUID, dict[UUID, PricePoint]] = defaultdict(dict)
+    for point in sorted(
+        points, key=lambda p: (p.invoice_date, p.invoice_id, p.line_no)
+    ):
+        if since <= point.invoice_date <= today:
+            latest[point.material_id][point.supplier_id] = point
+    return latest
+
+
+def _price_rises_hits(
+    today: date, rise_alerts: Iterable[Mapping[str, Any]]
+) -> list[WatchlistHit]:
+    since = today - RISE_WINDOW
+    rises: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+    for detail in rise_alerts:
+        current = detail["current"]
+        if since <= date.fromisoformat(current["invoice_date"]) <= today:
+            rises[UUID(detail["supplier_id"])].append(
+                {
+                    "material_id": detail["material_id"],
+                    "pct": detail["pct"],
+                    "previous": detail["previous"],
+                    "current": current,
+                }
+            )
+    return [
+        WatchlistHit(
+            supplier_id,
+            RULE_PRICE_RISES,
+            tuple(
+                sorted(
+                    found,
+                    key=lambda e: (
+                        e["current"]["invoice_date"],
+                        e["current"]["invoice_id"],
+                    ),
+                    reverse=True,
+                )
+            ),
+        )
+        for supplier_id, found in sorted(rises.items())
+        if len(found) >= MIN_PRICE_RISES
+    ]
+
+
+def _late_hits(
+    today: date, on_time: Iterable[SupplierOnTime], lines: Iterable[LateLine]
+) -> list[WatchlistHit]:
+    late = sorted(s.supplier_id for s in on_time if s.avg_days_late >= LATE_DAYS)
+    since = today - RISE_WINDOW
+    by_supplier: dict[UUID, list[LateLine]] = defaultdict(list)
+    for line in lines:
+        if line.days_late > 0 and since <= line.received_date <= today:
+            by_supplier[line.supplier_id].append(line)
+    hits: list[WatchlistHit] = []
+    for supplier_id in late:
+        latest = sorted(
+            by_supplier[supplier_id],
+            key=lambda x: (x.received_date, str(x.receipt_id), str(x.po_line_id)),
+            reverse=True,
+        )[:LATE_EVIDENCE]
+        hits.append(
+            WatchlistHit(
+                supplier_id,
+                RULE_LATE,
+                tuple(
+                    {
+                        "receipt_id": str(line.receipt_id),
+                        "material_id": str(line.material_id),
+                        "received_date": line.received_date.isoformat(),
+                        "days_late": line.days_late,
+                    }
+                    for line in latest
+                ),
+            )
+        )
+    return hits
+
+
+def _price_gap_hits(today: date, points: Iterable[PricePoint]) -> list[WatchlistHit]:
+    gaps: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+    for material_id, by_supplier in sorted(_latest_prices(points, today).items()):
+        cheapest = min(
+            by_supplier.values(), key=lambda p: (p.unit_price, str(p.supplier_id))
+        )
+        lowest = cheapest.unit_price
+        for supplier_id, point in sorted(by_supplier.items()):
+            if lowest <= 0:
+                continue
+            change = (point.unit_price - lowest) / lowest
+            if change >= PRICE_GAP_THRESHOLD:
+                gaps[supplier_id].append(
+                    {
+                        "material_id": str(material_id),
+                        "invoice_id": str(point.invoice_id),
+                        "invoice_date": point.invoice_date.isoformat(),
+                        "unit_price": str(point.unit_price),
+                        "lowest_unit_price": str(lowest),
+                        "cheapest_supplier_id": str(cheapest.supplier_id),
+                        "pct": str(money(change * 100)),
+                    }
+                )
+    return [
+        WatchlistHit(supplier_id, RULE_PRICE_GAP, tuple(found))
+        for supplier_id, found in sorted(gaps.items())
+    ]
+
+
+def watchlist_rules(
+    today: date,
+    rise_alerts: Iterable[Mapping[str, Any]],
+    on_time: Iterable[SupplierOnTime],
+    late_lines: Iterable[LateLine],
+    points: Iterable[PricePoint],
+) -> list[WatchlistHit]:
+    """AD-20 (CAP-15), on the Singapore run date `today`: `price_rises` is 3 or more
+    price-rise alerts (their `detail`s) whose rising invoice is dated in the last 365
+    days; `late` is an average of 7.00 or more days late, with up to 20 late receipt
+    lines, latest first; `price_gap` is, for a material, a latest price at least 5%
+    above the lowest latest price among the suppliers who posted it in the last 90
+    days (`(latest - lowest) / lowest >= 0.05`, exact). By supplier, then rule."""
+    hits = [
+        *_price_rises_hits(today, rise_alerts),
+        *_late_hits(today, on_time, late_lines),
+        *_price_gap_hits(today, points),
+    ]
+    return sorted(hits, key=lambda h: (h.supplier_id, WATCHLIST_RULES.index(h.rule)))
+
+
+def watchlist_dedupe_key(supplier_id: UUID, rule: str, first_added_on: date) -> str:
+    """`analytics.alert.dedupe_key` of a watchlist alert: one per listing, so a
+    supplier dropped and listed again is alerted again."""
+    return f"{WATCHLIST}:{supplier_id}:{rule}:{first_added_on.isoformat()}"
+
+
+def alternatives(
+    today: date,
+    material_id: UUID,
+    exclude: UUID,
+    points: Iterable[PricePoint],
+    on_time_rates: Mapping[UUID, Decimal],
+    names: Mapping[UUID, str],
+) -> list[Alternative]:
+    """CAP-16: the suppliers other than `exclude` with a posted price for
+    `material_id` in the last 90 days, at their latest price there, ranked by that
+    price, then on-time rate (best first, none last), then name."""
+    latest = _latest_prices(points, today).get(material_id, {})
+    ranked = sorted(
+        (point for supplier_id, point in latest.items() if supplier_id != exclude),
+        key=lambda p: (
+            p.unit_price,
+            on_time_rates.get(p.supplier_id) is None,
+            -(on_time_rates.get(p.supplier_id) or Decimal(0)),
+            (names.get(p.supplier_id) or "").casefold(),
+            str(p.supplier_id),
+        ),
+    )
+    return [
+        Alternative(p.supplier_id, p.unit_price, on_time_rates.get(p.supplier_id))
+        for p in ranked
+    ]

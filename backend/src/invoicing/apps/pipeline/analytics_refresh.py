@@ -39,6 +39,10 @@ A rise posted before the run's window (all of them on the first run) is stored w
 `emailed_at` set and `detail.backfilled`, so Story 5.2 never mails the history. A failure there is logged as
 `analytics_refresh.materials_failed` and retried by the next run.
 
+Story 5.4 (CAP-15) ends that transaction by recomputing `analytics.watchlist` in full
+by the three AD-20 rules on the run's Singapore date, and stores one `watchlist`
+alert per newly listed supplier and rule (Story 5.2 emails it).
+
 A stopped database (AD-7) is logged as `analytics_refresh.skipped code=DB_OFFLINE`,
 and the next run catches up. A run whose overdue step fails otherwise logs
 `analytics_refresh.overdue_failed`, leaves the previous list and its date, still

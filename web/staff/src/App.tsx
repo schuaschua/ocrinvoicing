@@ -18,6 +18,7 @@ import { PriceComparisonScreen } from "@/screens/PriceComparisonScreen";
 import { QueueScreen } from "@/screens/QueueScreen";
 import { SignedOut, signInHref } from "@/screens/SignedOut";
 import { SurfacePage } from "@/screens/SurfacePage";
+import { WatchlistScreen } from "@/screens/WatchlistScreen";
 import { Nav } from "@/shell/Nav";
 import { leftFor, useNotice } from "@/shell/notices";
 import { useShortcuts, useShortcutsEnabled } from "@/shell/shortcuts";
@@ -227,6 +228,8 @@ export function App() {
       content = <OverduePosScreen key={path} />;
     } else if (route.surface.id === "price_comparison") {
       content = <PriceComparisonScreen key={path} />;
+    } else if (route.surface.id === "watchlist") {
+      content = <WatchlistScreen key={path} />;
     } else {
       content = <SurfacePage key={path} surface={route.surface} />;
     }

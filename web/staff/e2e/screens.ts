@@ -285,6 +285,71 @@ const GOODS_IN: Record<string, ApiAnswer> = {
   },
 };
 
+/** Story 5.4: the Watchlist (synthetic): a supplier listed for a price gap and
+ * lateness, with read-only evidence and ranked alternatives. */
+const WATCHLIST: Record<string, ApiAnswer> = {
+  "/api/watchlist": {
+    status: 200,
+    body: {
+      has_price_points: true,
+      entries: [
+        {
+          supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f55b0",
+          supplier_name: "Synthetic Beta Traders",
+          rules: [
+            {
+              rule: "late",
+              first_added_on: "2026-10-01",
+              avg_days_late: "8.00",
+              evidence: [
+                {
+                  material_id: "0192f0c1-7a2b-7c3d-8e4f-0000000053c1",
+                  material_name: "EVA soles",
+                  received_date: "2026-09-28",
+                  days_late: 8,
+                },
+              ],
+            },
+            {
+              rule: "price_gap",
+              first_added_on: "2026-10-01",
+              avg_days_late: null,
+              evidence: [
+                {
+                  material_id: "0192f0c1-7a2b-7c3d-8e4f-0000000053c1",
+                  material_name: "EVA soles",
+                  invoice_id: null,
+                  invoice_date: "2026-09-20",
+                  unit_price: "4.24",
+                  lowest_unit_price: "4.00",
+                  cheapest_supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+                  cheapest_supplier_name: "Synthetic Alpha Building Supplies",
+                  pct: "6.00",
+                },
+              ],
+            },
+          ],
+          alternatives: [
+            {
+              material_id: "0192f0c1-7a2b-7c3d-8e4f-0000000053c1",
+              material_name: "EVA soles",
+              suppliers: [
+                {
+                  supplier_id: "01a0c450-6c00-7b7b-8aa9-4ccade9f5526",
+                  supplier_name: "Synthetic Alpha Building Supplies",
+                  latest_unit_price: "4.00",
+                  on_time_rate: "0.8000",
+                  watchlisted: false,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  },
+};
+
 /** Story 5.3: Price comparison for a material (synthetic): the chart and its summary,
  * suppliers' prices and a price-rise alert whose evidence links (finance). */
 const SOLES = "0192f0c1-7a2b-7c3d-8e4f-0000000053c1";
@@ -395,9 +460,9 @@ export const SCREENS: Screen[] = [
     story: "2.7",
     name: "sidebar Sheet below 1024px",
     path: "/watchlist",
-    api: me("management", "procurement"),
+    api: { ...me("management", "procurement"), ...WATCHLIST },
     steps: openMenuWhenNarrow,
-    ready: "Watchlist",
+    ready: "Synthetic Beta Traders",
   },
   {
     story: "2.7",

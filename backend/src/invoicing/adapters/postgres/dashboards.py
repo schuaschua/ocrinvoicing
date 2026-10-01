@@ -19,12 +19,16 @@ from invoicing.adapters.postgres.schema import (
     material,
     month_summary,
     price_point,
+    receipt_lateness,
     supplier_month,
     supplier_month_flags,
     supplier_on_time,
+    watchlist,
 )
 from invoicing.domain.analytics import (
+    PRICE_GAP_WINDOW,
     PRICE_RISE,
+    RISE_WINDOW,
     MonthSummary,
     PricePoint,
     SupplierOnTime,
@@ -35,6 +39,8 @@ from invoicing.ports.dashboards import (
     Material,
     PriceComparison,
     SupplierMonthRow,
+    Watchlist,
+    WatchlistRow,
 )
 
 
@@ -73,6 +79,9 @@ class PostgresDashboardReader:
 
     async def price_comparison(self, material_id: UUID) -> PriceComparison | None:
         return await asyncio.to_thread(self._read, _price_comparison, material_id)
+
+    async def watchlist(self, today: date) -> Watchlist:
+        return await asyncio.to_thread(self._read, _watchlist, today)
 
 
 def _price_points(connection: Connection, since: date) -> tuple[PricePoint, ...]:
@@ -242,3 +251,45 @@ def _price_comparison(
         )
     )
     return PriceComparison(Material(material_id, name), points, rates, alerts)
+
+
+def _watchlist(connection: Connection, today: date) -> Watchlist:
+    rows = tuple(
+        WatchlistRow(row.supplier_id, row.rule, row.first_added_on, tuple(row.evidence))
+        for row in connection.execute(
+            select(
+                watchlist.c.supplier_id,
+                watchlist.c.rule,
+                watchlist.c.first_added_on,
+                watchlist.c.evidence,
+            ).order_by(watchlist.c.supplier_id, watchlist.c.rule)
+        )
+    )
+    has_points = (
+        connection.execute(select(price_point.c.invoice_id).limit(1)).first()
+        is not None
+    )
+    names = {
+        row.material_id: row.name
+        for row in connection.execute(select(material.c.material_id, material.c.name))
+    }
+    # Every late line's material, not only the 20 kept as evidence (AD-20 window).
+    late: dict[UUID, list[UUID]] = {}
+    for row in connection.execute(
+        select(receipt_lateness.c.supplier_id, receipt_lateness.c.material_id)
+        .where(
+            receipt_lateness.c.days_late > 0,
+            receipt_lateness.c.received_date >= today - RISE_WINDOW,
+        )
+        .distinct()
+        .order_by(receipt_lateness.c.supplier_id, receipt_lateness.c.material_id)
+    ):
+        late.setdefault(row.supplier_id, []).append(row.material_id)
+    return Watchlist(
+        rows=rows,
+        points=_price_points(connection, today - PRICE_GAP_WINDOW),
+        late_materials={key: tuple(value) for key, value in late.items()},
+        on_time={item.supplier_id: item for item in _on_time_rates(connection, None)},
+        material_names=names,
+        has_price_points=has_points,
+    )

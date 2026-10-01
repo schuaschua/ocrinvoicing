@@ -190,7 +190,7 @@ class PostgresAnalyticsStore:
             # Read after the lock, as the overdue rebuild does.
             if _job_ran(connection, SUMMARIES_JOB, run_date):
                 return False
-            write_summaries(connection, receipts, finished_at)
+            write_summaries(connection, receipts, finished_at, run_date)
             connection.execute(
                 insert(job_run).values(
                     job=SUMMARIES_JOB, run_date=run_date, finished_at=finished_at

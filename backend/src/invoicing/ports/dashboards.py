@@ -1,6 +1,7 @@
 """Staff-api's dashboard data (Story 5.1, AD-13, AD-20, P-10): read-only, from the
 `analytics` schema the refresh job writes, never from the invoice tables. Stories 5.3
-to 5.6 add the methods their dashboards need; Story 5.3 serves Price comparison.
+to 5.6 add the methods their dashboards need; Story 5.3 serves Price comparison and
+Story 5.4 the Watchlist.
 
 Every method raises `DatabaseOfflineError` (domain/errors.py) when the database can't
 be reached at all (AD-7); a failing query raises as it is."""
@@ -62,6 +63,32 @@ class PriceComparison:
     alerts: tuple[Alert, ...]
 
 
+@dataclass(frozen=True)
+class WatchlistRow:
+    """One `analytics.watchlist` row: a supplier listed under an AD-20 rule."""
+
+    supplier_id: UUID
+    rule: str
+    first_added_on: date
+    evidence: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class Watchlist:
+    """Everything the Watchlist shows (Story 5.4, CAP-15, CAP-16), in one snapshot:
+    the rows, the price points of the last 90 days the alternatives are ranked from,
+    the materials of each supplier's late receipt lines of the last 365 days (by
+    material id), every supplier's on-time rate and average days late, the material
+    names, and whether any price point exists at all."""
+
+    rows: tuple[WatchlistRow, ...]
+    points: tuple[PricePoint, ...]
+    late_materials: Mapping[UUID, tuple[UUID, ...]]
+    on_time: Mapping[UUID, SupplierOnTime]
+    material_names: Mapping[UUID, str]
+    has_price_points: bool
+
+
 class DashboardReader(Protocol):
     """The dashboards' reads of `analytics` (staff-api, SELECT only)."""
 
@@ -93,4 +120,8 @@ class DashboardReader(Protocol):
     async def price_comparison(self, material_id: UUID) -> PriceComparison | None:
         """`material_id`'s price comparison in one snapshot, or None when it is not a
         material with price points (Story 5.3)."""
+        ...
+
+    async def watchlist(self, today: date) -> Watchlist:
+        """The watchlist on the Singapore date `today` (Story 5.4)."""
         ...

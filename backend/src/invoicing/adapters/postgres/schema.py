@@ -9,6 +9,7 @@ from sqlalchemy import (
     TIMESTAMP,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     Double,
@@ -330,4 +331,18 @@ material = Table(
     analytics_metadata,
     Column("material_id", Uuid, primary_key=True),
     Column("name", Text, nullable=False),
+)
+
+# Story 5.4 (migration 0013): one row per supplier and AD-20 watchlist rule, replaced
+# by each run; `first_added_on` is kept while the pair stays listed.
+watchlist = Table(
+    "watchlist",
+    analytics_metadata,
+    Column("supplier_id", Uuid, primary_key=True),
+    Column("rule", Text, primary_key=True),
+    Column("first_added_on", Date, nullable=False),
+    Column("evidence", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    CheckConstraint(
+        "rule IN ('price_rises', 'late', 'price_gap')", name="ck_watchlist_rule"
+    ),
 )

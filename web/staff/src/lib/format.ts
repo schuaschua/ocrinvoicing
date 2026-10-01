@@ -53,3 +53,8 @@ export function percentText(pct: string): string {
 export function rateText(rate: string): string {
   return `${percentText((Number(rate) * 100).toFixed(1))}%`;
 }
+
+/** "8" for "8.00", "7.5" for "7.50": a 2-decimal number of days, for display only. */
+export function daysText(days: string): string {
+  return days.includes(".") ? days.replace(/\.?0+$/, "") : days;
+}

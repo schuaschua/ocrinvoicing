@@ -71,3 +71,23 @@ export function onTimeRateText(
 export function daysText(days: string): string {
   return days.includes(".") ? days.replace(/\.?0+$/, "") : days;
 }
+
+const MONTH_NAME = new Intl.DateTimeFormat("en-SG", {
+  timeZone: "UTC",
+  month: "long",
+  year: "numeric",
+});
+
+/** "September 2026" for "2026-09"; anything else as given. */
+export function monthText(month: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (match === null) return month;
+  return MONTH_NAME.format(
+    new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1)),
+  );
+}
+
+/** "67%" for "0.6667": a 4-decimal share as a whole percentage, for display only. */
+export function wholePercentText(rate: string): string {
+  return `${Math.round(Number(rate) * 100)}%`;
+}

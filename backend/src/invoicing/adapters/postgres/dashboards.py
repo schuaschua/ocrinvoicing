@@ -11,7 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Connection, Engine, select
+from sqlalchemy import Connection, Engine, func, select, union
 
 from invoicing.adapters.postgres.engine import open_connection
 from invoicing.adapters.postgres.schema import (
@@ -36,6 +36,7 @@ from invoicing.domain.analytics import (
 )
 from invoicing.ports.dashboards import (
     Alert,
+    FinanceMonth,
     Material,
     PriceComparison,
     Scorecard,
@@ -87,6 +88,9 @@ class PostgresDashboardReader:
     async def scorecard(self, supplier_id: UUID, since: date) -> Scorecard:
         return await asyncio.to_thread(self._read, _scorecard, (supplier_id, since))
 
+    async def finance_month(self, month: date | None, current: date) -> FinanceMonth:
+        return await asyncio.to_thread(self._read, _finance_month, (month, current))
+
 
 def _price_points(connection: Connection, since: date) -> tuple[PricePoint, ...]:
     rows = connection.execute(
@@ -127,29 +131,37 @@ def _on_time_rates(connection: Connection, _: None) -> tuple[SupplierOnTime, ...
 def _supplier_months(
     connection: Connection, since: date
 ) -> tuple[SupplierMonthRow, ...]:
+    return _merged_months(connection, since, None)
+
+
+def _merged_months(
+    connection: Connection, since: date, until: date | None
+) -> tuple[SupplierMonthRow, ...]:
+    """Supplier months from `since` on, and before `until` when given."""
     # Spend is by posted month and flags by received month (AD-20), so either side
     # may have a supplier month the other lacks.
+    spend_query = select(
+        supplier_month.c.supplier_id,
+        supplier_month.c.month,
+        supplier_month.c.spend,
+        supplier_month.c.posted_count,
+    ).where(supplier_month.c.month >= since)
+    flags_query = select(
+        supplier_month_flags.c.supplier_id,
+        supplier_month_flags.c.month,
+        supplier_month_flags.c.flagged_count,
+        supplier_month_flags.c.duplicate_count,
+    ).where(supplier_month_flags.c.month >= since)
+    if until is not None:
+        spend_query = spend_query.where(supplier_month.c.month < until)
+        flags_query = flags_query.where(supplier_month_flags.c.month < until)
     spend = {
         (row.supplier_id, row.month): (row.spend, row.posted_count)
-        for row in connection.execute(
-            select(
-                supplier_month.c.supplier_id,
-                supplier_month.c.month,
-                supplier_month.c.spend,
-                supplier_month.c.posted_count,
-            ).where(supplier_month.c.month >= since)
-        )
+        for row in connection.execute(spend_query)
     }
     flags = {
         (row.supplier_id, row.month): (row.flagged_count, row.duplicate_count)
-        for row in connection.execute(
-            select(
-                supplier_month_flags.c.supplier_id,
-                supplier_month_flags.c.month,
-                supplier_month_flags.c.flagged_count,
-                supplier_month_flags.c.duplicate_count,
-            ).where(supplier_month_flags.c.month >= since)
-        )
+        for row in connection.execute(flags_query)
     }
     return tuple(
         SupplierMonthRow(
@@ -353,4 +365,76 @@ def _scorecard(connection: Connection, key: tuple[UUID, date]) -> Scorecard:
         on_time=None if on_time is None else SupplierOnTime(**on_time._asdict()),
         points=points,
         material_names=names,
+    )
+
+
+# A price rise counts in the month of its rising invoice's date (Story 5.6), held in
+# the alert's evidence as YYYY-MM-DD text; a rise with any other text is skipped.
+_RISE_DATE = alert.c.detail[("current", "invoice_date")].astext
+_IS_RISE = (alert.c.kind == PRICE_RISE) & _RISE_DATE.regexp_match(
+    r"^\d{4}-\d{2}-\d{2}$"
+)
+# Finance month's chart: the last 24 months, ending at the shown one.
+HISTORY_MONTHS = 24
+
+
+def _add_months(month: date, count: int) -> date:
+    """The first day of the month `count` months after `month`'s (negative: before)."""
+    index = month.year * 12 + month.month - 1 + count
+    return date(index // 12, index % 12 + 1, 1)
+
+
+def _finance_month(
+    connection: Connection, key: tuple[date | None, date]
+) -> FinanceMonth:
+    requested, current = key
+    # A mistyped future date never makes a month later than the current one.
+    latest = month_start(current)
+    stored = connection.execute(
+        union(
+            select(supplier_month.c.month),
+            select(supplier_month_flags.c.month),
+            select(month_summary.c.month),
+        )
+    )
+    months: set[date] = {row.month for row in stored}
+    for row in connection.execute(
+        select(func.left(_RISE_DATE, 7).label("month")).where(_IS_RISE).distinct()
+    ):
+        try:
+            months.add(date.fromisoformat(f"{row.month}-01"))
+        except ValueError:
+            continue  # e.g. month 13: not a month, so not listed
+    ordered = sorted((held for held in months if held <= latest), reverse=True)
+    if requested is not None:
+        month = month_start(requested)
+    elif ordered:
+        month = ordered[0]
+    else:
+        month = latest
+    following = _add_months(month, 1)
+    rises = {
+        row.supplier_id: row.rises
+        for row in connection.execute(
+            select(alert.c.supplier_id, func.count().label("rises"))
+            .where(
+                _IS_RISE,
+                _RISE_DATE >= month.isoformat(),
+                _RISE_DATE < following.isoformat(),
+            )
+            .group_by(alert.c.supplier_id)
+        )
+    }
+    history = tuple(
+        item
+        for item in _month_summaries(connection, _add_months(month, 1 - HISTORY_MONTHS))
+        if item.month <= month
+    )
+    return FinanceMonth(
+        month=month,
+        months=tuple(ordered),
+        suppliers=_merged_months(connection, month, following),
+        price_rises=rises,
+        summary=next((item for item in history if item.month == month), None),
+        history=history,
     )

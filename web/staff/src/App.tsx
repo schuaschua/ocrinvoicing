@@ -5,6 +5,7 @@ import { getMe, type Me } from "@/api/me";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui/button";
 import { navigate, useNotAllowed, usePath } from "@/router";
+import { FinanceMonthScreen } from "@/screens/FinanceMonthScreen";
 import { GoodsInScreen } from "@/screens/GoodsInScreen";
 import { LoadError } from "@/screens/LoadError";
 import { InvoiceDetailScreen } from "@/screens/InvoiceDetailScreen";
@@ -236,6 +237,8 @@ export function App() {
       content = <SuppliersScreen key={path} />;
     } else if (route.surface.id === "supplier_scorecard") {
       content = <SupplierScreen key={path} supplierId={itemIdFrom(path)} />;
+    } else if (route.surface.id === "finance_month") {
+      content = <FinanceMonthScreen key={path} />;
     } else {
       content = <SurfacePage key={path} surface={route.surface} />;
     }

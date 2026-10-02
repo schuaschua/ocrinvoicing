@@ -338,12 +338,17 @@ export function WatchlistScreen() {
   const data = state.kind === "ready" ? state.data : null;
 
   useEffect(() => {
-    // A watchlist email links to `#supplier-<id>`: once the cards are shown, bring
-    // that card into view and move focus to its heading.
+    // A watchlist email links to `?supplier=<id>` (a query survives the sign-in
+    // redirect; `#supplier-<id>` still works): once the cards are shown, bring that
+    // card into view and move focus to its heading.
     if (data === null) return;
+    const supplier = new URLSearchParams(window.location.search).get(
+      "supplier",
+    );
     const hash = decodeURIComponent(window.location.hash.slice(1));
-    if (!hash.startsWith("supplier-")) return;
-    const card = document.getElementById(hash);
+    const id = supplier ? `supplier-${supplier}` : hash;
+    if (!id.startsWith("supplier-")) return;
+    const card = document.getElementById(id);
     if (card?.dataset.testid !== "watchlist-card") return;
     card.scrollIntoView?.({ block: "start" });
     card.querySelector<HTMLElement>("h2")?.focus();

@@ -202,7 +202,21 @@ run "dev_app" {
       "Storage Queue Data Message Sender", "Storage Table Data Contributor", "Key Vault Secrets User",
       "Monitoring Metrics Publisher", "Cognitive Services User",
     ]) && length(output.role_assignments) == 31
-    error_message = "only the AD-17 runtime roles, plus Blob Data Owner on the two Functions host containers (platform requirement), may be assigned (ACS comes with Story 5.2)."
+    error_message = "only the AD-17 runtime roles, plus Blob Data Owner on the two Functions host containers (platform requirement), may be assigned (ACS Email Sender only once shared has ACS, Story 5.2)."
+  }
+  # Story 5.2, Terraform off: shared has no ACS Email (the foundation state names
+  # none), so no ACS role is assigned and the pipeline's email settings are empty.
+  assert {
+    condition = (
+      length([for ra in output.role_assignments : ra if ra.role == "ACS Email Sender" || strcontains(ra.scope, "Microsoft.Communication")]) == 0 &&
+      module.app.pipeline_app_settings.EMAIL_ACS_ENDPOINT == "" &&
+      module.app.pipeline_app_settings.EMAIL_SENDER_ADDRESS == "" &&
+      module.app.pipeline_app_settings.ALERT_RECIPIENTS_FINANCE == "" &&
+      module.app.pipeline_app_settings.ALERT_RECIPIENTS_PROCUREMENT == "" &&
+      module.app.pipeline_app_settings.ALERT_RECIPIENTS_MANAGEMENT == "" &&
+      module.app.pipeline_app_settings.STAFF_APP_BASE_URL == "https://babaloo-sea-lng-func-02.azurewebsites.net"
+    )
+    error_message = "with no ACS Email in shared, the dev pipeline must get no ACS role and empty email settings, with staff-api's URL for the links (Story 5.2)."
   }
   assert {
     condition = alltrue([
@@ -336,5 +350,89 @@ run "dev_app" {
       module.app.accounts_sim_app_settings.PIPELINE_PRINCIPAL_ID == local.foundation.identities["pipeline"].principal_id
     )
     error_message = "dev accounts-sim must accept only the dev pipeline identity's token for its own app registration (AD-10), and sign in to the database as its own identity."
+  }
+}
+
+# Story 5.2: ACS exists in shared but the domain isn't linked (no sender): the pipeline
+# still gets no ACS Email Sender, so the chain that creates ACS never assigns it before
+# rbac-step3.sh has run.
+run "acs_without_linked_domain" {
+  command = apply
+
+  override_data {
+    target = data.terraform_remote_state.foundation
+    values = {
+      outputs = {
+        resource_group_name = "babaloo-sea-lng-rg-01"
+        resource_group_id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01"
+        identities = {
+          supplier_api = {
+            name         = "babaloo-sea-lng-id-01"
+            resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-01"
+            principal_id = "10000000-0000-0000-0000-000000000001"
+            client_id    = "20000000-0000-0000-0000-000000000001"
+          }
+          staff_api = {
+            name         = "babaloo-sea-lng-id-02"
+            resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-02"
+            principal_id = "10000000-0000-0000-0000-000000000002"
+            client_id    = "20000000-0000-0000-0000-000000000002"
+          }
+          pipeline = {
+            name         = "babaloo-sea-lng-id-03"
+            resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-03"
+            principal_id = "10000000-0000-0000-0000-000000000003"
+            client_id    = "20000000-0000-0000-0000-000000000003"
+          }
+          accounts_sim = {
+            name         = "babaloo-sea-lng-id-04"
+            resource_id  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.ManagedIdentity/userAssignedIdentities/babaloo-sea-lng-id-04"
+            principal_id = "10000000-0000-0000-0000-000000000004"
+            client_id    = "20000000-0000-0000-0000-000000000004"
+          }
+        }
+        storage_account = {
+          name            = "babaloosealngst01"
+          resource_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01"
+          containers      = ["images", "corrections"]
+          host_containers = ["azure-webjobs-hosts", "azure-webjobs-secrets"]
+          queues          = ["q-quality", "q-extract", "q-validate", "q-post"]
+          tables          = ["supplierlinks", "uploadkeys", "supplierreminders"]
+        }
+        key_vault = {
+          name        = "babaloo-sea-lng-kv-01"
+          resource_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.KeyVault/vaults/babaloo-sea-lng-kv-01"
+          uri         = "https://babaloo-sea-lng-kv-01.vault.azure.net/"
+        }
+        application_insights = {
+          name                         = "babaloo-sea-lng-appi-01"
+          resource_id                  = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01"
+          custom_metrics_opted_in_type = "WithDimensions"
+        }
+        document_intelligence_id       = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21"
+        document_intelligence_endpoint = "https://babaloo-sea-lng-di-21.cognitiveservices.azure.com/"
+        database = {
+          name = "invoicing_dev"
+          fqdn = "babaloo-sea-lng-psql-21.postgres.database.azure.com"
+        }
+        action_group_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/actionGroups/babaloo-sea-lng-ag-01"
+        # Story 5.2: shared has ACS Email, but its domain isn't linked yet.
+        email = {
+          communication_service_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21"
+          acs_endpoint             = "https://babaloo-sea-lng-acs-21.asiapacific.communication.azure.com"
+          sender_address           = null
+        }
+        application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      length([for ra in output.role_assignments : ra if ra.role == "ACS Email Sender"]) == 0 &&
+      module.app.pipeline_app_settings.EMAIL_SENDER_ADDRESS == "" &&
+      module.app.pipeline_app_settings.EMAIL_ACS_ENDPOINT == "https://babaloo-sea-lng-acs-21.asiapacific.communication.azure.com"
+    )
+    error_message = "without a linked domain (no sender), the pipeline must get no ACS Email Sender and no sender address (Story 5.2)."
   }
 }

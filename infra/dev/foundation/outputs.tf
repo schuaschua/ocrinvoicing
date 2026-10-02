@@ -61,3 +61,12 @@ output "document_intelligence_endpoint" {
   description = "Custom-subdomain endpoint of the shared Document Intelligence resource (from shared/foundation), the pipeline's DI_ENDPOINT in <env>/app (AD-8)."
   value       = data.terraform_remote_state.shared.outputs.document_intelligence_endpoint
 }
+
+output "email" {
+  description = "Story 5.2 (AD-16), from shared/foundation: the Communication Services resource id (the pipeline's ACS Email Sender scope), its endpoint and the alerts' sender address. Each is null while shared has no ACS Email (or an older shared state has no such output)."
+  value = {
+    communication_service_id = try(data.terraform_remote_state.shared.outputs.communication_service_id, null)
+    acs_endpoint             = try(data.terraform_remote_state.shared.outputs.email_acs_endpoint, null)
+    sender_address           = try(data.terraform_remote_state.shared.outputs.email_sender_address, null)
+  }
+}

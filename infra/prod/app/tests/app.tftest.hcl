@@ -202,7 +202,21 @@ run "prod_app" {
       "Storage Queue Data Message Sender", "Storage Table Data Contributor", "Key Vault Secrets User",
       "Monitoring Metrics Publisher", "Cognitive Services User",
     ]) && length(output.role_assignments) == 31
-    error_message = "only the AD-17 runtime roles, plus Blob Data Owner on the two Functions host containers (platform requirement), may be assigned (ACS comes with Story 5.2)."
+    error_message = "only the AD-17 runtime roles, plus Blob Data Owner on the two Functions host containers (platform requirement), may be assigned (ACS Email Sender only once shared has ACS, Story 5.2)."
+  }
+  # Story 5.2, Terraform off: shared has no ACS Email (the foundation state names
+  # none), so no ACS role is assigned and the pipeline's email settings are empty.
+  assert {
+    condition = (
+      length([for ra in output.role_assignments : ra if ra.role == "ACS Email Sender" || strcontains(ra.scope, "Microsoft.Communication")]) == 0 &&
+      module.app.pipeline_app_settings.EMAIL_ACS_ENDPOINT == "" &&
+      module.app.pipeline_app_settings.EMAIL_SENDER_ADDRESS == "" &&
+      module.app.pipeline_app_settings.ALERT_RECIPIENTS_FINANCE == "" &&
+      module.app.pipeline_app_settings.ALERT_RECIPIENTS_PROCUREMENT == "" &&
+      module.app.pipeline_app_settings.ALERT_RECIPIENTS_MANAGEMENT == "" &&
+      module.app.pipeline_app_settings.STAFF_APP_BASE_URL == "https://babaloo-sea-lng-func-12.azurewebsites.net"
+    )
+    error_message = "with no ACS Email in shared, the prod pipeline must get no ACS role and empty email settings, with staff-api's URL for the links (Story 5.2)."
   }
   assert {
     condition = alltrue([

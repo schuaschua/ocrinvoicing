@@ -43,6 +43,12 @@ Story 5.4 (CAP-15) ends that transaction by recomputing `analytics.watchlist` in
 by the three AD-20 rules on the run's Singapore date, and stores one `watchlist`
 alert per newly listed supplier and rule (Story 5.2 emails it).
 
+Story 5.2 (AD-16) adds the alert email step last, at every run that reaches the
+summary step: each alert not yet emailed goes, oldest first, to its kind's recipient
+roles through `EmailPort`, throttled per environment (`apps/pipeline/alert_emails.py`).
+It is off until the ACS endpoint, sender and staff app URL are set, and a failure is
+logged as `analytics_refresh.emails_failed` and never changes the run's result.
+
 A stopped database (AD-7) is logged as `analytics_refresh.skipped code=DB_OFFLINE`,
 and the next run catches up. A run whose overdue step fails otherwise logs
 `analytics_refresh.overdue_failed`, leaves the previous list and its date, still
@@ -58,6 +64,7 @@ from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from invoicing.adapters.logging import log_event
+from invoicing.apps.pipeline.alert_emails import AlertMailConfig, send_alert_emails
 from invoicing.domain.dates import singapore_date
 from invoicing.domain.errors import DatabaseOfflineError, ServiceUnavailableError
 from invoicing.ports.analytics import AnalyticsStore
@@ -85,6 +92,10 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _emails_off() -> AlertMailConfig:
+    return AlertMailConfig(email=None, recipients={}, staff_app_base_url=None)
+
+
 def fallback_material_name(material_id: UUID) -> str:
     """The name kept for a material purchasing doesn't name (Story 5.3)."""
     return f"Material {str(material_id)[:8]}"
@@ -99,6 +110,8 @@ class AnalyticsRefresh:
     store: AnalyticsStore
     reminders: ReminderWriter
     clock: Callable[[], datetime] = field(default=_now)
+    # Story 5.2: where alert emails go; off unless the app's settings turn it on.
+    alert_mail: AlertMailConfig = field(default_factory=_emails_off)
 
     async def run(self) -> str:
         """One run: `refreshed`, `already_ran` or `DB_OFFLINE`."""
@@ -127,6 +140,7 @@ class AnalyticsRefresh:
             )
             await self._weekly_reminders(today)
             await self._daily_summaries(today)
+            await self._send_alerts()
             raise
         code = REFRESHED if made else ALREADY_RAN
         log_event(_logger, "analytics_refresh.done", code=code)
@@ -134,7 +148,29 @@ class AnalyticsRefresh:
         await self._weekly_reminders(today)
         # Likewise: a failed summary never changes the day's result.
         await self._daily_summaries(today)
+        # And a failed email never does either (Story 5.2).
+        await self._send_alerts()
         return code
+
+    async def _send_alerts(self) -> None:
+        """Story 5.2: email the alerts not yet emailed. Any failure reading or
+        marking them is logged as `analytics_refresh.emails_failed`; the alerts
+        wait for the next run."""
+        try:
+            await send_alert_emails(self.store, self.alert_mail, self.clock)
+        except DatabaseOfflineError:
+            code: str = DB_OFFLINE
+        except Exception as error:  # noqa: BLE001  # emails never fail the run
+            # Only the type is logged, never the text.
+            code = type(error).__name__
+        else:
+            return
+        log_event(
+            _logger,
+            "analytics_refresh.emails_failed",
+            level=logging.ERROR,
+            code=code,
+        )
 
     async def _weekly_reminders(self, today: date) -> None:
         """Story 4.3: the week's supplier reminders, once per ISO week. Any failure

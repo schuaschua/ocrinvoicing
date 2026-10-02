@@ -21,6 +21,8 @@ ALLOWED_KEYS = frozenset(
     {
         # The accounts system's reference for a posted invoice (Story 3.2): an id.
         "accounts_ref",
+        # An analytics alert's id (Story 5.2).
+        "alert_id",
         "app",
         "attempt",
         "blob_written",
@@ -40,6 +42,8 @@ ALLOWED_KEYS = frozenset(
         "from_status",
         "http_status",
         "invoice_id",
+        # An analytics alert's kind, price_rise | watchlist (Story 5.2): a code.
+        "kind",
         "orphans",
         # DI pages this month as a percentage of the cap (Story 2.3, ar-03): a number.
         "pages_used_pct",

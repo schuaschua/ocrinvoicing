@@ -99,6 +99,9 @@ env_database_name() { echo "invoicing_$1"; }
 postgres_server_name() { resource_name psql 21; }
 postgres_fqdn() { echo "$(postgres_server_name).postgres.database.azure.com"; }
 document_intelligence_name() { resource_name di 21; }
+# Story 5.2: shared ACS Email (AD-16), created by infra/shared/foundation once Dj sets
+# his email domain.
+communication_service_name() { resource_name acs 21; }
 
 # Entra security groups (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character
 # role-name limit and holds '#', so groups are the database logins he uses). `grp` is
@@ -133,6 +136,14 @@ readonly ROLE_MONITORING_METRICS_PUBLISHER="3913510d-42f4-4e42-8a64-420c390055eb
 readonly ROLE_COGNITIVE_SERVICES_USER="a97b65f3-24c7-4388-baec-2e87135dc908"
 
 readonly ACS_EMAIL_SENDER_ROLE_NAME="ACS Email Sender"
+
+# acs_email_sender_role_id - the custom role's id (its GUID name), from Azure; a
+# placeholder in dry-run. budget-and-roles.sh creates the role.
+acs_email_sender_role_id() {
+  value_or_placeholder "<id-of-$ACS_EMAIL_SENDER_ROLE_NAME>" \
+    az role definition list --name "$ACS_EMAIL_SENDER_ROLE_NAME" --custom-role-only true \
+    --scope "$(subscription_scope)" --query '[0].name' -o tsv
+}
 
 # ---------------------------------------------------------------------------
 # Logging, errors and argument handling

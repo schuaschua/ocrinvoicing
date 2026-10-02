@@ -156,7 +156,8 @@ poison_stages = {
 }
 sweeper_job = Sweeper(invoices, upload_keys, images, queue, metrics)
 # Story 4.2: the AD-13 job, the only writer of `analytics`; purchasing through its
-# adapter only (AD-10). Story 4.3: it also writes the weekly supplier reminders.
+# adapter only (AD-10). Story 4.3: it also writes the weekly supplier reminders;
+# Story 5.1 the daily summary tables (AD-20).
 analytics_job = AnalyticsRefresh(purchasing, PostgresAnalyticsStore(engine), reminders)
 
 
@@ -259,5 +260,6 @@ async def sweeper(timer: func.TimerRequest) -> None:
 )
 async def analytics_refresh(timer: func.TimerRequest) -> None:
     """The analytics refresh job: rebuild the overdue list once a weekday (Story
-    4.2) and the supplier reminders once a week (Story 4.3)."""
+    4.2), the supplier reminders once a week (Story 4.3) and the summary tables once
+    a day (Story 5.1)."""
     await analytics_job.run()

@@ -106,6 +106,15 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-3-supplier-weekly-reminders.md`
   summary: Story 4.3's Table key-length rule (512 UTF-16 units in `storable()`) and the supplier web client's rejection of a malformed `/api/reminders` body have no test.
   evidence: The in-memory FakeTable enforces no key length; the server's response shape is pinned by `test_story_4_3_reminders_api`. Add when the 200-case cap allows.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-1-analytics-summary-tables.md`
+  summary: The dashboard repository has no "as of" read (the last `summaries` run), and the summary step's rollback, lock re-check and pure domain rules have no direct tests.
+  evidence: Dashboards (5.3–5.6) can show staleness from `job_run`; the other gaps were skipped for the 200-case cap.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-3-price-comparison.md`
+  summary: Axe never checks the Chart's table view, the price-comparison alerts list is unbounded, and its newest-first order is untested.
+  evidence: The a11y screen captures the SVG view only; skipped for the 200-case cap.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-4-watchlist.md`
+  summary: The Watchlist's 503 and error/retry paths are untested, and the populated page has no e2e screen of its own at desktop width.
+  evidence: Skipped for the 200-case cap; the populated page is checked behind the 2.7 sidebar Sheet screen.
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-4-suppliers-list.md`
   summary: The Suppliers list's past-the-end paging clamp and the error/retry states of both supplier screens have no test.
   evidence: SuppliersScreen.test.tsx covers only well-formed 200s; skipped for the 200-case cap.
@@ -115,3 +124,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-5-delivery-dates.md`
   summary: `PurchasingPort.supplier_delivery_dates` is not in the purchasing contract suite, and same-day delivery ordering is untested.
   evidence: Only the sim adapter exists and the staff-api test pins its behaviour; add the contract method when the real purchasing adapter starts.
+- source_plan: `_bmad-output/implementation-artifacts/plan-5-5-supplier-scorecard.md`
+  summary: The Scorecard tab's error and 404 states are untested, and it shows no "as of" date for the refresh-computed on-time rate.
+  evidence: Skipped for the 200-case cap; freshness pairs with 5.1's deferred `as_of` read.

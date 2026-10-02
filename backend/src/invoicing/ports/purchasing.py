@@ -9,7 +9,7 @@ Money is `Decimal` with 2 decimals, quantities `Decimal` with up to 3, dates `da
 raises as it is.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -94,6 +94,20 @@ class DeliveryDates:
 
 
 @dataclass(frozen=True)
+class ReceiptLine:
+    """One goods-receipt line with what lateness needs (Story 5.1, AD-20): its PO
+    line's supplier, material and `expected_date`, and the receipt's
+    `received_date`."""
+
+    receipt_id: UUID
+    po_line_id: UUID
+    supplier_id: UUID
+    material_id: UUID
+    expected_date: date
+    received_date: date
+
+
+@dataclass(frozen=True)
 class SupplierDelivery:
     """One delivery of a supplier's PO with its three dates (Story 4.5, CAP-19)."""
 
@@ -143,6 +157,17 @@ class PurchasingPort(Protocol):
     async def get_delivery_dates(self, po_number: str) -> tuple[DeliveryDates, ...]:
         """Promised, delivered and received dates per delivery of the PO, by delivery
         date; empty when it has none (or there is no such PO)."""
+        ...
+
+    async def receipt_lines(self, since: date) -> tuple[ReceiptLine, ...]:
+        """Every goods-receipt line whose receipt's `received_date` is `since` or
+        later, by received date, receipt and PO line (Story 5.1: the analytics
+        refresh job's lateness, AD-20)."""
+        ...
+
+    async def material_names(self, material_ids: Iterable[UUID]) -> dict[UUID, str]:
+        """The name of each of `material_ids` purchasing knows; an unknown id has no
+        entry (Story 5.3: the analytics refresh job's material names, AD-10)."""
         ...
 
     async def supplier_delivery_dates(

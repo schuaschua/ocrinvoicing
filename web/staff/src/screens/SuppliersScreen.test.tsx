@@ -103,11 +103,23 @@ describe("4.4 suppliers list and supplier page", () => {
   });
 
   it("shows the supplier's page with a Scorecard tab, or a not-found state", async () => {
-    fetchMock.mockImplementation(async (input) =>
-      String(input) === `/api/suppliers/${ALPHA}`
-        ? answer(ALPHA_ROW)
-        : answer({ code: "NOT_FOUND", message: "Not found." }, 404),
-    );
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === `/api/suppliers/${ALPHA}`) return answer(ALPHA_ROW);
+      // One late receipt in 2500: never shown as 100%.
+      if (path === `/api/suppliers/${ALPHA}/scorecard`) {
+        return answer({
+          on_time: {
+            rate: "0.9996",
+            receipts: 2500,
+            on_time: 2499,
+            avg_days_late: "0.01",
+          },
+          materials: [],
+        });
+      }
+      return answer({ code: "NOT_FOUND", message: "Not found." }, 404);
+    });
     const found = render(<SupplierScreen supplierId={ALPHA} />);
     await screen.findByRole("heading", { level: 1, name: ALPHA_ROW.name });
     expect(
@@ -117,9 +129,12 @@ describe("4.4 suppliers list and supplier page", () => {
       name: strings.suppliers.page.tabs.scorecard,
     });
     expect(tab).toHaveAttribute("aria-selected", "true");
+    const panel = screen.getByRole("tabpanel", { name: "Scorecard" });
     expect(
-      screen.getByRole("tabpanel", { name: "Scorecard" }),
-    ).toHaveTextContent(strings.suppliers.page.scorecardComing);
+      await within(panel).findByText(
+        "On time 99.9% of 2500 receipts in the last 12 months",
+      ),
+    ).toBeInTheDocument();
     found.unmount();
 
     render(<SupplierScreen supplierId="no-such-supplier" />);
@@ -178,6 +193,9 @@ describe("4.5 delivery dates on the supplier page", () => {
       }
       if (path === `/api/suppliers/${GAMMA}/deliveries`) {
         return answer({ code: "NOT_FOUND", message: "Not found." }, 404);
+      }
+      if (path.endsWith("/scorecard")) {
+        return answer({ on_time: null, materials: [] });
       }
       return answer({ items: [], truncated: false });
     });
@@ -244,5 +262,128 @@ describe("4.5 delivery dates on the supplier page", () => {
     expect(
       screen.queryByRole("button", { name: strings.errors.tryAgain }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("5.5 supplier scorecard", () => {
+  it("shows the on-time card and a price trend per material with its table, or an empty state", async () => {
+    const GAMMA = "01a0c450-73d0-7ee3-94ca-ef9fef9d793d";
+    const DELTA = "01a0c450-7a10-7c01-8d3e-2f5a6b7c8d9e";
+    const trend = (name: string, change: string | null, prices: string[]) => ({
+      material_id: `${name}-id`,
+      name,
+      change_pct: change,
+      latest_unit_price: prices.at(-1),
+      points: prices.map((unit_price, n) => ({
+        invoice_date: n === 0 ? "2025-10-02" : "2026-10-01",
+        unit_price,
+      })),
+    });
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === `/api/suppliers/${ALPHA}`) return answer(ALPHA_ROW);
+      if (path === `/api/suppliers/${BETA}`) return answer(BETA_ROW);
+      if (path === `/api/suppliers/${GAMMA}`) {
+        return answer({ supplier_id: GAMMA, name: "Synthetic Gamma" });
+      }
+      if (path === `/api/suppliers/${ALPHA}/scorecard`) {
+        return answer({
+          on_time: {
+            rate: "0.8000",
+            receipts: 5,
+            on_time: 4,
+            avg_days_late: "1.20",
+          },
+          materials: [
+            trend("Cement", "-2.50", ["4.00", "3.90"]),
+            trend("Mortar", "6.00", ["4.00", "4.24"]),
+            trend("Sand", "0.00", ["2.00", "2.00"]),
+          ],
+        });
+      }
+      if (path === `/api/suppliers/${GAMMA}/scorecard`) {
+        return answer({
+          on_time: null,
+          materials: [trend("Adhesive", null, ["4.00"])],
+        });
+      }
+      if (path === `/api/suppliers/${DELTA}`) {
+        return answer({ supplier_id: DELTA, name: "Synthetic Delta" });
+      }
+      if (path === `/api/suppliers/${DELTA}/scorecard`) {
+        return answer({
+          on_time: {
+            rate: "1.0000",
+            receipts: 2,
+            on_time: 2,
+            avg_days_late: "0.00",
+          },
+          materials: [],
+        });
+      }
+      return answer({ on_time: null, materials: [] });
+    });
+    window.history.replaceState(null, "", `/suppliers/${ALPHA}`);
+    render(<SupplierScreen supplierId={ALPHA} />);
+
+    // --- On-time card and one chart per material, each with its summary.
+    expect(
+      await screen.findByText(
+        "On time 80% of 5 receipts in the last 12 months",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("On average 1.2 days late")).toBeInTheDocument();
+    expect(requested().at(-1)?.pathname).toBe(
+      `/api/suppliers/${ALPHA}/scorecard`,
+    );
+    for (const summary of [
+      "Cement down 2.5% since Oct 2025",
+      "Mortar up 6% since Oct 2025",
+      "Sand unchanged since Oct 2025",
+    ]) {
+      expect(screen.getByText(summary)).toBeInTheDocument();
+    }
+    const mortar = screen.getByRole("region", { name: "Mortar" });
+    expect(within(mortar).getByRole("img")).toBeInTheDocument();
+    expect(within(mortar).getByRole("list")).toHaveTextContent("Mortar");
+
+    // --- View as table lists every plotted price.
+    fireEvent.click(
+      within(mortar).getByRole("button", { name: strings.chart.viewTable }),
+    );
+    expect(
+      within(mortar)
+        .getAllByTestId("chart-row")
+        .map((row) => row.textContent),
+    ).toEqual(["Mortar2025-10-02S$4.00", "Mortar2026-10-01S$4.24"]);
+    cleanup();
+
+    // --- No receipts, one price.
+    render(<SupplierScreen supplierId={GAMMA} />);
+    expect(
+      await screen.findByText(strings.suppliers.scorecard.noReceipts),
+    ).toBeInTheDocument();
+    expect(screen.getByText("One price so far: S$4.00")).toBeInTheDocument();
+    cleanup();
+
+    // --- Receipts but no prices: on time on average, and the empty text for prices.
+    render(<SupplierScreen supplierId={DELTA} />);
+    expect(
+      await screen.findByText(
+        "On time 100% of 2 receipts in the last 12 months",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("On time on average")).toBeInTheDocument();
+    expect(
+      screen.getByText(strings.suppliers.scorecard.empty),
+    ).toBeInTheDocument();
+    cleanup();
+
+    // --- Neither: the empty state.
+    render(<SupplierScreen supplierId={BETA} />);
+    expect(
+      await screen.findByText(strings.suppliers.scorecard.empty),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 });

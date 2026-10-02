@@ -8,7 +8,7 @@ thread, so the Functions event loop is never blocked (coding-style.md rule 11).
 
 import asyncio
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -33,6 +33,7 @@ from invoicing.ports.purchasing import (
     OverduePo,
     PoLine,
     PurchaseOrder,
+    ReceiptLine,
     SupplierDelivery,
 )
 
@@ -136,6 +137,15 @@ class PurchasingSimAdapter:
 
     async def get_delivery_dates(self, po_number: str) -> tuple[DeliveryDates, ...]:
         return await asyncio.to_thread(self._read, self._delivery_dates, po_number)
+
+    async def receipt_lines(self, since: date) -> tuple[ReceiptLine, ...]:
+        return await asyncio.to_thread(self._read, self._receipt_lines, since)
+
+    async def material_names(self, material_ids: Iterable[UUID]) -> dict[UUID, str]:
+        wanted = sorted(set(material_ids))
+        if not wanted:
+            return {}
+        return await asyncio.to_thread(self._read, self._material_names, wanted)
 
     async def supplier_delivery_dates(
         self, supplier_id: UUID, since: date
@@ -333,3 +343,51 @@ class PurchasingSimAdapter:
             )
             for row in rows
         )
+
+    @staticmethod
+    def _receipt_lines(connection: Connection, since: date) -> tuple[ReceiptLine, ...]:
+        rows = connection.execute(
+            select(
+                goods_receipt.c.receipt_id,
+                goods_receipt_line.c.po_line_id,
+                purchase_order.c.supplier_id,
+                po_line.c.material_id,
+                po_line.c.expected_date,
+                goods_receipt.c.received_date,
+            )
+            .join(
+                goods_receipt_line,
+                goods_receipt_line.c.receipt_id == goods_receipt.c.receipt_id,
+            )
+            .join(po_line, po_line.c.po_line_id == goods_receipt_line.c.po_line_id)
+            .join(delivery, delivery.c.delivery_id == goods_receipt.c.delivery_id)
+            .join(purchase_order, purchase_order.c.po_number == delivery.c.po_number)
+            .where(goods_receipt.c.received_date >= since)
+            .order_by(
+                goods_receipt.c.received_date,
+                goods_receipt.c.receipt_id,
+                goods_receipt_line.c.po_line_id,
+            )
+        ).all()
+        return tuple(
+            ReceiptLine(
+                receipt_id=row.receipt_id,
+                po_line_id=row.po_line_id,
+                supplier_id=row.supplier_id,
+                material_id=row.material_id,
+                expected_date=row.expected_date,
+                received_date=row.received_date,
+            )
+            for row in rows
+        )
+
+    @staticmethod
+    def _material_names(
+        connection: Connection, material_ids: list[UUID]
+    ) -> dict[UUID, str]:
+        rows = connection.execute(
+            select(material.c.material_id, material.c.name).where(
+                material.c.material_id.in_(material_ids)
+            )
+        ).all()
+        return {row.material_id: row.name for row in rows}

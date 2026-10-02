@@ -4,9 +4,11 @@ import { ApiError } from "@/api";
 import {
   getSupplier,
   getSupplierDeliveries,
-  type SupplierDeliveries,
+  getSupplierScorecard,
+  type MaterialTrend,
   type SupplierRow,
 } from "@/api/suppliers";
+import { Chart } from "@/components/Chart";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -17,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { daysText, onTimeRateText, percentText, priceText } from "@/lib/format";
 import { plainClick } from "@/lib/links";
 import { navigate } from "@/router";
 import { pageTitle, poLabel, strings } from "@/strings";
@@ -56,8 +59,9 @@ function failureMessage(error: unknown): string | null {
 
 /**
  * One supplier's page (Story 4.4, EXPERIENCE.md Supplier scorecard): its name, a way
- * back to the list, and two tabs. Scorecard shows a "coming" note until Story 5.5
- * fills it; Deliveries (Story 4.5) lists the promised, delivered and received dates.
+ * back to the list, and two tabs. Scorecard (Story 5.5) shows the on-time rate and a
+ * price trend per material; Deliveries (Story 4.5) lists the promised, delivered and
+ * received dates.
  * The selected tab is in the URL, so a link or reload opens it.
  */
 export function SupplierScreen({ supplierId }: { supplierId: string }) {
@@ -216,10 +220,9 @@ export function SupplierScreen({ supplierId }: { supplierId: string }) {
             id={`${baseId}-panel-${tab}`}
             aria-labelledby={`${baseId}-tab-${tab}`}
             tabIndex={0}
-            className={tab === "scorecard" ? "max-w-prose" : undefined}
           >
             {tab === "scorecard" ? (
-              <p className="text-muted-foreground">{p.scorecardComing}</p>
+              <ScorecardPanel supplierId={supplier.supplierId} />
             ) : (
               <DeliveriesPanel supplierId={supplier.supplierId} />
             )}
@@ -230,33 +233,32 @@ export function SupplierScreen({ supplierId }: { supplierId: string }) {
   );
 }
 
-type DeliveriesState =
+/** A tab's data, loaded per attempt so Try again shows the skeleton again. */
+type PanelState<T> =
   | { kind: "loading" }
-  | { kind: "ready"; deliveries: SupplierDeliveries }
+  | { kind: "ready"; data: T }
   | { kind: "not-found" }
   | { kind: "error"; message: string };
 
-/** The Deliveries tab: dates and gaps exactly as the server worked them out. */
-function DeliveriesPanel({ supplierId }: { supplierId: string }) {
-  const d = strings.suppliers.deliveries;
+/** Loads a tab's data for the supplier; the second value is Try again, which shows
+ * the skeleton again. A 404 means the supplier was removed after the page loaded,
+ * so no retry can find it. */
+function usePanelData<T>(
+  supplierId: string,
+  load: (supplierId: string, signal: AbortSignal) => Promise<T>,
+): [PanelState<T>, () => void] {
   const [attempt, setAttempt] = useState(0);
   const [result, setResult] = useState<{
     attempt: number;
-    state: DeliveriesState;
+    state: PanelState<T>;
   } | null>(null);
-  const state: DeliveriesState =
-    result !== null && result.attempt === attempt
-      ? result.state
-      : { kind: "loading" };
 
   useEffect(() => {
     const controller = new AbortController();
-    getSupplierDeliveries(supplierId, controller.signal).then(
-      (deliveries) =>
-        setResult({ attempt, state: { kind: "ready", deliveries } }),
+    load(supplierId, controller.signal).then(
+      (data) => setResult({ attempt, state: { kind: "ready", data } }),
       (error: unknown) => {
         if (controller.signal.aborted) return;
-        // The supplier was removed after the page loaded: no retry can find it.
         if (error instanceof ApiError && error.status === 404) {
           setResult({ attempt, state: { kind: "not-found" } });
           return;
@@ -268,8 +270,23 @@ function DeliveriesPanel({ supplierId }: { supplierId: string }) {
       },
     );
     return () => controller.abort();
-  }, [supplierId, attempt]);
+  }, [supplierId, attempt, load]);
 
+  const state: PanelState<T> =
+    result !== null && result.attempt === attempt
+      ? result.state
+      : { kind: "loading" };
+  return [state, () => setAttempt((n) => n + 1)];
+}
+
+/** The panel's skeleton, not-found and error states; null once it has data. */
+function PanelStatus<T>({
+  state,
+  retry,
+}: {
+  state: PanelState<T>;
+  retry: () => void;
+}) {
   if (state.kind === "loading") {
     return (
       <div aria-hidden="true" className="flex flex-col gap-3 pt-2">
@@ -287,14 +304,90 @@ function DeliveriesPanel({ supplierId }: { supplierId: string }) {
       <div className="flex max-w-prose flex-col gap-4 pt-2">
         <p role="alert">{state.message}</p>
         <div>
-          <Button type="button" onClick={() => setAttempt((n) => n + 1)}>
+          <Button type="button" onClick={retry}>
             {strings.errors.tryAgain}
           </Button>
         </div>
       </div>
     );
   }
-  const { items, truncated } = state.deliveries;
+  return null;
+}
+
+/** A trend's one-sentence summary, from the server's change (never computed here). */
+function trendSummary(material: MaterialTrend): string {
+  const t = strings.suppliers.scorecard;
+  const first = material.points[0];
+  if (material.changePct === null || first === undefined) {
+    return t.onePrice(priceText(material.latestUnitPrice));
+  }
+  const since = t.monthYear(first.invoiceDate);
+  const pct = percentText(material.changePct.replace(/^-/, ""));
+  if (Number(material.changePct) > 0) return t.up(material.name, pct, since);
+  if (Number(material.changePct) < 0) return t.down(material.name, pct, since);
+  return t.unchanged(material.name, since);
+}
+
+/** The Scorecard tab: on-time rate and each material's price trend, as the server
+ * worked them out (coding-style.md rule 16). */
+function ScorecardPanel({ supplierId }: { supplierId: string }) {
+  const t = strings.suppliers.scorecard;
+  const [state, retry] = usePanelData(supplierId, getSupplierScorecard);
+  if (state.kind !== "ready")
+    return <PanelStatus state={state} retry={retry} />;
+  const { onTime, materials } = state.data;
+  if (onTime === null && materials.length === 0) {
+    return <p className="pt-2">{t.empty}</p>;
+  }
+  return (
+    <div className="flex flex-col gap-6 pt-2">
+      <section className="flex max-w-prose flex-col gap-1 rounded-md border p-4">
+        <h2 className="text-lg font-semibold">{t.onTimeHeading}</h2>
+        {onTime === null ? (
+          <p>{t.noReceipts}</p>
+        ) : (
+          <>
+            <p>
+              {t.onTime(
+                onTimeRateText(onTime.rate, onTime.onTime, onTime.receipts),
+                onTime.receipts,
+              )}
+            </p>
+            <p>{t.average(daysText(onTime.avgDaysLate))}</p>
+          </>
+        )}
+      </section>
+      {materials.length === 0 ? <p>{t.empty}</p> : null}
+      {materials.map((material) => (
+        <Chart
+          key={material.materialId}
+          title={material.name}
+          summary={trendSummary(material)}
+          series={[
+            {
+              label: material.name,
+              points: material.points.map((point) => ({
+                x: point.invoiceDate,
+                y: Number(point.unitPrice),
+              })),
+            },
+          ]}
+          // Only redisplays the server's 2-decimal prices (coding-style.md rule 16).
+          format={(value) => priceText(value.toFixed(2))}
+          yLabel={t.price}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** The Deliveries tab: dates and gaps exactly as the server worked them out. */
+function DeliveriesPanel({ supplierId }: { supplierId: string }) {
+  const d = strings.suppliers.deliveries;
+  const [state, retry] = usePanelData(supplierId, getSupplierDeliveries);
+  if (state.kind !== "ready")
+    return <PanelStatus state={state} retry={retry} />;
+  const { items, truncated } = state.data;
   if (items.length === 0) return <p className="pt-2">{d.none}</p>;
 
   const date = (value: string | null) => value ?? d.missing;

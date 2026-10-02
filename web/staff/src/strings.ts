@@ -79,6 +79,21 @@ export function statusLabel(
   return statusLabels[status] ?? FALLBACK_STATUS;
 }
 
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -524,6 +539,103 @@ export const strings = {
       expected: "Expected",
     },
   },
+  /** Story 5.3: Price comparison (EXPERIENCE.md: suppliers' unit prices with their
+   * on-time rates, and price-rise alerts with their evidence; CAP-14). */
+  priceComparison: {
+    material: "Material",
+    empty: "No posted invoices yet for this period.",
+    noRecent: "No prices in the last 12 months for this material.",
+    price: "Price",
+    summary: (material: string, price: string, supplier: string) =>
+      `${material}: lowest latest price ${price} from ${supplier}.`,
+    chartTitle: "Unit price history",
+    suppliersHeading: "Suppliers",
+    suppliersLabel: "Suppliers' latest prices",
+    columns: {
+      supplier: "Supplier",
+      latestPrice: "Latest price",
+      latestDate: "Invoice date",
+      onTime: "On-time rate",
+    },
+    noRate: "No deliveries yet",
+    unknownSupplier: "Unknown supplier",
+    alertsHeading: "Price-rise alerts",
+    noAlerts: "No price rises.",
+    alert: (supplier: string, material: string, pct: string) =>
+      `Price rise: ${supplier}, ${material} +${pct}%`,
+    evidenceLabel: (supplier: string) => `Evidence for ${supplier}`,
+    evidenceColumns: {
+      date: "Invoice date",
+      price: "Unit price",
+      invoice: "Invoice",
+    },
+    openInvoice: "Open invoice",
+    readOnly: "Posted invoice",
+  },
+  /** Story 5.4: Watchlist (EXPERIENCE.md: watchlisted suppliers with their evidence
+   * and ranked alternatives; CAP-15, CAP-16). */
+  watchlist: {
+    empty: "No posted invoices yet for this period.",
+    none: "No suppliers on the watchlist.",
+    unknownSupplier: "Unknown supplier",
+    unknownMaterial: "Unknown material",
+    priceRises: (count: number) =>
+      `${count} price ${count === 1 ? "rise" : "rises"} in the last 12 months`,
+    late: (days: string) => `On average ${days} days late`,
+    lateNoAverage: "Late deliveries in the last 12 months",
+    onWatchlist: "On the watchlist",
+    priceGap: (material: string, pct: string) =>
+      `${material} ${pct}% above the cheapest supplier`,
+    since: (date: string) => `On the watchlist since ${date}`,
+    evidenceLabel: (supplier: string, rule: string) =>
+      `Evidence for ${supplier}: ${rule}`,
+    riseColumns: {
+      material: "Material",
+      date: "Invoice date",
+      previous: "Previous price",
+      price: "New price",
+      rise: "Rise",
+      invoice: "Invoice",
+    },
+    lateColumns: {
+      material: "Material",
+      received: "Received",
+      daysLate: "Days late",
+    },
+    gapColumns: {
+      material: "Material",
+      date: "Invoice date",
+      price: "Their price",
+      lowest: "Lowest price",
+      cheapest: "Cheapest supplier",
+      invoice: "Invoice",
+    },
+    plusPct: (pct: string) => `+${pct}%`,
+    alternativesHeading: "Alternatives",
+    alternativesFor: (material: string) => `Alternatives for ${material}`,
+    noAlternatives:
+      "No other supplier has invoiced this material in the last 90 days.",
+    alternativeColumns: {
+      supplier: "Supplier",
+      price: "Latest price",
+      onTime: "On-time rate",
+    },
+    noRate: "No deliveries yet",
+    openInvoice: "Open invoice",
+    readOnly: "Posted invoice",
+  },
+  /** Story 5.3: the reusable Chart (EXPERIENCE.md Chart pattern, UX-DR18). */
+  chart: {
+    viewTable: "View as table",
+    viewChart: "View as chart",
+    series: "Series",
+    x: "Date",
+    value: "Value",
+    legend: "Legend",
+    dates: "Dates",
+    range: (what: string, low: string, high: string) =>
+      `${what} from ${low} to ${high}`,
+  },
   /** Story 4.4: the suppliers list and a supplier's page (EXPERIENCE.md Suppliers,
    * Supplier scorecard; Flow 5). */
   suppliers: {
@@ -553,8 +665,33 @@ export const strings = {
         scorecard: "Scorecard",
         deliveries: "Deliveries",
       },
-      scorecardComing:
-        "The scorecard is coming: on-time rate and price trend per material.",
+    },
+    /** Story 5.5: the Scorecard tab (CAP-17): on-time rate and price trend per
+     * material over the last 12 months. */
+    scorecard: {
+      empty: "No posted invoices yet for this period.",
+      onTimeHeading: "On-time deliveries",
+      onTime: (rate: string, receipts: number) =>
+        `On time ${rate} of ${plural(receipts, "receipt", "receipts")} in the last 12 months`,
+      /** A 2-decimal average already trimmed for display ("1.2", "-0.5"). */
+      average: (days: string) => {
+        if (days === "0") return "On time on average";
+        const early = days.startsWith("-");
+        const size = early ? days.slice(1) : days;
+        return `On average ${size} ${size === "1" ? "day" : "days"} ${early ? "early" : "late"}`;
+      },
+      noReceipts: "No goods received in the last 12 months.",
+      up: (material: string, pct: string, since: string) =>
+        `${material} up ${pct}% since ${since}`,
+      down: (material: string, pct: string, since: string) =>
+        `${material} down ${pct}% since ${since}`,
+      unchanged: (material: string, since: string) =>
+        `${material} unchanged since ${since}`,
+      onePrice: (price: string) => `One price so far: ${price}`,
+      price: "Price",
+      /** "Oct 2025" from a YYYY-MM-DD date. */
+      monthYear: (date: string) =>
+        `${MONTHS[Number(date.slice(5, 7)) - 1] ?? ""} ${date.slice(0, 4)}`,
     },
     /** Story 4.5: the Deliveries tab (CAP-19): where a supplier's delays come from. */
     deliveries: {

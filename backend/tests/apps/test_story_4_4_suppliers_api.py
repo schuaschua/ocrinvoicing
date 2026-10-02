@@ -21,6 +21,7 @@ from sqlalchemy import Engine, create_engine, text
 
 from apps.test_staff_me import header
 from conftest import PostgresServer, login_engine
+from invoicing.adapters.postgres.dashboards import PostgresDashboardReader
 from invoicing.adapters.postgres.suppliers import PostgresSupplierDirectory
 from invoicing.adapters.principal import PRINCIPAL_HEADER
 from invoicing.adapters.purchasing_factory import purchasing_port
@@ -123,8 +124,11 @@ def test_story_4_4_suppliers_api(
     seeded[_id(61)] = f"{MARK} 100% Soles"
     seeded[_id(62)] = f"{MARK} 100x Soles_Co"
     spy = _Spy(PostgresSupplierDirectory(staff))
-    listing, one, _ = suppliers_endpoints(
-        spy, purchasing_port("sim", staff), platform_auth_trusted=True
+    listing, one, _, _ = suppliers_endpoints(
+        spy,
+        purchasing_port("sim", staff),
+        PostgresDashboardReader(staff),
+        platform_auth_trusted=True,
     )
 
     def call(

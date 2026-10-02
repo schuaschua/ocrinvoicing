@@ -4,6 +4,7 @@
 Records each call (one JSON array per line) to $FAKE_TF_LOG.
   plan      writes <chdir>/tfplan and exits $FAKE_TF_PLAN_EXIT (default 2: changes)
   show      prints the file named by $FAKE_TF_PLAN_JSON
+  output    prints $FAKE_TF_OUTPUT (`output -raw <name>`)
   others    succeed silently
 """
 
@@ -27,4 +28,6 @@ if command == "plan":
     sys.exit(int(os.environ.get("FAKE_TF_PLAN_EXIT", "2")))
 if command == "show":
     print(Path(os.environ["FAKE_TF_PLAN_JSON"]).read_text(encoding="utf-8"))
+if command == "output":
+    sys.stdout.write(os.environ["FAKE_TF_OUTPUT"])
 sys.exit(0)

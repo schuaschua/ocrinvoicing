@@ -1,5 +1,5 @@
 // Story 1.2: the weekly dependency scan (replaces Dependabot, AD-17), job
-// "ocrinvoicing-weekly-scan" (ci/jenkins/casc.yaml). Runs on main every Monday even when
+// "ocrinvoicing/dev/weekly-scan" (ci/jenkins/casc.yaml). Runs on main every Monday even when
 // nothing changed (the schedule is set on the job in casc.yaml), and fails on any
 // pip-audit or npm audit finding.
 pipeline {

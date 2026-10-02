@@ -329,7 +329,7 @@ CI_VM_TOKEN = "fake-ado-token-never-logged"
 def test_story_1_2_ci_vm_dry_run_plan() -> None:
     """ci-vm.sh --dry-run (I/O matrix "VM bootstrap"). Covers: tagged rg-23; the NSG's only
     rule allows SSH from the operator's IP; an Ubuntu LTS B2s with SSH keys only and no
-    auto-shutdown; only the shared and Dev deploy identities are attached; Jenkins goes up
+    auto-shutdown; the shared, Dev and Prod deploy identities are attached; Jenkins goes up
     over SSH with the token on stdin, never in the output; an address range is refused."""
     scratch = REPO_ROOT / ".work" / "pytest-bootstrap" / uuid.uuid4().hex
     scratch.mkdir(parents=True)
@@ -364,18 +364,28 @@ def test_story_1_2_ci_vm_dry_run_plan() -> None:
         assert "--authentication-type ssh" in vm and "--admin-password" not in vm
         assert "auto-shutdown" not in out
 
-        # Only the shared and Dev deploy identities are attached.
+        # The shared, Dev and Prod deploy identities are attached (Dj, 2026-10-02); none removed.
         assigns = [line for line in lines if "az vm identity assign" in line]
         assert [re.search(r"<id-of-(\S+)>", line).group(1) for line in assigns] == [
             "babaloo-sea-lng-id-21",
             "babaloo-sea-lng-id-22",
+            "babaloo-sea-lng-id-23",
         ]
-        assert "babaloo-sea-lng-id-23" not in " ".join(assigns)
+        assert "az vm identity remove" not in out
+
+        # The old flat jobs go only while "ocrinvoicing" is still the multibranch project, and
+        # before the new container starts (I/O matrix "Old flat jobs on jenkins_home").
+        remote_script = (REPO_ROOT / "infra" / "bootstrap" / "ci-vm-remote.sh").read_text(encoding="utf-8")
+        guard = remote_script.index("WorkflowMultiBranchProject\" /h/jobs/ocrinvoicing/config.xml")
+        removal = remote_script.index("rm -rf /h/jobs/ocrinvoicing /h/jobs/ocrinvoicing-weekly-scan")
+        assert remote_script.index("docker rm -f \"$CONTAINER\"") < guard < removal < remote_script.index("docker run -d")
 
         # Jenkins over SSH; the token never appears.
         (remote,) = [line for line in lines if "ci-vm-remote.sh test-org" in line]
         assert remote.startswith("[dry-run] ssh ")
-        assert re.search(r"clientId-of-babaloo-sea-lng-id-21.+clientId-of-babaloo-sea-lng-id-22", remote)
+        assert re.search(
+            r"clientId-of-babaloo-sea-lng-id-21.+clientId-of-babaloo-sea-lng-id-22.+clientId-of-babaloo-sea-lng-id-23", remote
+        )
         assert CI_VM_TOKEN not in out + result.stderr
 
         # An address range is refused before anything is planned.

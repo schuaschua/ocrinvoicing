@@ -11,8 +11,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 JENKINSFILE = REPO_ROOT / "Jenkinsfile"
 JENKINS_DIR = REPO_ROOT / "ci" / "jenkins"
 WEEKLY = JENKINS_DIR / "Jenkinsfile.weekly"
+PROD = JENKINS_DIR / "Jenkinsfile.prod"
 
-# The AD-17 order on main (spine AD-17; no Prod stages on the CI VM, Dj 2026-09-29).
+# The AD-17 order on main (spine AD-17; Prod is its own job, Dj 2026-10-02).
 DEPLOY_STAGES = [
     "Plan shared/foundation",
     "Approve shared/foundation",
@@ -23,6 +24,30 @@ DEPLOY_STAGES = [
     "Plan dev/app",
     "Apply dev/app",
     "Deploy code dev",
+    "Record dev commit",
+    "Tag sweep",
+]
+# The Prod job's order (Jenkinsfile.prod), without its two grouping stages.
+PROD_STAGES = [
+    "Verify the commit",
+    "Plan prod/foundation",
+    "Approve prod/foundation",
+    "Apply prod/foundation",
+    "Migrate prod",
+    "Plan prod/app",
+    "Approve prod/app",
+    "Apply prod/app",
+    "Deploy code prod",
+    "Tag sweep prod",
+]
+# The Jenkins tree in casc.yaml: (Job DSL kind, full name).
+JENKINS_TREE = [
+    ("folder", "ocrinvoicing"),
+    ("folder", "ocrinvoicing/dev"),
+    ("folder", "ocrinvoicing/prod"),
+    ("multibranchPipelineJob", "ocrinvoicing/dev/ocrinvoicing"),
+    ("pipelineJob", "ocrinvoicing/dev/weekly-scan"),
+    ("pipelineJob", "ocrinvoicing/prod/deploy"),
 ]
 
 
@@ -49,7 +74,9 @@ def _jenkinsfile_guards() -> None:
     main (its PR build ran them), terraform beside the app checks, and the audit weekly; the AD-17 stage order on main; an input step (Dj only) on shared and nowhere
     else; no Prod stage or identity; each stack applies its own saved plan; sign-in only through
     the deploy identity; status posted to the PR with the token from the credential; the image
-    pins the tools of ci/lib.sh and Terraform matches the plugin tool."""
+    pins the tools of ci/lib.sh and Terraform matches the plugin tool. The Jenkins tree in casc;
+    the Prod job: started by hand on main, only the commit the dev chain recorded, checked in
+    every stage, Dj's approval before each apply, signed in only as Prod; the tag sweeps."""
     text = _code(JENKINSFILE)
     stages = re.findall(r"stage\('([^']+)'\)", text)
 
@@ -137,12 +164,59 @@ def _jenkinsfile_guards() -> None:
     plugins = [line for line in (JENKINS_DIR / "plugins.txt").read_text().splitlines() if line and not line.startswith("#")]
     assert all(re.fullmatch(r"[\w.-]+:[\w.-]+", line) for line in plugins), "every plugin is pinned"
 
+    # The Jenkins tree: exactly the three jobs under ocrinvoicing/dev and ocrinvoicing/prod.
+    casc_code = _code(JENKINS_DIR / "casc.yaml")
+    assert re.findall(r"\b(folder|multibranchPipelineJob|pipelineJob)\('([^']+)'\)", casc_code) == JENKINS_TREE
+    # The prod job's block only: up to its closing brace at the job indentation.
+    start = casc_code.index("pipelineJob('ocrinvoicing/prod/deploy')")
+    prod_job = casc_code[start : casc_code.index("\n      }", start) + 8]
+    assert "scriptPath('ci/jenkins/Jenkinsfile.prod')" in prod_job and "branch('*/main')" in prod_job
+    assert "triggers" not in prod_job and "cron" not in prod_job, "Dj starts the Prod job by hand"
+    assert 'key: "DEPLOY_CLIENT_ID_PROD"' in casc
+
+    # The tag sweep (shared, then dev) and the dev-commit record end the dev chain.
+    sweep = _stage_body(text, "Tag sweep")
+    assert sweep.index("asDeployIdentity('shared') { sh 'ci/tag-sweep.sh shared' }") < sweep.index(
+        "asDeployIdentity('dev') { sh 'ci/tag-sweep.sh dev' }"
+    )
+    assert "sh 'ci/deploy-state.sh record'" in _stage_body(text, "Record dev commit")
+
+    # The Prod job: the AD-17 order, one checkout, only the recorded commit.
+    prod = _code(PROD)
+    prod_stages = re.findall(r"stage\('([^']+)'\)", prod)
+    assert [name for name in prod_stages if ", " not in name] == PROD_STAGES
+    assert "skipDefaultCheckout()" in prod and "disableConcurrentBuilds()" in prod
+    assert prod.count("checkout scm") == 1 and "checkout scm" in _stage_body(prod, "Verify the commit")
+    verify = _stage_body(prod, "Verify the commit")
+    assert "DEPLOY_COMMIT = sh(returnStdout: true, script: 'ci/deploy-state.sh verify').trim()" in verify
+    assert verify.index("checkout scm") < verify.index("ci/deploy-state.sh verify")
+    # Every later stage acts only on that commit (asProd checks it before signing in).
+    asprod = prod[prod.index("def asProd(") : prod.index("def planStack(")]
+    assert asprod.index("onDeployCommit()") < asprod.index("az login")
+    for name in PROD_STAGES[1:]:
+        if not name.startswith("Approve"):
+            assert re.search(r"planStack\(|applyStack\(|onDeployCommit\(\)|asProd \{", _stage_body(prod, name)), name
+    # Dj approves each apply: two inputs, Dj only, 24 hours, no executor held while waiting.
+    assert len(re.findall(r"\binput\b", prod)) == 2 and re.search(r"pipeline \{\s*agent none", prod)
+    for stack in ("prod/foundation", "prod/app"):
+        step = stack.replace("/", "_")
+        approve = _stage_body(prod, f"Approve {stack}")
+        assert "input {" in approve and "submitter 'dj'" in approve and "timeout(time: 24, unit: 'HOURS')" in approve
+        assert "beforeInput true" in approve and f"expression {{ HAS_WORK.{step} }}" in approve
+        assert "agent" not in approve
+        assert f"applyStack('{step}', '{stack}')" in _stage_body(prod, f"Apply {stack}")
+    assert "asProd { sh 'ci/tag-sweep.sh prod' }" in _stage_body(prod, "Tag sweep prod")
+    # Only Prod's identity, and only in this file.
+    assert "env.DEPLOY_CLIENT_ID_PROD" in prod and "DEPLOY_CLIENT_ID_PROD" not in text
+    assert not re.search(r"(?i)DEPLOY_CLIENT_ID_(SHARED|DEV)|'(shared|dev)/|ci/\S+\.sh (shared|dev)\b", prod)
+    assert "rm -rf .work/ci/plans .work/azure-* || true" in prod and prod.count("sh CLEANUP") == 1
+
 
 def _repo_guards() -> None:
     """Repo-wide scans of the Jenkinsfiles and ci/. Covers: no auto-approve and apply only from a
     saved plan; operator steps never run in CI; no GitHub Actions or Azure DevOps YAML; no secret
     in the Jenkins configuration; tool downloads are pinned by checksum."""
-    jenkinsfiles = [JENKINSFILE, WEEKLY]
+    jenkinsfiles = [JENKINSFILE, WEEKLY, PROD]
     scripts = sorted((REPO_ROOT / "ci").glob("*.sh"))
 
     # No auto-approve; apply only from a saved plan.

@@ -445,6 +445,83 @@ def test_story_1_3_code_deploy(work_dir: Path) -> None:
     assert not Path(state).exists()
 
 
+# --- tag-sweep.sh -----------------------------------------------------------------------
+
+SWEEP_RG = "/subscriptions/s/resourceGroups/babaloo-sea-lng-rg-01/providers"
+SWEEP_GROUP_TAGS = {"application": "ocrinvoicing", "environment": "dev", "owner": "dj"}
+
+
+def _tag_sweep(work_dir: Path) -> None:
+    """tag-sweep.sh (I/O matrix "Untagged Azure-created resource", "Fully tagged resource
+    group"). Covers: each resource gets only the group tag keys it lacks, merged, never an
+    existing value overwritten (keys compared case-insensitively, as Azure does); a fully tagged group gets no update call; a foundation output
+    that is not the owner's own group is refused before any az call."""
+    smart = f"{SWEEP_RG}/microsoft.insights/actionGroups/Application Insights Smart Detection"
+    anomalies = f"{SWEEP_RG}/microsoft.alertsManagement/smartDetectorAlertRules/Failure Anomalies - appi"
+    tagged = f"{SWEEP_RG}/Microsoft.Storage/storageAccounts/babaloosealngst01"
+    sweep = {"group": SWEEP_GROUP_TAGS, "resources": [
+        {"id": smart, "tags": None},
+        {"id": anomalies, "tags": {"Environment": "kept-as-is"}},
+        {"id": tagged, "tags": SWEEP_GROUP_TAGS},
+    ]}
+    az_log = work_dir / "az-sweep.log"
+    result = _run("tag-sweep.sh", "dev", work_dir=work_dir, FAKE_TF_OUTPUT="babaloo-sea-lng-rg-01",
+                  FAKE_AZ_SWEEP=json.dumps(sweep), FAKE_AZ_LOG=str(az_log))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ["-chdir=" + str(work_dir / "infra" / "dev" / "foundation"), "output", "-raw", "resource_group_name"] in _terraform_calls(work_dir)
+    updates = [line for line in az_log.read_text().splitlines() if line.startswith("tag update")]
+    assert updates == [
+        f"tag update --resource-id {smart} --operation merge --tags application=ocrinvoicing environment=dev owner=dj --output none",
+        f"tag update --resource-id {anomalies} --operation merge --tags application=ocrinvoicing owner=dj --output none",
+    ]
+    assert "2 resource(s) given missing tags" in result.stdout
+
+    # A fully tagged group: no update call.
+    az_log = work_dir / "az-sweep-tagged.log"
+    sweep["resources"] = [{"id": tagged, "tags": SWEEP_GROUP_TAGS}]
+    result = _run("tag-sweep.sh", "dev", work_dir=work_dir, FAKE_TF_OUTPUT="babaloo-sea-lng-rg-01",
+                  FAKE_AZ_SWEEP=json.dumps(sweep), FAKE_AZ_LOG=str(az_log))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not [line for line in az_log.read_text().splitlines() if line.startswith("tag update")]
+
+    # Never another group (e.g. the state account's): refused before any az call.
+    az_log = work_dir / "az-sweep-other.log"
+    result = _run("tag-sweep.sh", "dev", work_dir=work_dir, FAKE_TF_OUTPUT="rg-tfstate-sea",
+                  FAKE_AZ_SWEEP=json.dumps(sweep), FAKE_AZ_LOG=str(az_log))
+    assert result.returncode == 1 and "expected 'babaloo-sea-lng-rg-01'" in result.stderr
+    assert not az_log.exists()
+
+
+# --- deploy-state.sh ----------------------------------------------------------------------
+
+
+def _deploy_state(work_dir: Path) -> None:
+    """deploy-state.sh (I/O matrix "main ahead of dev"). Covers: verify fails, naming both
+    commits, when nothing is recorded or the record differs from HEAD; record writes HEAD and
+    verify then prints it."""
+    head = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+                          check=True).stdout.strip()
+    state = work_dir / "deploy-state"
+    seam = {"CI_DEPLOY_COMMIT_DIR": str(state)}
+
+    result = _run("deploy-state.sh", "verify", work_dir=work_dir, **seam)
+    assert result.returncode == 1 and result.stdout == ""
+    assert f"main is at {head}, but the last commit the dev chain deployed is 'none recorded'" in result.stderr
+
+    state.mkdir()
+    (state / "dev-commit").write_text("0" * 40 + "\n")
+    result = _run("deploy-state.sh", "verify", work_dir=work_dir, **seam)
+    assert result.returncode == 1 and result.stdout == ""
+    assert f"main is at {head}, but the last commit the dev chain deployed is '{'0' * 40}'" in result.stderr
+
+    result = _run("deploy-state.sh", "record", work_dir=work_dir, **seam)
+    assert result.returncode == 0, result.stderr
+    assert (state / "dev-commit").read_text() == head + "\n" and not (state / "dev-commit.new").exists()
+    result = _run("deploy-state.sh", "verify", work_dir=work_dir, **seam)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == head + "\n"
+
+
 # --- install-tools.sh --------------------------------------------------------------------
 
 
@@ -473,11 +550,13 @@ def _install_tools_rejects_a_checksum_mismatch(work_dir: Path) -> None:
 
 def test_story_1_2_ci_scripts(work_dir: Path) -> None:
     """Story 1.2 deploy-stage scripts, merged under the test cap: terraform-plan.sh's tag gate,
-    Terraform sign-in, ado-status.sh, terraform-apply.sh, migrate.sh and install-tools.sh. Each
+    Terraform sign-in, ado-status.sh, terraform-apply.sh, migrate.sh, tag-sweep.sh, deploy-state.sh and install-tools.sh. Each
     part runs in its own fresh folder, as it did as a separate test."""
     _terraform_plan_tag_gate(_fresh(work_dir, "plan"))
     _terraform_signs_in_only_as_the_stack_owners_managed_identity(_fresh(work_dir, "sign-in"))
     _ado_status_posts_on_the_built_iteration(_fresh(work_dir, "ado-status"))
     _terraform_apply_only_from_the_saved_plan(_fresh(work_dir, "apply"))
     _migrations_run_as_the_env_deploy_identity_with_an_entra_token(_fresh(work_dir, "migrate"))
+    _tag_sweep(_fresh(work_dir, "tag-sweep"))
+    _deploy_state(_fresh(work_dir, "deploy-state"))
     _install_tools_rejects_a_checksum_mismatch(_fresh(work_dir, "install"))

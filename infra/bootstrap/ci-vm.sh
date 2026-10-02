@@ -6,9 +6,10 @@
 #     IP (no web port), a static public IP and a NIC;
 #   - an Ubuntu LTS B2s VM (2 vCPU, 4 GB; no auto-shutdown for now), SSH key only;
 #     cloud-init (ci-vm-cloud-init.yaml) installs Docker;
-#   - the shared and Dev deploy identities (id-21, id-22) attached as user-assigned
-#     managed identities. Never Prod's: nothing on the VM can reach Prod. An identity
-#     that does not exist yet is skipped with a warning; a re-run attaches it;
+#   - the shared, Dev and Prod deploy identities (id-21, id-22, id-23) attached as
+#     user-assigned managed identities (Prod's since Dj, 2026-10-02: only the Prod job's
+#     Jenkinsfile signs in with it, a guard in our code, not in Azure). An identity that
+#     does not exist yet is skipped with a warning; a re-run attaches it;
 #   - over SSH: Jenkins (ci/jenkins) built and started in Docker on 127.0.0.1:8080, with
 #     the Azure DevOps token from .work/ado-pat as its only stored secret
 #     (ci-vm-remote.sh on the VM).
@@ -70,8 +71,8 @@ readonly VM_IMAGE="Canonical:ubuntu-24_04-lts:server:latest"
 readonly VM_ADMIN="ciadmin"
 readonly SSH_RULE="allow-ssh-operator"
 readonly REPO_URL="https://dev.azure.com/$ADO_ORG/$ADO_PROJECT/_git/$ADO_REPO"
-# The only identities the VM may carry (Dj, 2026-09-29): never Prod's.
-readonly ATTACHED_OWNERS=(shared dev)
+# The identities the VM carries (Dj, 2026-09-29; Prod's added 2026-10-02).
+readonly ATTACHED_OWNERS=(shared dev prod)
 
 select_subscription
 
@@ -165,10 +166,10 @@ else
     --custom-data "$BOOTSTRAP_DIR/ci-vm-cloud-init.yaml" --tags "${TAGS[@]}" --output none
 fi
 
-# Deploy identities: attach shared and Dev (re-applied on every run), and take Prod's off
-# should it ever have been attached by hand.
+# Deploy identities: attach shared, Dev and Prod (re-applied on every run).
 client_id_shared=""
 client_id_dev=""
+client_id_prod=""
 for owner in "${ATTACHED_OWNERS[@]}"; do
   identity="$(deploy_identity_name "$owner")"
   step "Attach deploy identity $identity ($owner)"
@@ -184,19 +185,9 @@ for owner in "${ATTACHED_OWNERS[@]}"; do
   case "$owner" in
     shared) client_id_shared="$client_id" ;;
     dev) client_id_dev="$client_id" ;;
+    prod) client_id_prod="$client_id" ;;
   esac
 done
-
-prod_identity="$(deploy_identity_name prod)"
-step "Prod's deploy identity $prod_identity is not attached"
-attached="$(value_or_placeholder "" az vm identity show --name "$VM" --resource-group "$CI_RG" \
-  --query "keys(userAssignedIdentities || \`{}\`)" -o tsv)"
-while IFS= read -r attached_id; do
-  # Resource ids differ in case between APIs (and macOS's bash 3.2 has no ${x,,}).
-  if [[ "$(tr '[:upper:]' '[:lower:]' <<<"$attached_id")" == */userassignedidentities/"$prod_identity" ]]; then
-    run az vm identity remove --name "$VM" --resource-group "$CI_RG" --identities "$attached_id" --output none
-  fi
-done <<<"$attached"
 
 # Jenkins over SSH: the build context and the remote step go to the VM, then
 # ci-vm-remote.sh builds the image and (re)starts the container. The token travels on
@@ -223,7 +214,7 @@ remote_dir="/home/$VM_ADMIN/jenkins-build"
 run ssh "${ssh_opts[@]}" "$host" "cloud-init status --wait >/dev/null; rc=\$?; [ \$rc -eq 0 ] || [ \$rc -eq 2 ] || exit \$rc; rm -rf $remote_dir"
 run scp "${ssh_opts[@]}" -r "$REPO_ROOT/ci/jenkins" "$host:$remote_dir"
 run scp "${ssh_opts[@]}" "$BOOTSTRAP_DIR/ci-vm-remote.sh" "$host:$remote_dir/ci-vm-remote.sh"
-remote_args="$(printf '%q ' "$ADO_ORG" "$ADO_PROJECT" "$ADO_REPO" "${client_id_shared:-none}" "${client_id_dev:-none}")"
+remote_args="$(printf '%q ' "$ADO_ORG" "$ADO_PROJECT" "$ADO_REPO" "${client_id_shared:-none}" "${client_id_dev:-none}" "${client_id_prod:-none}")"
 run ssh "${ssh_opts[@]}" "$host" "sudo bash $remote_dir/ci-vm-remote.sh ${remote_args% }" <"$ADO_PAT_FILE"
 
 step "Done"

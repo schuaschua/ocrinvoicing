@@ -498,7 +498,13 @@ def test_story_3_2_post_stage_posts_backs_off_and_routes(
         )
 
     # --- No field value, token or answer body reaches a log (security.md rule 31) -----
-    logged = caplog.text + " ".join(str(vars(r)) for r in caplog.records)
+    # Logging's own timing fields are left out: a timestamp such as relativeCreated
+    # 40947.805576 contains "7.805" by chance (Jenkins, 2026-10-02).
+    timing = ("created", "msecs", "relativeCreated")
+    logged = caplog.text + " ".join(
+        str({key: value for key, value in vars(r).items() if key not in timing})
+        for r in caplog.records
+    )
     for value in ("INV-A-1", "Synthetic", "109.00", "7.805", TOKEN, "Bad gateway"):
         assert value not in logged, value
     owner.dispose()

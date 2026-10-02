@@ -18,7 +18,7 @@ infra/       Terraform and operator scripts (terraform.md)
   scripts/     check_tags.py (P-17 tag gate) and its tests
 ci/          checks.sh (the branch checks, runnable locally) and the deploy-stage scripts (code-deploy.sh builds
              one zip per Function app; --build-only builds without publishing); jenkins/ (the Jenkins image,
-             plugins, configuration as code and the weekly-scan Jenkinsfile); tests/ for the CI
+             plugins, configuration as code, the weekly-scan and Prod Jenkinsfiles); tests/ for the CI
 Jenkinsfile  the CI/CD pipeline Jenkins runs for every branch
 docs/        architecture, standards, governance and costing
 ```
@@ -37,14 +37,15 @@ ci/checks.sh all      # or one of: lint, test, audit, secrets, terraform
 
 The same script runs in Jenkins on every branch (`Jenkinsfile`), so a green local run means a green branch build. It needs `uv`, `terraform`, `gitleaks`, `shellcheck` and Node 22. The web a11y check (Playwright + axe) needs Chromium for each app: run `npx playwright install chromium` in `web/supplier` and in `web/staff` (they pin the same Playwright, so the second run finds it installed); without it the check is skipped locally, while Jenkins installs it and never skips. Reports go to `.work/ci/`.
 
-The Terraform tests use mock providers; the script tests run every bootstrap script with `--dry-run` against fake `az`/`psql`/`gpg` binaries that fail if called, and `ci/tests` checks the Jenkinsfiles and the Jenkins image (AD-17 stage order, Dj's approval on `shared`, no Prod stage, saved plans, pinned tools).
+The Terraform tests use mock providers; the script tests run every bootstrap script with `--dry-run` against fake `az`/`psql`/`gpg` binaries that fail if called, and `ci/tests` checks the Jenkinsfiles and the Jenkins image (AD-17 stage order, Dj's approvals on `shared` and Prod, Prod only in its own job, saved plans, pinned tools).
 
 ## CI/CD (Jenkins on the CI VM)
 
 The code lives in Azure Repos (`example-org/ocrinvoicing`). Jenkins runs in Docker on one small VM (`infra/bootstrap/ci-vm.sh`; SSH from Dj's IP only, the UI through an SSH tunnel) and polls it every 5 minutes:
 
 - every branch: `ci/checks.sh` (lint, test, audit, secrets, terraform), with the result posted as the status `jenkins/checks` on the branch's pull request; a branch policy on `main` requires it;
-- `main`: the checks, then the AD-17 chain from saved, tag-gated plans: `shared/foundation` after Dj approves, then `dev/foundation`, Dev migrations, `dev/app` and the Dev code deploy, applied automatically. Each stage signs in as its stack's deploy identity attached to the VM; no Azure secret is stored. Only the shared and Dev identities are on the VM, so there are no Prod stages (Dj, 2026-09-29);
+- `main`: the AD-17 chain from saved, tag-gated plans: `shared/foundation` after Dj approves, then `dev/foundation`, Dev migrations, `dev/app` and the Dev code deploy, applied automatically, then the tag sweep. Each stage signs in as its stack's deploy identity attached to the VM; no Azure secret is stored;
+- Prod (`ocrinvoicing/prod/deploy`, `ci/jenkins/Jenkinsfile.prod`): started by hand by Dj; deploys only the `main` commit already deployed to Dev, with Dj's approval before each Prod apply (Dj, 2026-10-02);
 - `ci/jenkins/Jenkinsfile.weekly`: the dependency audit every Monday.
 
 Setup, first run and the branch policy: `infra/bootstrap/README.md`, steps 1b and 1c.

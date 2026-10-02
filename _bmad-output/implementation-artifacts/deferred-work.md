@@ -106,6 +106,9 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-3-supplier-weekly-reminders.md`
   summary: Story 4.3's Table key-length rule (512 UTF-16 units in `storable()`) and the supplier web client's rejection of a malformed `/api/reminders` body have no test.
   evidence: The in-memory FakeTable enforces no key length; the server's response shape is pinned by `test_story_4_3_reminders_api`. Add when the 200-case cap allows.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-jenkins-dev-prod-folders.md`
+  summary: Run infra/bootstrap/ci-vm-remote.sh (old-job migration and folder-depth running-build guard) against a fake docker in a test.
+  evidence: Only a text-order assertion covers it today; executing it needs a fake-docker harness and a root (EUID) bypass. Until then, check the first restart log for "removed the old flat jobs".
 - source_plan: `_bmad-output/implementation-artifacts/plan-5-1-analytics-summary-tables.md`
   summary: The dashboard repository has no "as of" read (the last `summaries` run), and the summary step's rollback, lock re-check and pure domain rules have no direct tests.
   evidence: Dashboards (5.3–5.6) can show staleness from `job_run`; the other gaps were skipped for the 200-case cap.
@@ -130,3 +133,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-5-2-staff-alert-emails.md`
   summary: Confirm on real Azure that the custom `ACS Email Sender` role (CommunicationServices/Read, EmailServices/write) allows a data-plane send; test the overdue-failure path with emails on and rbac-step3's "ACS not yet" skip.
   evidence: Mock-only tests; the spine lists the role's exact actions as open. README step 8 checks it at switch-on.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-jenkins-dev-prod-folders.md`
+  summary: On a Jenkins start that creates new jobs (casc job DSL), JCasC creates them before "Loaded all jobs", which drops them from memory; restart Jenkins once after any first creation (ci-vm-remote.sh, or a README step).
+  evidence: 2026-10-02 04:28 UTC on vm-21: the log shows "createOrUpdateConfig for ocrinvoicing/..." then "Loaded all jobs"; the UI showed no ocrinvoicing jobs, every build ended "No build record ... could be located", and no branch indexing ran after 04:28:58 although the folders are on disk.

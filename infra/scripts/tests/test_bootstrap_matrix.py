@@ -134,7 +134,7 @@ def _ci_vm(work_dir: Path, **extra_env: str) -> tuple[subprocess.CompletedProces
 def test_story_1_2_ci_vm_matrix(work_dir: Path) -> None:
     """ci-vm.sh against the stateful fakes (I/O matrix rows "Re-run", "Identities not there
     yet", "VM bootstrap" errors). Covers: a re-run makes no create call and re-applies the SSH
-    rule, tags and identities, takes a hand-attached Prod identity off, and hands the token to
+    rule, tags and the three identities (Prod's is kept, Dj 2026-10-02), and hands the token to
     the VM on stdin only; a deallocated VM is started before the SSH steps; absent deploy identities are skipped with a warning naming
     state-backend.sh while the VM and Jenkins still go up; a missing input or token file stops
     before any Azure call."""
@@ -154,12 +154,11 @@ def test_story_1_2_ci_vm_matrix(work_dir: Path) -> None:
     retagged = {call[call.index("--resource-type") + 1] for call in az_calls if _starts_with(call, ["resource", "tag"])}
     assert retagged == {f"Microsoft.{t}" for t in ("Network/virtualNetworks", "Network/networkSecurityGroups",
                         "Network/publicIPAddresses", "Network/networkInterfaces", "Compute/virtualMachines")}
-    assert len([call for call in az_calls if _starts_with(call, ["vm", "identity", "assign"])]) == 2
-    (removed,) = [call for call in az_calls if _starts_with(call, ["vm", "identity", "remove"])]
-    assert removed[removed.index("--identities") + 1] == PROD_ON_VM
+    assert len([call for call in az_calls if _starts_with(call, ["vm", "identity", "assign"])]) == 3
+    assert not [call for call in az_calls if _starts_with(call, ["vm", "identity", "remove"])]
     # Jenkins over SSH; the token only on the remote step's stdin.
     (remote,) = [call for call in _tool_calls(calls, "ssh") if "ci-vm-remote.sh" in call[-1]]
-    assert remote[-1].endswith("ci-vm-remote.sh test-org test-project test-project " + " ".join([FAKE_GUID] * 2))
+    assert remote[-1].endswith("ci-vm-remote.sh test-org test-project test-project " + " ".join([FAKE_GUID] * 3))
     assert (run_dir / "az-calls.jsonl.stdin").read_text() == CI_VM_TOKEN + "\n"
     assert CI_VM_TOKEN not in json.dumps(calls) + result.stdout + result.stderr
     assert not any(_starts_with(call, ["vm", "start"]) for call in az_calls), "a running VM is not started"
@@ -176,13 +175,14 @@ def test_story_1_2_ci_vm_matrix(work_dir: Path) -> None:
     # Identities not there yet: skipped with a warning; the VM and Jenkins still go up.
     result, calls = _ci_vm(
         _case(work_dir, "no-identities"),
-        FAKE_AZ_NOT_FOUND_MATCH="identity show --name babaloo-sea-lng-id-21||identity show --name babaloo-sea-lng-id-22",
+        FAKE_AZ_NOT_FOUND_MATCH="identity show --name babaloo-sea-lng-id-21||identity show --name babaloo-sea-lng-id-22"
+        "||identity show --name babaloo-sea-lng-id-23",
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert result.stderr.count("run state-backend.sh, then re-run ci-vm.sh") == 2
+    assert result.stderr.count("run state-backend.sh, then re-run ci-vm.sh") == 3
     assert not any(_starts_with(call, ["vm", "identity", "assign"]) for call in calls)
     (remote,) = [call for call in _tool_calls(calls, "ssh") if "ci-vm-remote.sh" in call[-1]]
-    assert remote[-1].endswith(" none none")
+    assert remote[-1].endswith(" none none none")
 
     # A missing input or token file stops before any Azure call.
     for name, overrides in {

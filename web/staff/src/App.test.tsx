@@ -27,6 +27,11 @@ function answer(status: number, body: unknown): Response {
   });
 }
 
+const SUPPLIER = {
+  supplier_id: "0199a1b2-0000-7000-8000-000000000009",
+  name: "Synthetic Alpha Building Supplies",
+};
+
 function signedInAs(...roles: string[]) {
   fetchMock.mockImplementation(async (input) =>
     // Story 2.8: the admin queue asks for its rows; an empty queue here.
@@ -41,7 +46,17 @@ function signedInAs(...roles: string[]) {
       : // Story 4.1: goods-in lists today's deliveries; none here.
         String(input).startsWith("/api/goods-in/")
         ? answer(200, { today: "2026-09-29", items: [] })
-        : answer(200, { name: "Priya Tan", roles }),
+        : // Story 4.4: one supplier, listed and by id.
+          String(input).startsWith("/api/suppliers?")
+          ? answer(200, {
+              items: [SUPPLIER],
+              page: 1,
+              page_size: 50,
+              total: 1,
+            })
+          : String(input) === `/api/suppliers/${SUPPLIER.supplier_id}`
+            ? answer(200, SUPPLIER)
+            : answer(200, { name: "Priya Tan", roles }),
   );
 }
 
@@ -152,6 +167,15 @@ describe("2.7 staff sign in and see only their surfaces", () => {
         await screen.findByRole("heading", { level: 1, name: title });
         expect(window.location.pathname).toBe(path);
         expect(navLinks()).toHaveLength(links);
+        if (path === "/suppliers") {
+          // Story 4.4: procurement lands on the suppliers list itself.
+          expect(await screen.findByTestId("supplier-row")).toHaveTextContent(
+            SUPPLIER.name,
+          );
+          expect(
+            fetchMock.mock.calls.map(([input]) => String(input)),
+          ).toContain("/api/suppliers?page=1");
+        }
         unmount();
       }
 
@@ -281,13 +305,19 @@ describe("2.7 staff sign in and see only their surfaces", () => {
     // --- opens deep links, sends unknown paths home, and moves between pages from the sidebar
     fresh();
     {
-      openAt("/suppliers/0199a1b2-0000-7000-8000-000000000009");
+      openAt(`/suppliers/${SUPPLIER.supplier_id}`);
       signedInAs("procurement", "finance");
       const { unmount } = render(<App />);
-      await screen.findByRole("heading", {
-        level: 1,
-        name: "Supplier scorecard",
-      });
+      // Story 4.4: the supplier's page, named, with its Scorecard tab.
+      await screen.findByRole("heading", { level: 1, name: SUPPLIER.name });
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(
+        `/api/suppliers/${SUPPLIER.supplier_id}`,
+      );
+      expect(
+        screen.getByRole("tab", {
+          name: strings.suppliers.page.tabs.scorecard,
+        }),
+      ).toHaveAttribute("aria-selected", "true");
       // Reached from Suppliers: that link is the current section.
       expect(screen.getByRole("link", { name: "Suppliers" })).toHaveAttribute(
         "aria-current",

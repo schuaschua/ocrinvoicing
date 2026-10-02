@@ -10,7 +10,7 @@ value is compared by its fingerprint only, so re-loading the same CSV writes not
 """
 
 import asyncio
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID
@@ -40,7 +40,11 @@ from invoicing.domain.suppliers import (
     bank_fingerprint,
     normalise_bank_value,
 )
-from invoicing.ports.suppliers import SupplierFacts
+from invoicing.ports.suppliers import (
+    SUPPLIER_PAGE_SIZE,
+    SupplierEntry,
+    SupplierFacts,
+)
 
 MASTER = "master"
 AUDIT = "audit"
@@ -300,3 +304,42 @@ class PostgresSupplierDirectory:
                 )
             )
             return {row.id: row.name for row in rows}
+
+    async def page(
+        self, text: str | None, page: int
+    ) -> tuple[Sequence[SupplierEntry], int]:
+        return await asyncio.to_thread(self._page, text, page)
+
+    async def get_name(self, supplier_id: UUID) -> str | None:
+        return await asyncio.to_thread(self._get_name, supplier_id)
+
+    def _page(self, text: str | None, page: int) -> tuple[list[SupplierEntry], int]:
+        # Story 4.4: only `id` and `name`; never tax_id, phone or supplier_bank (AD-11).
+        where = (
+            [] if text is None else [supplier.c.name.icontains(text, autoescape=True)]
+        )
+        with open_connection(self._engine) as connection:
+            # One snapshot, so the rows and the total agree; read-only.
+            connection.execution_options(
+                isolation_level="REPEATABLE READ", postgresql_readonly=True
+            )
+            with connection.begin():
+                total = connection.execute(
+                    select(func.count()).select_from(supplier).where(*where)
+                ).scalar_one()
+                rows = connection.execute(
+                    select(supplier.c.id, supplier.c.name)
+                    .where(*where)
+                    .order_by(func.lower(supplier.c.name), supplier.c.id)
+                    .limit(SUPPLIER_PAGE_SIZE)
+                    .offset((page - 1) * SUPPLIER_PAGE_SIZE)
+                )
+                entries = [SupplierEntry(supplier_id=r.id, name=r.name) for r in rows]
+        return entries, total
+
+    def _get_name(self, supplier_id: UUID) -> str | None:
+        with open_connection(self._engine) as connection:
+            name: str | None = connection.execute(
+                select(supplier.c.name).where(supplier.c.id == supplier_id)
+            ).scalar_one_or_none()
+        return name

@@ -524,6 +524,38 @@ export const strings = {
       expected: "Expected",
     },
   },
+  /** Story 4.4: the suppliers list and a supplier's page (EXPERIENCE.md Suppliers,
+   * Supplier scorecard; Flow 5). */
+  suppliers: {
+    found: (n: number) => `${plural(n, "supplier", "suppliers")} found`,
+    empty: "No suppliers yet.",
+    noMatch: "No suppliers match this search.",
+    tableLabel: "Suppliers",
+    searchLabel: "Supplier name",
+    search: "Search",
+    clear: "Clear",
+    columns: {
+      name: "Supplier",
+    },
+    /** The server refused the search (the box itself never sends a refused one). */
+    badSearch: "That search couldn't be run. Change it and search again.",
+    pagination: {
+      label: "Supplier list pages",
+      previous: "Previous page",
+      next: "Next page",
+      status: (page: number, pages: number) => `Page ${page} of ${pages}`,
+    },
+    page: {
+      back: "Back to suppliers",
+      notFound: "This supplier can't be found.",
+      tabsLabel: "Supplier details",
+      tabs: {
+        scorecard: "Scorecard",
+      },
+      scorecardComing:
+        "The scorecard is coming: on-time rate and price trend per material.",
+    },
+  },
   /** Screens not built yet show their heading and this line. */
   placeholder: "This page isn't ready yet.",
   /** EXPERIENCE.md staff surface table, one name per surface. */

@@ -374,9 +374,12 @@ So that nothing reaches Prod without passing checks and my approval.
 
 **Given** a merge
 **When** the deploy pipeline runs
-**Then** each stage signs in only as its stack's user-assigned deploy identity attached to the CI VM; no Azure secret is stored; only the shared and Dev identities are attached (Dj, 2026-09-29)
+**Then** each stage signs in only as its stack's user-assigned deploy identity attached to the CI VM; no Azure secret is stored; the shared, Dev and Prod identities are attached, and only the Prod job's Jenkinsfile signs in as Prod (Dj, 2026-10-02)
 **And** it applies `dev` from a saved plan automatically on merge to `main`, the accepted departure from `terraform.md` rules 26 and 33 and `security.md` rule 34 recorded in AD-17
-**And** it applies `shared` from a saved plan only after Dj's approval in Jenkins; Prod has no Jenkins stage until Dj decides how Prod deploys (Dj, 2026-09-29)
+**And** it applies `shared` from a saved plan only after Dj's approval in Jenkins
+**And** the Jenkins jobs sit in a folder `ocrinvoicing`: `dev/ocrinvoicing` (multibranch) and `dev/weekly-scan`, and `prod/deploy`, which Dj starts by hand (Dj, 2026-10-02)
+**And** the Prod job deploys only the `main` commit the dev chain last deployed successfully, runs the same steps as Dev, and applies each Prod stack from a saved plan only after Dj's approval in Jenkins
+**And** after each deploy a tag sweep copies the resource group's tags onto any resource in it that lacks them (such as the App Insights Smart Detection action group and Failure Anomalies rule), never overwriting or removing a tag
 **And** the operator steps (AD-17 steps 1, 3, 4b, 5 and 8) stay outside the pipeline, in the bootstrap README
 
 **Given** the CI VM bootstrap (`ci-vm.sh`)

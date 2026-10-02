@@ -106,3 +106,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-3-supplier-weekly-reminders.md`
   summary: Story 4.3's Table key-length rule (512 UTF-16 units in `storable()`) and the supplier web client's rejection of a malformed `/api/reminders` body have no test.
   evidence: The in-memory FakeTable enforces no key length; the server's response shape is pinned by `test_story_4_3_reminders_api`. Add when the 200-case cap allows.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-jenkins-dev-prod-folders.md`
+  summary: Run infra/bootstrap/ci-vm-remote.sh (old-job migration and folder-depth running-build guard) against a fake docker in a test.
+  evidence: Only a text-order assertion covers it today; executing it needs a fake-docker harness and a root (EUID) bypass. Until then, check the first restart log for "removed the old flat jobs".

@@ -3,6 +3,8 @@
 # Only `az account get-access-token` (when FAKE_AZ_TOKEN is set) and
 # `az functionapp deployment source config-zip` and `az functionapp show` (prints
 # <name>.azurewebsites.net) answer when FAKE_AZ_DEPLOY is set;
+# with FAKE_AZ_SWEEP (JSON {"group": <tags>, "resources": [...]}) `az group show` prints
+# its "group", `az resource list` its "resources", and `az tag update` succeeds (logged);
 # any other call prints FAKE-TOOL-CALLED and fails (a check stage must never call az).
 if [[ -n "${FAKE_AZ_LOG:-}" ]]; then printf '%s\n' "$*" >>"$FAKE_AZ_LOG"; fi
 if [[ -n "${FAKE_AZ_TOKEN:-}" && "$1 $2" == "account get-access-token" ]]; then
@@ -20,6 +22,18 @@ if [[ -n "${FAKE_AZ_DEPLOY:-}" && "$1 $2" == "functionapp show" ]]; then
     shift
   done
   exit 0
+fi
+if [[ -n "${FAKE_AZ_SWEEP:-}" ]]; then
+  case "$1 $2" in
+    "group show") key=group ;;
+    "resource list") key=resources ;;
+    "tag update") exit 0 ;;
+    *) key="" ;;
+  esac
+  if [[ -n "$key" ]]; then
+    python3 -c 'import json, os, sys; print(json.dumps(json.loads(os.environ["FAKE_AZ_SWEEP"])[sys.argv[1]]))' "$key"
+    exit 0
+  fi
 fi
 echo "FAKE-TOOL-CALLED: az $*" >&2
 exit 97

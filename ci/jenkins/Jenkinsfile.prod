@@ -1,0 +1,191 @@
+// Story 1.2 (spine AD-17): the Prod deploy, job "ocrinvoicing/prod/deploy"
+// (ci/jenkins/casc.yaml). Dj starts it by hand; it has no trigger (Dj, 2026-10-02).
+//
+// It deploys only the main commit that the dev chain (the root Jenkinsfile) last
+// deployed, recorded in $JENKINS_HOME/deploy-state/dev-commit (ci/deploy-state.sh): if
+// main has moved on, or nothing is recorded, it fails before signing in. It checks out once, and
+// every later stage checks that the workspace is still on that commit. Then the same
+// steps as Dev, each Terraform apply only after Dj approves its saved plan:
+//   prod/foundation (after Dj approves) -> Prod migrations
+//   -> prod/app (after Dj approves) -> Prod code -> tag sweep
+// A step with nothing to do (hasWork=false) is skipped, and so is its approval; a failed
+// or rejected step stops the chain. Every stage signs in only as Prod's deploy identity.
+
+// The Terraform installation from the Jenkins Terraform plugin (casc.yaml).
+TERRAFORM_TOOL = 'terraform-1.16.4'
+// hasWork of each plan, read from the file the plan script writes (CI_OUTPUT_FILE).
+HAS_WORK = [:]
+// The commit this run deploys, set by the first stage.
+DEPLOY_COMMIT = ''
+
+// runStep ID SCRIPT - runs SCRIPT and returns its hasWork output (ci/lib.sh set_output).
+def runStep(String id, String script) {
+  def out = "${env.WORKSPACE}/.work/ci/outputs/${id}.env"
+  sh "rm -f '${out}'"
+  withEnv(["CI_OUTPUT_FILE=${out}"]) {
+    sh script
+  }
+  return readFile(out).contains('hasWork=true')
+}
+
+// onDeployCommit - fails the stage unless the workspace is still on DEPLOY_COMMIT.
+def onDeployCommit() {
+  def head = sh(returnStdout: true, script: 'git rev-parse HEAD').trim()
+  if (!DEPLOY_COMMIT || head != DEPLOY_COMMIT) {
+    error("the workspace is on ${head}, not the verified commit '${DEPLOY_COMMIT}'; nothing more is deployed")
+  }
+}
+
+// asProd { ... } - runs the body on DEPLOY_COMMIT, signed in only as Prod's deploy
+// identity: `az login --identity` with its client id, and CI_MSI_CLIENT_ID for Terraform
+// (ci/lib.sh export_arm_context), in its own az profile in the workspace.
+def asProd(Closure body) {
+  onDeployCommit()
+  def clientId = env.DEPLOY_CLIENT_ID_PROD
+  if (!clientId?.trim()) {
+    error("DEPLOY_CLIENT_ID_PROD is not configured: attach prod's deploy identity to the CI VM and re-run its bootstrap (infra/bootstrap/README.md)")
+  }
+  withEnv([
+    "CI_MSI_CLIENT_ID=${clientId}",
+    "AZURE_CONFIG_DIR=${env.WORKSPACE}/.work/azure-prod",
+    "PATH+TERRAFORM=${tool TERRAFORM_TOOL}",
+  ]) {
+    sh 'az login --identity --client-id "$CI_MSI_CLIENT_ID" --output none'
+    body()
+  }
+}
+
+// planStack ID STACK [OPTIONAL] - plan -out=tfplan and the P-17 tag gate; the saved plan
+// goes to .work/ci/plans/ID for the apply stage of the same run.
+def planStack(String id, String stack, boolean optional = false) {
+  asProd {
+    HAS_WORK[id] = runStep(id, "ci/terraform-plan.sh ${stack} .work/ci/plans/${id}" + (optional ? ' --optional' : ''))
+  }
+}
+
+// applyStack ID STACK - applies only the saved plan of planStack ID.
+def applyStack(String id, String stack) {
+  asProd {
+    sh "ci/terraform-apply.sh ${stack} .work/ci/plans/${id}/tfplan"
+  }
+}
+
+// Saved plans and az profiles hold sensitive values: nothing outlives the run. Tolerates
+// a missing workspace, .work or infra folder.
+CLEANUP = 'rm -rf .work/ci/plans .work/azure-* || true; if [ -d infra ]; then find infra -name tfplan -type f -delete || true; fi'
+
+pipeline {
+  // No executor is held while an apply waits for Dj: each stage that runs something
+  // takes its own agent (the same workspace: one controller, one run at a time), and the
+  // approval stages take none.
+  agent none
+  options {
+    // The job's own checkout would fetch whatever main is when each stage starts: the
+    // first stage checks out once and the later stages reuse that workspace.
+    skipDefaultCheckout()
+    // One run at a time: Prod deploys never overlap.
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '30'))
+  }
+  environment {
+    TF_BUILD = 'true'
+    TF_PLUGIN_CACHE_DIR = '/var/jenkins_home/.terraform.d/plugin-cache'
+    TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE = 'true'
+  }
+  stages {
+    stage('Verify the commit') {
+      agent any
+      steps {
+        checkout scm
+        script {
+          // Fails, naming both commits, unless HEAD is the recorded one; prints it.
+          DEPLOY_COMMIT = sh(returnStdout: true, script: 'ci/deploy-state.sh verify').trim()
+          echo "Deploying ${DEPLOY_COMMIT} to Prod (deployed to Dev already)."
+        }
+      }
+    }
+    stage('Plan prod/foundation') {
+      agent any
+      steps { script { planStack('prod_foundation', 'prod/foundation') } }
+    }
+    stage('Approve prod/foundation') {
+      when {
+        beforeInput true
+        expression { HAS_WORK.prod_foundation }
+      }
+      options { timeout(time: 24, unit: 'HOURS') }
+      input {
+        message 'Apply the saved plan of prod/foundation? Review it in the "Plan prod/foundation" log first (terraform.md rule 26).'
+        ok 'Apply'
+        submitter 'dj'
+      }
+      steps { echo 'Dj approved the prod/foundation plan.' }
+    }
+    stage('Apply prod/foundation, migrate, plan prod/app') {
+      agent any
+      stages {
+        stage('Apply prod/foundation') {
+          when { expression { HAS_WORK.prod_foundation } }
+          steps { script { applyStack('prod_foundation', 'prod/foundation') } }
+        }
+        stage('Migrate prod') {
+          steps {
+            script {
+              onDeployCommit()
+              if (runStep('prod_migrate', 'ci/migrate.sh --check prod')) {
+                asProd { sh 'ci/migrate.sh prod' }
+              }
+            }
+          }
+        }
+        stage('Plan prod/app') {
+          steps { script { planStack('prod_app', 'prod/app', true) } }
+        }
+      }
+    }
+    stage('Approve prod/app') {
+      when {
+        beforeInput true
+        expression { HAS_WORK.prod_app }
+      }
+      options { timeout(time: 24, unit: 'HOURS') }
+      input {
+        message 'Apply the saved plan of prod/app? Review it in the "Plan prod/app" log first (terraform.md rule 26).'
+        ok 'Apply'
+        submitter 'dj'
+      }
+      steps { echo 'Dj approved the prod/app plan.' }
+    }
+    stage('Apply prod/app, deploy code, tag sweep') {
+      agent any
+      stages {
+        stage('Apply prod/app') {
+          when { expression { HAS_WORK.prod_app } }
+          steps { script { applyStack('prod_app', 'prod/app') } }
+        }
+        stage('Deploy code prod') {
+          steps {
+            script {
+              onDeployCommit()
+              if (runStep('prod_code', 'ci/code-deploy.sh --check prod')) {
+                // prod/app changed in this run: no app is skipped as unchanged.
+                withEnv(["CI_DEPLOY_ALL=${HAS_WORK.prod_app ? '1' : ''}"]) {
+                  asProd { sh 'ci/code-deploy.sh prod' }
+                }
+              }
+            }
+          }
+        }
+        stage('Tag sweep prod') {
+          steps { script { asProd { sh 'ci/tag-sweep.sh prod' } } }
+        }
+      }
+    }
+  }
+  post {
+    // A rejected or timed-out approval, or a failed step, can leave a saved plan behind.
+    always {
+      script { node('built-in') { sh CLEANUP } }
+    }
+  }
+}

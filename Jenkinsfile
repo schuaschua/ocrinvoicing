@@ -1,6 +1,6 @@
-// Story 1.2 (spine AD-17): the pipeline of the multibranch job "ocrinvoicing"
-// (ci/jenkins/casc.yaml). It only calls the ci/*.sh scripts, so every step also runs
-// locally.
+// Story 1.2 (spine AD-17): the pipeline of the multibranch job
+// "ocrinvoicing/dev/ocrinvoicing" (ci/jenkins/casc.yaml). It only calls the ci/*.sh
+// scripts, so every step also runs locally.
 //
 // Any branch other than main: the ci/checks.sh checks, with the result posted as a
 // status on the branch's pull request into main (ci/ado-status.sh); the branch policy
@@ -11,11 +11,13 @@
 // only from its own saved,
 // tag-gated plan of this run:
 //   shared/foundation (after Dj approves) -> dev/foundation -> Dev migrations
-//   -> dev/app -> Dev code
+//   -> dev/app -> Dev code -> record the commit -> tag sweep (shared, then Dev)
 // Dev applies automatically (terraform.md rules 26/33 exception). A step with nothing to
-// do (hasWork=false) is skipped; a failed step stops the chain. There are no Prod
-// stages: only the shared and Dev deploy identities are attached to the CI VM
-// (Dj, 2026-09-29).
+// do (hasWork=false) is skipped; a failed step stops the chain. Once Dev is deployed,
+// ci/deploy-state.sh records the commit in $JENKINS_HOME/deploy-state/dev-commit (before
+// the tag sweep, so a tagging failure never blocks Prod from what Dev runs): the Prod job
+// (ci/jenkins/Jenkinsfile.prod, started by hand) deploys only that commit. This file
+// has no Prod stage and refuses Prod's deploy identity (Dj, 2026-10-02).
 
 // The Terraform installation from the Jenkins Terraform plugin (casc.yaml).
 TERRAFORM_TOOL = 'terraform-1.16.4'
@@ -37,7 +39,8 @@ def runStep(String id, String script) {
 // (ci/lib.sh export_arm_context). Each owner gets its own az profile in the workspace.
 def asDeployIdentity(String owner, Closure body) {
   if (!(owner in ['shared', 'dev'])) {
-    error("no deploy identity for '${owner}' on the CI VM (only shared and dev are attached)")
+    // The other owner's identity is used only by its own job (ci/jenkins/Jenkinsfile.prod).
+    error("no deploy identity for '${owner}' in this pipeline (only shared and dev)")
   }
   def name = "DEPLOY_CLIENT_ID_${owner.toUpperCase()}"
   // Named properties only: the script sandbox rejects env[name] (getAt with a computed key).
@@ -233,6 +236,20 @@ pipeline {
                       asDeployIdentity('dev') { sh 'ci/code-deploy.sh dev' }
                     }
                   }
+                }
+              }
+            }
+            // Dev runs this commit now: it is what the Prod job may deploy.
+            stage('Record dev commit') {
+              steps { sh 'ci/deploy-state.sh record' }
+            }
+            // Resources Azure creates by itself (App Insights' Smart Detection action
+            // group and Failure Anomalies rule) get the group's missing tags.
+            stage('Tag sweep') {
+              steps {
+                script {
+                  asDeployIdentity('shared') { sh 'ci/tag-sweep.sh shared' }
+                  asDeployIdentity('dev') { sh 'ci/tag-sweep.sh dev' }
                 }
               }
             }

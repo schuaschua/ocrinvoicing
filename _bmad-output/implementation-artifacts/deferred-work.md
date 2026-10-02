@@ -133,3 +133,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-5-2-staff-alert-emails.md`
   summary: Confirm on real Azure that the custom `ACS Email Sender` role (CommunicationServices/Read, EmailServices/write) allows a data-plane send; test the overdue-failure path with emails on and rbac-step3's "ACS not yet" skip.
   evidence: Mock-only tests; the spine lists the role's exact actions as open. README step 8 checks it at switch-on.
+- source_plan: `_bmad-output/implementation-artifacts/plan-1-2-jenkins-dev-prod-folders.md`
+  summary: On a Jenkins start that creates new jobs (casc job DSL), JCasC creates them before "Loaded all jobs", which drops them from memory; restart Jenkins once after any first creation (ci-vm-remote.sh, or a README step).
+  evidence: 2026-10-02 04:28 UTC on vm-21: the log shows "createOrUpdateConfig for ocrinvoicing/..." then "Loaded all jobs"; the UI showed no ocrinvoicing jobs, every build ended "No build record ... could be located", and no branch indexing ran after 04:28:58 although the folders are on disk.

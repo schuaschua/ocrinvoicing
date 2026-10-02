@@ -84,7 +84,7 @@ Try each script with `--dry-run` first.
   - `dev` and `prod` also: Role Based Access Control Administrator on their resource group, conditioned to assigning or removing only the runtime roles (Storage Blob Data Contributor/Owner, Storage Queue Data Contributor/Message Sender, Storage Table Data Contributor, Key Vault Secrets User/Officer, Monitoring Metrics Publisher) and only to service principals; and Storage Blob Data Reader on the `ocrinvoicing-shared` state container.
 - `app-registrations.sh` creates, per environment, `staff-api` (single tenant, app roles `admin`, `finance`, `procurement`, `management`, `goods_in`, ID tokens on, "assignment required" on its service principal, no secret) and `accounts-sim` (single tenant, identifier URI `api://<appId>`). It prints the client ids that `<env>/app` needs: put the `staff-api` one in `infra/<env>/app/terraform.tfvars` as `staff_api_client_id` (Story 2.7) and the `accounts-sim` one as `accounts_sim_client_id` (Story 3.1: its built-in auth accepts tokens for `api://<client id>` from the environment's `pipeline` identity only), before `<env>/app` is planned. Neither is a secret. The redirect URI is step 8.
 - `app-registrations.sh` also creates the Entra security groups used as PostgreSQL logins (Dj, 2026-09-29: his guest UPN is over PostgreSQL's 63-character role-name limit), and adds the signed-in operator (`az ad signed-in-user show`) as a member of each: the loaders groups `babaloo-sea-lng-grp-01` (dev) and `-grp-11` (prod), the supplier load script's login, and the pg-admins group `babaloo-sea-lng-grp-21`, the PostgreSQL Entra admin. An existing group is kept, and an existing member is not re-added. It prints the pg-admins group's object id and name: before `shared/foundation` is first applied, put them in `infra/shared/foundation/terraform.tfvars` as `postgres_entra_admin_object_id` and `postgres_entra_admin_principal_name`, with `postgres_entra_admin_principal_type = "Group"`. Creating groups and adding members needs Entra rights, not just Owner on the subscription: an Entra role such as Groups Administrator (or Global Administrator), or, for an existing group, being its owner. The creator of a group is its owner. A new member's Azure sign-in picks up the group after `az login` is run again.
-- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine; unused until Story 5.2). There is no subscription budget (Dj, 2026-09-30: dropped, the subscription holds other projects; the resource-group budgets track this project). A `babaloo-sea-lng-budget-22` made by an earlier run can be deleted: `az consumption budget delete --budget-name babaloo-sea-lng-budget-22`.
+- `budget-and-roles.sh` creates the custom role `ACS Email Sender` (`Microsoft.Communication/CommunicationServices/Read` and `Microsoft.Communication/EmailServices/write`; the exact minimum is an open question in the spine; assigned to the pipelines by `<env>/app` once ACS exists, Story 5.2). There is no subscription budget (Dj, 2026-09-30: dropped, the subscription holds other projects; the resource-group budgets track this project). A `babaloo-sea-lng-budget-22` made by an earlier run can be deleted: `az consumption budget delete --budget-name babaloo-sea-lng-budget-22`.
 
 ### Step 1b: push the code to Azure Repos
 
@@ -140,13 +140,37 @@ What the jobs do:
 - **Migrations** (`ci/migrate.sh`): `alembic upgrade head` as the environment's deploy identity with an Entra token, straight to the server (the PoC firewall is open, so no temporary rule); skipped with "no migrations" until `backend/migrations/env.py` exists. From Story 1.6 the migrations also grant `master` and `audit` to the environment's loaders group (Dj's load-script login), whose name `ci/migrate.sh` takes from `lib.sh`, like the other logins.
 - **Weekly scan**: `ci/checks.sh audit` on `main` every Monday, failing on any finding.
 
-### Step 2: no email domain yet
+### Step 2: no email domain needed
 
-ACS Email is not in `shared/foundation` yet (Dj, 2026-09-30): Story 5.2 "Staff alert emails", its only user, creates it with its custom domain, adds the email-domain inputs to `terraform.tfvars` and the DNS verification step here, and adds the ACS part of step 3. Step 2 needs no email domain.
+Step 2 needs no email domain. ACS Email (Story 5.2, AD-16) is in `shared/foundation`, but with `email_custom_domain` empty (the default) nothing of it is created, no `ACS Email Sender` role is assigned and no alert email is sent. Turning it on is the separate "Email domain" step below.
+
+### Email domain: staff alert emails (Story 5.2, once, when Dj is ready)
+
+Staff alert emails (price rises and watchlist listings, AD-16) go out only from a custom domain Dj owns. In order:
+
+1. In `infra/shared/foundation/terraform.tfvars`, set `email_custom_domain` (e.g. `alerts.example.com`, a domain or subdomain Dj controls DNS for). Leave `email_domain_link_enabled` unset (`false`).
+2. Apply `shared/foundation` (plan, Dj approves, apply). It creates the Communication Services resource (`babaloo-sea-lng-acs-21`, access keys off, data in "Asia Pacific"), the Email Communication Service (`babaloo-sea-lng-ecs-21`) and the customer-managed domain. Nothing is linked, no sender exists, and `<env>/app` still assigns no ACS role.
+3. Re-run `rbac-step3.sh` (step 3): now that ACS exists, it also gives each environment's deploy identity RBAC Administrator on ACS, conditioned to assigning only `ACS Email Sender`. This must happen before step 7, whose deploy chain assigns that role.
+4. Read the DNS records: `terraform -chdir=infra/shared/foundation output -json email_domain_verification_records` (Domain TXT, SPF TXT, DKIM and DKIM2 CNAMEs, DMARC). Add each at the domain's registrar by hand.
+5. Start verification, once per record type, and wait until each shows `Verified` (DNS can take up to a day):
+
+   ```sh
+   domain_id="/subscriptions/$ARM_SUBSCRIPTION_ID/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/emailServices/babaloo-sea-lng-ecs-21/domains/<email_custom_domain>"
+   for type in Domain SPF DKIM DKIM2; do
+     az rest --method post --url "https://management.azure.com$domain_id/initiateVerification?api-version=2023-03-31" --body "{\"verificationType\": \"$type\"}"
+   done
+   az rest --method get --url "https://management.azure.com$domain_id?api-version=2023-03-31" --query properties.verificationStates
+   ```
+
+6. Make `alerts@<email_custom_domain>` receivable: every alert email is addressed to it as the only To (staff are in Bcc), so without a mailbox or an MX record for the domain each send also bounces back to it.
+7. Set `email_domain_link_enabled = true` in the same `terraform.tfvars`, and set the app settings: in `infra/dev/app/terraform.tfvars` (and Prod's) set `alert_recipients_finance`, `alert_recipients_procurement` and `alert_recipients_management` (lists of addresses; empty means nobody). Apply `shared/foundation` (it links the domain and creates the sender `alerts@<email_custom_domain>`), then `<env>/foundation` and `<env>/app`: the pipeline gets `ACS Email Sender` on ACS and `EMAIL_ACS_ENDPOINT`, `EMAIL_SENDER_ADDRESS`, `STAFF_APP_BASE_URL` and `ALERT_RECIPIENTS_*`. Alerts not yet emailed go out at the next analytics refresh (alerts from before the first summaries run were stored already marked emailed), throttled to 5 a minute and 20 an hour in Dev, 25 and 80 in Prod. Alerts created more than 14 days before that run are marked emailed without a send. The first run after switch-on may log `email.failed` (403) while the new role assignment propagates; the alerts stay pending and go at the next run.
+8. Check that the custom role `ACS Email Sender` really allows a send before relying on it (the spine still lists its exact actions as open): watch the first analytics refresh's logs for `email.sent`; `email.failed code=HttpResponseError` on every alert means the role's actions are not enough. Fix the role in `budget-and-roles.sh` (or, as a last resort, assign Communication and Email Service Owner by hand) and wait for the next run.
+
+To turn emails off again, empty the recipient lists (nobody is mailed; the alerts stay pending) or set `email_domain_link_enabled = false` (the sender address and the pipeline's ACS role go, so nothing is sent). Either way the change only reaches the pipeline once `shared/foundation`, then `<env>/foundation`, then `<env>/app` are re-applied, in that order, for each environment.
 
 ### Step 3: conditioned RBAC Administrator on the shared DI
 
-`rbac-step3.sh` gives each environment deploy identity RBAC Administrator on the Document Intelligence account (may assign only Cognitive Services User), only to service principals. `<env>/app` uses it to grant each environment's `pipeline` identity its DI runtime role. The ACS part (may assign only `ACS Email Sender`) comes with Story 5.2.
+`rbac-step3.sh` gives each environment deploy identity RBAC Administrator on the Document Intelligence account (may assign only Cognitive Services User), only to service principals. `<env>/app` uses it to grant each environment's `pipeline` identity its DI runtime role. Story 5.2 adds the same on the shared Communication Services resource (may assign only the custom role `ACS Email Sender`, found by name, so `budget-and-roles.sh` must have run). While ACS doesn't exist (no `email_custom_domain`), that part is skipped with a message; re-run the script once the "Email domain" step has created it (its step 3).
 
 ### Step 4b: PGP key pair (once per environment)
 

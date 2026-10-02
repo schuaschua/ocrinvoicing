@@ -5,6 +5,7 @@ import { getMe, type Me } from "@/api/me";
 import { Modal } from "@/components/Modal";
 import { Button } from "@/components/ui/button";
 import { navigate, useNotAllowed, usePath } from "@/router";
+import { FinanceMonthScreen } from "@/screens/FinanceMonthScreen";
 import { GoodsInScreen } from "@/screens/GoodsInScreen";
 import { LoadError } from "@/screens/LoadError";
 import { InvoiceDetailScreen } from "@/screens/InvoiceDetailScreen";
@@ -14,9 +15,13 @@ import { Loading } from "@/screens/Loading";
 import { NoAccess } from "@/screens/NoAccess";
 import { Offline } from "@/screens/Offline";
 import { OverduePosScreen } from "@/screens/OverduePosScreen";
+import { PriceComparisonScreen } from "@/screens/PriceComparisonScreen";
 import { QueueScreen } from "@/screens/QueueScreen";
 import { SignedOut, signInHref } from "@/screens/SignedOut";
+import { SupplierScreen } from "@/screens/SupplierScreen";
+import { SuppliersScreen } from "@/screens/SuppliersScreen";
 import { SurfacePage } from "@/screens/SurfacePage";
+import { WatchlistScreen } from "@/screens/WatchlistScreen";
 import { Nav } from "@/shell/Nav";
 import { leftFor, useNotice } from "@/shell/notices";
 import { useShortcuts, useShortcutsEnabled } from "@/shell/shortcuts";
@@ -56,7 +61,7 @@ function routeFor(me: Me, path: string): Route {
   return { kind: "page", surface };
 }
 
-/** The invoice id of `/queue/:invoiceId` or `/invoices/:invoiceId`. */
+/** The id of `/queue/:invoiceId`, `/invoices/:invoiceId` or `/suppliers/:supplierId`. */
 function itemIdFrom(path: string): string {
   const segment = path.split("/")[2] ?? "";
   try {
@@ -224,6 +229,16 @@ export function App() {
       content = <InvoiceDetailScreen key={path} invoiceId={itemIdFrom(path)} />;
     } else if (route.surface.id === "overdue_pos") {
       content = <OverduePosScreen key={path} />;
+    } else if (route.surface.id === "price_comparison") {
+      content = <PriceComparisonScreen key={path} />;
+    } else if (route.surface.id === "watchlist") {
+      content = <WatchlistScreen key={path} />;
+    } else if (route.surface.id === "suppliers") {
+      content = <SuppliersScreen key={path} />;
+    } else if (route.surface.id === "supplier_scorecard") {
+      content = <SupplierScreen key={path} supplierId={itemIdFrom(path)} />;
+    } else if (route.surface.id === "finance_month") {
+      content = <FinanceMonthScreen key={path} />;
     } else {
       content = <SurfacePage key={path} surface={route.surface} />;
     }

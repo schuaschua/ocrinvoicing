@@ -137,6 +137,14 @@ variables {
   staff_api_client_id                    = "30000000-0000-0000-0000-0000000000a1"
   accounts_sim_client_id                 = "30000000-0000-0000-0000-0000000000b1"
   application_insights_connection_string = "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://southeastasia-0.in.applicationinsights.azure.com/"
+  # Story 5.2: shared ACS Email on, with a linked domain (the roots' tests cover it off).
+  communication_service_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21"
+  email_acs_endpoint       = "https://babaloo-sea-lng-acs-21.asiapacific.communication.azure.com"
+  email_sender_address     = "alerts@alerts.example.test"
+  alert_recipients = {
+    finance     = ["siti@example.test", "ah.kow@example.test"]
+    procurement = ["weiling@example.test"]
+  }
   tags = {
     owner              = "test-owner"
     costCentre         = "test-cc"
@@ -264,6 +272,8 @@ run "story_1_3_env_app_applied" {
       "10000000-0000-0000-0000-000000000003 | Monitoring Metrics Publisher | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01",
       # Story 2.3 (AD-8): the one DI caller, on the shared F0 resource.
       "10000000-0000-0000-0000-000000000003 | Cognitive Services User | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.CognitiveServices/accounts/babaloo-sea-lng-di-21",
+      # Story 5.2 (AD-16): the one email sender, on the shared ACS.
+      "10000000-0000-0000-0000-000000000003 | ACS Email Sender | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/deploy-accounts-sim",
       "10000000-0000-0000-0000-000000000004 | Monitoring Metrics Publisher | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Insights/components/babaloo-sea-lng-appi-01",
       # Functions host containers: platform requirement beyond AD-17 (overnight decision).
@@ -275,8 +285,8 @@ run "story_1_3_env_app_applied" {
       "10000000-0000-0000-0000-000000000003 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-secrets",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-hosts",
       "10000000-0000-0000-0000-000000000004 | Storage Blob Data Owner | /subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-01/providers/Microsoft.Storage/storageAccounts/babaloosealngst01/blobServices/default/containers/azure-webjobs-secrets",
-    ]) && length(azurerm_role_assignment.runtime) == 31
-    error_message = "runtime roles must be exactly the AD-17 table (minus ACS, Story 5.2) plus Blob Data Owner on the two Functions host containers."
+    ]) && length(azurerm_role_assignment.runtime) == 32
+    error_message = "runtime roles must be exactly the AD-17 table (ACS Email Sender included, Story 5.2) plus Blob Data Owner on the two Functions host containers."
   }
   assert {
     condition     = alltrue([for ra in azurerm_role_assignment.runtime : can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/.+", ra.scope))])
@@ -478,7 +488,7 @@ run "story_1_3_env_app_applied" {
     condition = { for app, settings in local.app_settings : app => toset(keys(settings)) } == {
       supplier_api = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME"])
       staff_api    = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "PGP_PRIVATE_KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY"])
-      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_ENDPOINT", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY", "ACCOUNTS_BASE_URL", "ACCOUNTS_AUDIENCE"])
+      pipeline     = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "STORAGE_ACCOUNT_NAME", "KEY_VAULT_URI", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "DI_ENDPOINT", "DI_MONTHLY_PAGE_CAP", "INVOICE_CURRENCY", "ACCOUNTS_BASE_URL", "ACCOUNTS_AUDIENCE", "EMAIL_ACS_ENDPOINT", "EMAIL_SENDER_ADDRESS", "STAFF_APP_BASE_URL", "ALERT_RECIPIENTS_FINANCE", "ALERT_RECIPIENTS_PROCUREMENT", "ALERT_RECIPIENTS_MANAGEMENT"])
       accounts_sim = toset(["APP_ENVIRONMENT", "AZURE_CLIENT_ID", "APPLICATIONINSIGHTS_AUTHENTICATION_STRING", "TELEMETRY_SAMPLING_RATIO", "AzureWebJobsStorage__accountName", "AzureWebJobsStorage__credential", "AzureWebJobsStorage__clientId", "POSTGRES_HOST", "POSTGRES_DATABASE", "POSTGRES_USER", "PIPELINE_PRINCIPAL_ID"])
     }
     error_message = "each app must get exactly the settings its pydantic-settings class reads, plus the host settings."
@@ -513,6 +523,19 @@ run "story_1_3_env_app_applied" {
       local.app_settings["pipeline"].ACCOUNTS_AUDIENCE == "api://30000000-0000-0000-0000-0000000000b1"
     )
     error_message = "the pipeline must connect to its environment's database as its own identity's login, to DI with its cap and currency (Story 2.3), and to its own accounts-sim with that registration's audience (Story 3.2)."
+  }
+  # Story 5.2 (AD-16): the pipeline sends through the shared ACS from the linked
+  # sender, links to this environment's staff app, and gets the per-role lists.
+  assert {
+    condition = (
+      local.app_settings["pipeline"].EMAIL_ACS_ENDPOINT == "https://babaloo-sea-lng-acs-21.asiapacific.communication.azure.com" &&
+      local.app_settings["pipeline"].EMAIL_SENDER_ADDRESS == "alerts@alerts.example.test" &&
+      local.app_settings["pipeline"].STAFF_APP_BASE_URL == "https://babaloo-sea-lng-func-02.azurewebsites.net" &&
+      local.app_settings["pipeline"].ALERT_RECIPIENTS_FINANCE == "siti@example.test,ah.kow@example.test" &&
+      local.app_settings["pipeline"].ALERT_RECIPIENTS_PROCUREMENT == "weiling@example.test" &&
+      local.app_settings["pipeline"].ALERT_RECIPIENTS_MANAGEMENT == ""
+    )
+    error_message = "the pipeline must get the ACS endpoint, the sender, staff-api's URL and the comma-separated recipients per role (Story 5.2)."
   }
   # Story 2.8: staff-api signs in as its own identity, with the same cap and currency.
   assert {

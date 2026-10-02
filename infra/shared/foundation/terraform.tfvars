@@ -14,3 +14,9 @@ postgres_entra_admin_principal_type = "Group"
 
 # [ASSUMPTION] The shared group holds the ~$10-11/month PostgreSQL server (AD-12).
 budget_amount = 12
+
+# Story 5.2 (AD-16): staff alert emails stay off until Dj sets his own domain here
+# (infra/bootstrap/README.md, "Email domain"), and links it only once its DNS records
+# are verified:
+# email_custom_domain       = "alerts.example.com"
+# email_domain_link_enabled = true

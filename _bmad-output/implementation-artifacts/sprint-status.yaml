@@ -72,15 +72,15 @@ development_status:
   4-1-goods-in-scans-a-paper-invoice-against-a-delivery: done
   4-2-overdue-po-list: review
   4-3-suppliers-see-weekly-reminders-on-their-upload-page: review
-  4-4-suppliers-list-and-supplier-page: backlog
-  4-5-delivery-dates-on-the-supplier-page-could-have: backlog
+  4-4-suppliers-list-and-supplier-page: review
+  4-5-delivery-dates-on-the-supplier-page-could-have: review
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-analytics-refresh-builds-the-summary-tables: backlog
-  5-2-staff-alert-emails: backlog
-  5-3-price-comparison-with-price-rise-alerts: backlog
-  5-4-supplier-watchlist-with-ranked-alternatives: backlog
-  5-5-supplier-scorecard: backlog
-  5-6-finance-month-view: backlog
+  epic-5: in-progress
+  5-1-analytics-refresh-builds-the-summary-tables: review
+  5-2-staff-alert-emails: review
+  5-3-price-comparison-with-price-rise-alerts: review
+  5-4-supplier-watchlist-with-ranked-alternatives: review
+  5-5-supplier-scorecard: review
+  5-6-finance-month-view: review
   epic-5-retrospective: optional

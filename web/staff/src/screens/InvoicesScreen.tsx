@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { amountText, dateTimeText } from "@/lib/format";
+import { plainClick } from "@/lib/links";
 import { navigate } from "@/router";
 import {
   pageTitle,
@@ -62,17 +63,6 @@ const EMPTY: InvoiceQuery = {
 
 export function invoicePath(invoiceId: string): string {
   return `/invoices/${encodeURIComponent(invoiceId)}`;
-}
-
-/** A plain left click; a modified one keeps the browser's own behaviour (new tab). */
-function plainClick(event: MouseEvent): boolean {
-  return !(
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  );
 }
 
 /**

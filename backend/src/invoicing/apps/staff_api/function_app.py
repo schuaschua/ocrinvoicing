@@ -15,6 +15,7 @@ from invoicing.adapters.postgres.admin_actions import PostgresAdminActions
 from invoicing.adapters.postgres.admin_item import PostgresAdminItemReader
 from invoicing.adapters.postgres.admin_queue import PostgresAdminQueueReader
 from invoicing.adapters.postgres.analytics import PostgresOverdueReader
+from invoicing.adapters.postgres.dashboards import PostgresDashboardReader
 from invoicing.adapters.postgres.engine import entra_token_provider, postgres_engine
 from invoicing.adapters.postgres.invoice_search import PostgresInvoiceSearchReader
 from invoicing.adapters.postgres.suppliers import PostgresSupplierDirectory
@@ -24,13 +25,17 @@ from invoicing.adapters.static import spa_endpoint
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import health_endpoint, load_settings, start_telemetry
 from invoicing.apps.staff_api.actions import action_endpoints
+from invoicing.apps.staff_api.finance_month import finance_month_endpoint
 from invoicing.apps.staff_api.goods_in import goods_in_endpoints
 from invoicing.apps.staff_api.invoices import invoices_endpoints
 from invoicing.apps.staff_api.item import item_endpoints
 from invoicing.apps.staff_api.me import me_endpoint
 from invoicing.apps.staff_api.overdue import overdue_endpoint
+from invoicing.apps.staff_api.price_comparison import price_comparison_endpoints
 from invoicing.apps.staff_api.queue import queue_endpoint
 from invoicing.apps.staff_api.settings import StaffApiSettings
+from invoicing.apps.staff_api.suppliers import suppliers_endpoints
+from invoicing.apps.staff_api.watchlist import watchlist_endpoint
 from invoicing.domain.errors import ErrorCode
 
 # Fails at start-up, naming any missing setting.
@@ -252,6 +257,107 @@ async def overdue_pos(req: func.HttpRequest) -> func.HttpResponse:
     """POs past their expected date with no invoice, by supplier, with the date the
     list was made (admin, procurement and finance): 200, 401, 403 or 503."""
     return await overdue_api(req)
+
+
+# Story 5.3: Price comparison, read from `analytics` only (SELECT); supplier names from
+# the master.
+materials_api, price_comparison_api = price_comparison_endpoints(
+    PostgresDashboardReader(engine),
+    PostgresSupplierDirectory(engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+# Story 4.4: the suppliers list and one supplier's page shell, id and name only (AD-11).
+# Story 4.5: its Deliveries tab, from the purchasing port (AD-10). Story 5.5: its
+# Scorecard tab, from `analytics` only (SELECT).
+(
+    supplier_list_api,
+    supplier_detail_api,
+    supplier_deliveries_api,
+    supplier_scorecard_api,
+) = suppliers_endpoints(
+    PostgresSupplierDirectory(engine),
+    purchasing_port(settings.purchasing_adapter, engine),
+    PostgresDashboardReader(engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/materials", methods=["GET"])
+async def materials(req: func.HttpRequest) -> func.HttpResponse:
+    """The materials with posted prices, by name (procurement and finance): 200, 401,
+    403 or 503."""
+    return await materials_api(req)
+
+
+@app.route(route="api/price-comparison", methods=["GET"])
+async def price_comparison(req: func.HttpRequest) -> func.HttpResponse:
+    """One material's suppliers, price history and price-rise alerts (procurement and
+    finance): 200, 401, 403, 404 or 503."""
+    return await price_comparison_api(req)
+
+
+# Story 5.4: the Watchlist, read from `analytics` only (SELECT); supplier names from the
+# master.
+watchlist_api = watchlist_endpoint(
+    PostgresDashboardReader(engine),
+    PostgresSupplierDirectory(engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/watchlist", methods=["GET"])
+async def watchlist(req: func.HttpRequest) -> func.HttpResponse:
+    """The watchlisted suppliers with their evidence and ranked alternatives
+    (procurement and management): 200, 401, 403 or 503."""
+    return await watchlist_api(req)
+
+
+@app.route(route="api/suppliers", methods=["GET"])
+async def supplier_list(req: func.HttpRequest) -> func.HttpResponse:
+    """Suppliers by name, 50 a page, searched by name (procurement, finance and
+    management): 200, 400, 401, 403 or 503."""
+    return await supplier_list_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}", methods=["GET"])
+async def supplier_detail(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's id and name (procurement, finance and management): 200, 401,
+    404 or 503."""
+    return await supplier_detail_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}/deliveries", methods=["GET"])
+async def supplier_deliveries(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's deliveries of the last 365 days with promised, delivered and
+    received dates and the gaps in days (procurement, finance and management): 200,
+    401, 404 or 503."""
+    return await supplier_deliveries_api(req)
+
+
+@app.route(route="api/suppliers/{supplier_id}/scorecard", methods=["GET"])
+async def supplier_scorecard(req: func.HttpRequest) -> func.HttpResponse:
+    """One supplier's on-time rate and price trend per material over the last 365
+    days (procurement, finance and management): 200, 401, 404 or 503."""
+    return await supplier_scorecard_api(req)
+
+
+# Story 5.6: Finance month, read from `analytics` only (SELECT); supplier names from
+# the master.
+finance_month_api = finance_month_endpoint(
+    PostgresDashboardReader(engine),
+    PostgresSupplierDirectory(engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/finance-month", methods=["GET"])
+async def finance_month(req: func.HttpRequest) -> func.HttpResponse:
+    """One month's spend, price rises, flagged and duplicate invoices per supplier,
+    with the straight-through share against the 90% target (finance and management):
+    200, 400, 401, 403 or 503."""
+    return await finance_month_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

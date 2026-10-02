@@ -6,7 +6,7 @@ stage on `q-quality`; Story 2.2 the poison triggers, the AD-7 database wait and 
 sweeper timer; Story 2.3 the `extract` stage on `q-extract`; Story 2.5 the `validate`
 stage on `q-validate`, and Story 2.6 its duplicate, date and bank checks; Story 3.2 the
 `post` stage on `q-post`; Story 4.2 the AD-13 analytics refresh timer, and Story 4.3
-its weekly supplier reminders.
+its weekly supplier reminders; Story 5.2 its alert emails.
 """
 
 import azure.functions as func
@@ -19,6 +19,7 @@ from invoicing.adapters.accounts_xml.client import AccountsXmlClient
 from invoicing.adapters.blob_images import BlobImageStore
 from invoicing.adapters.document_intelligence import DocumentIntelligenceAnalyzer
 from invoicing.adapters.documents import load_quality_thresholds
+from invoicing.adapters.email import AcsEmail, SendThrottle, ThrottledEmail, limits_for
 from invoicing.adapters.key_vault import BankKeysLoader
 from invoicing.adapters.metrics import OpenTelemetryMetrics
 from invoicing.adapters.postgres.analytics import PostgresAnalyticsStore
@@ -33,6 +34,7 @@ from invoicing.adapters.queue import StorageQueueSender
 from invoicing.adapters.table_reminders import TableReminderStore
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import load_settings, start_telemetry
+from invoicing.apps.pipeline.alert_emails import AlertMailConfig
 from invoicing.apps.pipeline.analytics_refresh import REFRESH_SCHEDULE, AnalyticsRefresh
 from invoicing.apps.pipeline.dbwait import wait_for_database
 from invoicing.apps.pipeline.extract import ExtractDependencies, extract_handler
@@ -156,8 +158,33 @@ poison_stages = {
 }
 sweeper_job = Sweeper(invoices, upload_keys, images, queue, metrics)
 # Story 4.2: the AD-13 job, the only writer of `analytics`; purchasing through its
-# adapter only (AD-10). Story 4.3: it also writes the weekly supplier reminders.
-analytics_job = AnalyticsRefresh(purchasing, PostgresAnalyticsStore(engine), reminders)
+# adapter only (AD-10). Story 4.3: it also writes the weekly supplier reminders;
+# Story 5.1 the daily summary tables (AD-20).
+# Story 5.2 (AD-16): its alert emails, through the one ACS sender with the pipeline's
+# identity, throttled for this environment in this process. Off (email None) until
+# Dj sets the email domain and these settings (infra/bootstrap/README.md).
+alert_mail = AlertMailConfig(
+    email=(
+        ThrottledEmail(
+            AcsEmail(
+                settings.email_acs_endpoint,
+                settings.email_sender_address,
+                AsyncManagedIdentityCredential(client_id=_identity),
+            ),
+            SendThrottle(limits_for(settings.app_environment)),
+        )
+        # email_enabled also needs the staff app URL; the other two narrow the types.
+        if settings.email_enabled
+        and settings.email_acs_endpoint
+        and settings.email_sender_address
+        else None
+    ),
+    recipients=settings.alert_recipients,
+    staff_app_base_url=settings.staff_app_base_url,
+)
+analytics_job = AnalyticsRefresh(
+    purchasing, PostgresAnalyticsStore(engine), reminders, alert_mail=alert_mail
+)
 
 
 # The queue trigger reads through the host storage connection (AzureWebJobsStorage,
@@ -259,5 +286,6 @@ async def sweeper(timer: func.TimerRequest) -> None:
 )
 async def analytics_refresh(timer: func.TimerRequest) -> None:
     """The analytics refresh job: rebuild the overdue list once a weekday (Story
-    4.2) and the supplier reminders once a week (Story 4.3)."""
+    4.2), the supplier reminders once a week (Story 4.3) and the summary tables once
+    a day (Story 5.1)."""
     await analytics_job.run()

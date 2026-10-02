@@ -52,6 +52,18 @@ locals {
   # configuration resource (see main.tf).
   postgres_extensions = "PGCRYPTO"
 
+  # Story 5.2 (AD-16): ACS Email exists only once Dj sets his domain, and the domain
+  # is linked (and its sender created) only once its DNS records are verified.
+  email_enabled      = var.email_custom_domain != ""
+  email_link_enabled = local.email_enabled && var.email_domain_link_enabled
+  email = {
+    # Where ACS keeps email data at rest (AD-16). Its P-15 fit is a spine open
+    # question; the emails carry no bank details.
+    data_location   = "Asia Pacific"
+    domain_key      = "custom"
+    sender_username = "alerts"
+  }
+
   # azure.md rule 17.
   budget_thresholds = [
     { threshold = 90, threshold_type = "Actual" },

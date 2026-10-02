@@ -166,6 +166,57 @@ variable "invoice_currency" {
   }
 }
 
+variable "communication_service_id" {
+  description = "Story 5.2 (AD-16): resource id of the shared Communication Services resource (shared/foundation, through <env>/foundation), where the pipeline gets ACS Email Sender. Null (the default) while shared has none: no role is assigned."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.communication_service_id == null || can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.Communication/communicationServices/[^/]+$", var.communication_service_id))
+    error_message = "communication_service_id must be null or a Communication Services resource id."
+  }
+}
+
+variable "email_acs_endpoint" {
+  description = "Story 5.2: the shared Communication Services endpoint (https://<name>.<geo>.communication.azure.com), the pipeline's EMAIL_ACS_ENDPOINT. Null (the default) keeps alert emails off."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.email_acs_endpoint == null || can(regex("^https://[a-z0-9.-]+\\.communication\\.azure\\.com/?$", var.email_acs_endpoint))
+    error_message = "email_acs_endpoint must be null or https://<name>.<geo>.communication.azure.com."
+  }
+}
+
+variable "email_sender_address" {
+  description = "Story 5.2: the alerts' sender address on the linked custom domain (alerts@<domain>), the pipeline's EMAIL_SENDER_ADDRESS. Null (the default) keeps alert emails off."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.email_sender_address == null || can(regex("^[^@\\s,;<>\"]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", var.email_sender_address))
+    error_message = "email_sender_address must be null or a plain email address."
+  }
+}
+
+variable "alert_recipients" {
+  description = "Story 5.2: email addresses per recipient role (finance, procurement, management) for the staff alert emails; each list becomes a comma-separated ALERT_RECIPIENTS_<ROLE> setting. Empty by default (nobody)."
+  type = object({
+    finance     = optional(list(string), [])
+    procurement = optional(list(string), [])
+    management  = optional(list(string), [])
+  })
+  default = {}
+
+  validation {
+    condition = alltrue([
+      for address in concat(var.alert_recipients.finance, var.alert_recipients.procurement, var.alert_recipients.management) :
+      can(regex("^[^@\\s,;<>\"]+@[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$", address))
+    ])
+    error_message = "alert_recipients must hold plain email addresses (no names, commas or spaces)."
+  }
+}
+
 variable "application_insights_connection_string" {
   description = "Application Insights connection string. Not a credential (local auth is off, AD-17), but kept out of logs."
   type        = string

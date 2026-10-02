@@ -79,6 +79,21 @@ export function statusLabel(
   return statusLabels[status] ?? FALLBACK_STATUS;
 }
 
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -522,6 +537,221 @@ export const strings = {
     columns: {
       po: "PO",
       expected: "Expected",
+    },
+  },
+  /** Story 5.3: Price comparison (EXPERIENCE.md: suppliers' unit prices with their
+   * on-time rates, and price-rise alerts with their evidence; CAP-14). */
+  priceComparison: {
+    material: "Material",
+    empty: "No posted invoices yet for this period.",
+    noRecent: "No prices in the last 12 months for this material.",
+    price: "Price",
+    summary: (material: string, price: string, supplier: string) =>
+      `${material}: lowest latest price ${price} from ${supplier}.`,
+    chartTitle: "Unit price history",
+    suppliersHeading: "Suppliers",
+    suppliersLabel: "Suppliers' latest prices",
+    columns: {
+      supplier: "Supplier",
+      latestPrice: "Latest price",
+      latestDate: "Invoice date",
+      onTime: "On-time rate",
+    },
+    noRate: "No deliveries yet",
+    unknownSupplier: "Unknown supplier",
+    alertsHeading: "Price-rise alerts",
+    noAlerts: "No price rises.",
+    alert: (supplier: string, material: string, pct: string) =>
+      `Price rise: ${supplier}, ${material} +${pct}%`,
+    evidenceLabel: (supplier: string) => `Evidence for ${supplier}`,
+    evidenceColumns: {
+      date: "Invoice date",
+      price: "Unit price",
+      invoice: "Invoice",
+    },
+    openInvoice: "Open invoice",
+    readOnly: "Posted invoice",
+  },
+  /** Story 5.6: Finance month (EXPERIENCE.md: per-supplier figures for the month and
+   * the straight-through share against the 90% target; CAP-18, Flow 7). */
+  financeMonth: {
+    month: "Month",
+    empty: "No posted invoices yet for this period.",
+    header: (pct: string, target: string) =>
+      `${pct} posted without an admin (target ${target})`,
+    met: "Target met.",
+    notMet: "Target not met.",
+    noShare: "No posted invoices yet",
+    posted: (posted: number, straight: number) =>
+      `${straight} of ${plural(posted, "posted invoice", "posted invoices")} needed no admin.`,
+    suppliersHeading: "Suppliers this month",
+    suppliersLabel: "Suppliers' figures for the month",
+    columns: {
+      supplier: "Supplier",
+      spend: "Spend",
+      priceRises: "Price-creep alerts",
+      flagged: "Flagged",
+      duplicates: "Duplicates",
+    },
+    unknownSupplier: "Unknown supplier",
+    note: "Spend is by the month invoices were posted, flags by the month they arrived, and price rises by invoice date.",
+    chartTitle: "Posted without an admin, by month",
+    monthColumn: "Month",
+    share: "Share",
+    shareSeries: "Posted without an admin",
+    targetSeries: "Target",
+    summary: (month: string, pct: string, target: string, met: boolean) =>
+      `${month}: ${pct} posted without an admin, ${met ? "meeting" : "below"} the ${target} target.`,
+    noMonthShare: (month: string, target: string) =>
+      `${month}: no posted invoices yet; the target is ${target}.`,
+  },
+  /** Story 5.4: Watchlist (EXPERIENCE.md: watchlisted suppliers with their evidence
+   * and ranked alternatives; CAP-15, CAP-16). */
+  watchlist: {
+    empty: "No posted invoices yet for this period.",
+    none: "No suppliers on the watchlist.",
+    unknownSupplier: "Unknown supplier",
+    unknownMaterial: "Unknown material",
+    priceRises: (count: number) =>
+      `${count} price ${count === 1 ? "rise" : "rises"} in the last 12 months`,
+    late: (days: string) => `On average ${days} days late`,
+    lateNoAverage: "Late deliveries in the last 12 months",
+    onWatchlist: "On the watchlist",
+    priceGap: (material: string, pct: string) =>
+      `${material} ${pct}% above the cheapest supplier`,
+    since: (date: string) => `On the watchlist since ${date}`,
+    evidenceLabel: (supplier: string, rule: string) =>
+      `Evidence for ${supplier}: ${rule}`,
+    riseColumns: {
+      material: "Material",
+      date: "Invoice date",
+      previous: "Previous price",
+      price: "New price",
+      rise: "Rise",
+      invoice: "Invoice",
+    },
+    lateColumns: {
+      material: "Material",
+      received: "Received",
+      daysLate: "Days late",
+    },
+    gapColumns: {
+      material: "Material",
+      date: "Invoice date",
+      price: "Their price",
+      lowest: "Lowest price",
+      cheapest: "Cheapest supplier",
+      invoice: "Invoice",
+    },
+    plusPct: (pct: string) => `+${pct}%`,
+    alternativesHeading: "Alternatives",
+    alternativesFor: (material: string) => `Alternatives for ${material}`,
+    noAlternatives:
+      "No other supplier has invoiced this material in the last 90 days.",
+    alternativeColumns: {
+      supplier: "Supplier",
+      price: "Latest price",
+      onTime: "On-time rate",
+    },
+    noRate: "No deliveries yet",
+    openInvoice: "Open invoice",
+    readOnly: "Posted invoice",
+  },
+  /** Story 5.3: the reusable Chart (EXPERIENCE.md Chart pattern, UX-DR18). */
+  chart: {
+    viewTable: "View as table",
+    viewChart: "View as chart",
+    series: "Series",
+    x: "Date",
+    value: "Value",
+    legend: "Legend",
+    dates: "Dates",
+    range: (what: string, low: string, high: string) =>
+      `${what} from ${low} to ${high}`,
+  },
+  /** Story 4.4: the suppliers list and a supplier's page (EXPERIENCE.md Suppliers,
+   * Supplier scorecard; Flow 5). */
+  suppliers: {
+    found: (n: number) => `${plural(n, "supplier", "suppliers")} found`,
+    empty: "No suppliers yet.",
+    noMatch: "No suppliers match this search.",
+    tableLabel: "Suppliers",
+    searchLabel: "Supplier name",
+    search: "Search",
+    clear: "Clear",
+    columns: {
+      name: "Supplier",
+    },
+    /** The server refused the search (the box itself never sends a refused one). */
+    badSearch: "That search couldn't be run. Change it and search again.",
+    pagination: {
+      label: "Supplier list pages",
+      previous: "Previous page",
+      next: "Next page",
+      status: (page: number, pages: number) => `Page ${page} of ${pages}`,
+    },
+    page: {
+      back: "Back to suppliers",
+      notFound: "This supplier can't be found.",
+      tabsLabel: "Supplier details",
+      tabs: {
+        scorecard: "Scorecard",
+        deliveries: "Deliveries",
+      },
+    },
+    /** Story 5.5: the Scorecard tab (CAP-17): on-time rate and price trend per
+     * material over the last 12 months. */
+    scorecard: {
+      empty: "No posted invoices yet for this period.",
+      onTimeHeading: "On-time deliveries",
+      onTime: (rate: string, receipts: number) =>
+        `On time ${rate} of ${plural(receipts, "receipt", "receipts")} in the last 12 months`,
+      /** A 2-decimal average already trimmed for display ("1.2", "-0.5"). */
+      average: (days: string) => {
+        if (days === "0") return "On time on average";
+        const early = days.startsWith("-");
+        const size = early ? days.slice(1) : days;
+        return `On average ${size} ${size === "1" ? "day" : "days"} ${early ? "early" : "late"}`;
+      },
+      noReceipts: "No goods received in the last 12 months.",
+      up: (material: string, pct: string, since: string) =>
+        `${material} up ${pct}% since ${since}`,
+      down: (material: string, pct: string, since: string) =>
+        `${material} down ${pct}% since ${since}`,
+      unchanged: (material: string, since: string) =>
+        `${material} unchanged since ${since}`,
+      onePrice: (price: string) => `One price so far: ${price}`,
+      price: "Price",
+      /** "Oct 2025" from a YYYY-MM-DD date. */
+      monthYear: (date: string) =>
+        `${MONTHS[Number(date.slice(5, 7)) - 1] ?? ""} ${date.slice(0, 4)}`,
+    },
+    /** Story 4.5: the Deliveries tab (CAP-19): where a supplier's delays come from. */
+    deliveries: {
+      tableLabel: "Deliveries",
+      none: "No deliveries in the last 12 months.",
+      truncated: (n: number) => `Showing the newest ${n} deliveries.`,
+      columns: {
+        po: "PO",
+        delivery: "Delivery",
+        promised: "Promised",
+        delivered: "Delivered",
+        received: "Received",
+        late: "Delivered vs promised",
+        toReceive: "Delivered to received",
+        overall: "Received vs promised",
+      },
+      deliveryNo: (n: number) => `#${n}`,
+      /** A date or gap the server doesn't have yet (not received). */
+      missing: "—",
+      /** Delivered or received against promised: positive is late. */
+      lateness: (days: number) =>
+        days > 0
+          ? `${plural(days, "day", "days")} late`
+          : days < 0
+            ? `${plural(-days, "day", "days")} early`
+            : "On time",
+      days: (days: number) => plural(days, "day", "days"),
     },
   },
   /** Screens not built yet show their heading and this line. */

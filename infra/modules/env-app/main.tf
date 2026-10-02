@@ -1,7 +1,8 @@
 # AD-17 step 7: one environment's four Flex Consumption apps (AD-1), each in its own
 # plan with its own user-assigned identity from <env>/foundation, their deployment
 # containers, app settings (no secrets) and the AD-17 runtime role assignments.
-# The ACS Email Sender assignment (5.2) is added later; Story 1.5 added the telemetry
+# Story 5.2 added the pipeline's ACS Email Sender assignment and alert email settings;
+# Story 1.5 added the telemetry
 # settings, Story 2.2 the pipeline's poison_message and stuck_invoices alerts,
 # Story 2.3 the pipeline's DI settings, its Cognitive Services User assignment and the
 # di_pages_used_pct alert, Story 2.7 staff-api's built-in auth, and Story 3.1
@@ -93,6 +94,17 @@ locals {
       # only these two.
       ACCOUNTS_BASE_URL = "https://${var.app_names["accounts_sim"].function_app}.azurewebsites.net/api"
       ACCOUNTS_AUDIENCE = "api://${var.accounts_sim_client_id}"
+      # Story 5.2 (AD-16): alert emails through the shared ACS (managed identity, no
+      # key), from the linked domain's sender, with deep links into this
+      # environment's staff app (served by staff-api, AD-14; its default host name, as
+      # above). Empty while shared has no ACS Email or no linked domain, which keeps
+      # the feature off; recipients are comma-separated lists per role.
+      EMAIL_ACS_ENDPOINT           = var.email_acs_endpoint != null ? var.email_acs_endpoint : ""
+      EMAIL_SENDER_ADDRESS         = var.email_sender_address != null ? var.email_sender_address : ""
+      STAFF_APP_BASE_URL           = "https://${var.app_names["staff_api"].function_app}.azurewebsites.net"
+      ALERT_RECIPIENTS_FINANCE     = join(",", var.alert_recipients.finance)
+      ALERT_RECIPIENTS_PROCUREMENT = join(",", var.alert_recipients.procurement)
+      ALERT_RECIPIENTS_MANAGEMENT  = join(",", var.alert_recipients.management)
     }
     # Story 3.1 (AD-10, AD-11): accounts-sim's own database login (its identity's
     # name, Entra token, no password), and the one principal it serves, this
@@ -206,7 +218,21 @@ locals {
     }
   }
 
-  role_assignments = merge(local.listed_role_assignments, local.per_app_role_assignments, local.host_role_assignments)
+  # Story 5.2 (AD-16): the one email sender, on the shared ACS in rg-21, only once
+  # shared/foundation has created it. The deploy identity may assign only this role
+  # there (bootstrap rbac-step3.sh, AD-17 step 3).
+  email_role_assignments = var.communication_service_id == null ? {} : {
+    "pipeline/communication/acs" = {
+      app = "pipeline", role = "ACS Email Sender", scope = var.communication_service_id
+    }
+  }
+
+  role_assignments = merge(
+    local.listed_role_assignments,
+    local.per_app_role_assignments,
+    local.host_role_assignments,
+    local.email_role_assignments,
+  )
 }
 
 # --- Deployment containers: where each app's package is published (AD-17 step 9) -----

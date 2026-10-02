@@ -11,12 +11,20 @@ locals {
 
   # name(type, offset) = "<prefix>-<type>-<base + offset, two digits>"
   first = { for type in local.types : type => format("%s-%s-%02d", local.prefix, type, var.number_base) }
-  types = ["rg", "psql", "di", "kv", "log", "appi", "ag", "budget"]
+  # Story 5.2: acs (CAF, Communication Services) and ecs (Email Communication
+  # Service, which CAF gives no abbreviation), both shared only.
+  types = ["rg", "psql", "di", "kv", "log", "appi", "ag", "budget", "acs", "ecs"]
 
   # Runtime identities, numbered in this order from the base (plan Design Notes).
   app_identity_order = ["supplier_api", "staff_api", "pipeline", "accounts_sim"]
 
-  names = {
+  names = merge(local.env_names, {
+    # Story 5.2: ACS Email is shared only (AD-16), so Dev and Prod have no such names.
+    for key, type in { communication_service = "acs", email_service = "ecs" } :
+    key => local.first[type] if var.environment == "shared"
+  })
+
+  env_names = {
     resource_group         = local.first["rg"]
     postgres_server        = local.first["psql"]
     document_intelligence  = local.first["di"]

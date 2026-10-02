@@ -13,6 +13,7 @@ import pytest
 
 import invoicing
 from conftest import APP_ONLY_SETTINGS
+from invoicing.adapters.email import ThrottledEmail, limits_for
 from invoicing.adapters.http import CORRELATION_HEADER
 from invoicing.adapters.telemetry import SDK_HTTP_LOGGER
 from invoicing.apps.common import SettingsError
@@ -59,9 +60,14 @@ def test_story_1_3_health_returns_200_with_the_package_version(
 
 @pytest.mark.app("pipeline")
 def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper(
-    app_settings: dict[str, str], load_app: Callable[[str], ModuleType]
+    app_settings: dict[str, str],
+    load_app: Callable[[str], ModuleType],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    functions = _functions(load_app("pipeline"))
+    module = load_app("pipeline")
+    # Story 5.2: with Terraform's empty email settings, alert emails are off.
+    assert module.alert_mail.email is None
+    functions = _functions(module)
     poison = {
         name: fn.get_bindings()[0].get_dict_repr()
         for name, fn in functions.items()
@@ -100,6 +106,20 @@ def test_story_2_2_pipeline_has_a_poison_trigger_per_stage_queue_and_the_sweeper
     assert refresh["schedule"] == "0 30 1,4,8 * * 1-5"
     assert refresh["runOnStartup"] is False and refresh["useMonitor"] is True
 
+    # Story 5.2: with the endpoint, sender and staff app URL set, alert emails go
+    # through the throttled ACS sender at this environment's limits.
+    for name, value in {
+        "EMAIL_ACS_ENDPOINT": "https://babaloo-sea-lng-acs-21.asiapacific.communication.azure.com",
+        "EMAIL_SENDER_ADDRESS": "alerts@alerts.example.test",
+        "STAFF_APP_BASE_URL": "https://babaloo-sea-lng-func-02.azurewebsites.net",
+        "ALERT_RECIPIENTS_FINANCE": "siti@example.test,ah.kow@example.test",
+    }.items():
+        monkeypatch.setenv(name, value)
+    on = load_app("pipeline").alert_mail
+    assert isinstance(on.email, ThrottledEmail)
+    assert on.email.throttle.limits == limits_for(app_settings["APP_ENVIRONMENT"])
+    assert on.staff_app_base_url == "https://babaloo-sea-lng-func-02.azurewebsites.net"
+
 
 def test_story_1_3_a_missing_empty_or_malformed_setting_stops_the_app_naming_it_only(
     app_settings: dict[str, str],
@@ -134,6 +154,8 @@ def test_story_1_3_a_missing_empty_or_malformed_setting_stops_the_app_naming_it_
         ("pipeline", "POSTGRES_HOST", "db.example host=evil"),
         # Story 3.2: the accounts token's audience is an app ID URI or https only.
         ("pipeline", "ACCOUNTS_AUDIENCE", "http://x"),
+        # Story 5.2: alert recipients are a comma-separated list of addresses.
+        ("pipeline", "ALERT_RECIPIENTS_FINANCE", "siti@example.test, not-an-address"),
     ]:
         with monkeypatch.context() as env:
             app_env(env, app)

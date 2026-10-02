@@ -29,6 +29,33 @@ mock_provider "azapi" {
   }
 }
 
+# Story 5.2: what ACS returns for the resource and the domain (read-only properties).
+override_resource {
+  target = azapi_resource.communication_service
+  values = {
+    id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/communicationServices/babaloo-sea-lng-acs-21"
+    output = { properties = { hostName = "babaloo-sea-lng-acs-21.asiapacific.communication.azure.com" } }
+  }
+}
+override_resource {
+  target = module.email_service[0].azapi_resource.email_communication_service
+  values = {
+    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/emailServices/babaloo-sea-lng-ecs-21"
+  }
+}
+override_resource {
+  target = module.email_service[0].module.domain["custom"].azapi_resource.this
+  values = {
+    id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/emailServices/babaloo-sea-lng-ecs-21/domains/alerts.example.test"
+    output = {
+      from_sender_domain      = "alerts.example.test"
+      mail_from_sender_domain = "alerts.example.test"
+      verification_records    = { Domain = { type = "TXT", name = "alerts.example.test", value = "ms-domain-verification=synthetic", ttl = 3600 } }
+      verification_states     = { Domain = { status = "NotStarted" } }
+    }
+  }
+}
+
 mock_provider "random" {}
 # A mid-month creation time; the budget must start on the 1st of that month.
 mock_provider "time" {
@@ -177,6 +204,79 @@ run "shared_foundation" {
   assert {
     condition     = output.action_group_id == azurerm_monitor_action_group.this.id
     error_message = "the action group id must be an output, for budget-and-roles.sh."
+  }
+
+  # Story 5.2, Terraform off: with no email_custom_domain nothing of ACS Email exists.
+  assert {
+    condition     = length(azapi_resource.communication_service) == 0 && length(module.email_service) == 0
+    error_message = "without email_custom_domain no Communication Services, email service or domain may be created (Story 5.2)."
+  }
+  assert {
+    condition = (
+      output.communication_service_id == null && output.email_acs_endpoint == null &&
+      output.email_domain_verification_records == null && output.email_sender_address == null
+    )
+    error_message = "every email output must be null while the feature is off (Story 5.2)."
+  }
+}
+
+# Story 5.2, Terraform on: Dj's domain set, link still off.
+run "email_domain_set_link_off" {
+  command = apply
+
+  variables {
+    email_custom_domain = "alerts.example.test"
+  }
+
+  assert {
+    condition = (
+      azapi_resource.communication_service[0].name == "babaloo-sea-lng-acs-21" &&
+      azapi_resource.communication_service[0].location == "global" &&
+      azapi_resource.communication_service[0].body.properties.dataLocation == "Asia Pacific" &&
+      azapi_resource.communication_service[0].body.properties.disableLocalAuth == true &&
+      azapi_resource.communication_service[0].tags == tomap(local.tags)
+    )
+    error_message = "Communication Services must be acs-21, data in Asia Pacific, access keys off, with the five tags (Story 5.2)."
+  }
+  assert {
+    condition = (
+      module.email_service[0].name == "babaloo-sea-lng-ecs-21" &&
+      length(module.email_service[0].domain_resource_ids) == 1 &&
+      length(module.email_service[0].domain_sender_username_resource_ids) == 0
+    )
+    error_message = "the email service ecs-21 must hold the one custom domain, and no sender until the domain is linked."
+  }
+  assert {
+    condition     = length(azapi_resource.communication_service[0].body.properties.linkedDomains) == 0
+    error_message = "the domain must not be linked before email_domain_link_enabled (DNS verified first)."
+  }
+  assert {
+    condition = (
+      output.communication_service_id == azapi_resource.communication_service[0].id &&
+      startswith(output.email_acs_endpoint, "https://") &&
+      output.email_domain_verification_records != null &&
+      output.email_sender_address == null
+    )
+    error_message = "with the domain set, the ACS id, endpoint and DNS records must be outputs; the sender only once linked."
+  }
+}
+
+# Story 5.2: the domain verified and linked: the sender alerts@<domain> exists.
+run "email_domain_linked" {
+  command = apply
+
+  variables {
+    email_custom_domain       = "alerts.example.test"
+    email_domain_link_enabled = true
+  }
+
+  assert {
+    condition     = tolist(azapi_resource.communication_service[0].body.properties.linkedDomains) == tolist(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/babaloo-sea-lng-rg-21/providers/Microsoft.Communication/emailServices/babaloo-sea-lng-ecs-21/domains/alerts.example.test"])
+    error_message = "once linked, Communication Services must hold exactly the custom domain's id."
+  }
+  assert {
+    condition     = length(module.email_service[0].domain_sender_username_resource_ids) == 1 && output.email_sender_address == "alerts@alerts.example.test"
+    error_message = "once linked, the alerts sender must exist and be the email_sender_address output."
   }
 }
 

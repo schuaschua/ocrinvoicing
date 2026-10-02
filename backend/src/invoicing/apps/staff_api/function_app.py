@@ -25,6 +25,7 @@ from invoicing.adapters.static import spa_endpoint
 from invoicing.adapters.table_upload_keys import TableUploadKeyStore
 from invoicing.apps.common import health_endpoint, load_settings, start_telemetry
 from invoicing.apps.staff_api.actions import action_endpoints
+from invoicing.apps.staff_api.finance_month import finance_month_endpoint
 from invoicing.apps.staff_api.goods_in import goods_in_endpoints
 from invoicing.apps.staff_api.invoices import invoices_endpoints
 from invoicing.apps.staff_api.item import item_endpoints
@@ -340,6 +341,23 @@ async def supplier_scorecard(req: func.HttpRequest) -> func.HttpResponse:
     """One supplier's on-time rate and price trend per material over the last 365
     days (procurement, finance and management): 200, 401, 404 or 503."""
     return await supplier_scorecard_api(req)
+
+
+# Story 5.6: Finance month, read from `analytics` only (SELECT); supplier names from
+# the master.
+finance_month_api = finance_month_endpoint(
+    PostgresDashboardReader(engine),
+    PostgresSupplierDirectory(engine),
+    platform_auth_trusted=settings.platform_auth_trusted,
+)
+
+
+@app.route(route="api/finance-month", methods=["GET"])
+async def finance_month(req: func.HttpRequest) -> func.HttpResponse:
+    """One month's spend, price rises, flagged and duplicate invoices per supplier,
+    with the straight-through share against the 90% target (finance and management):
+    200, 400, 401, 403 or 503."""
+    return await finance_month_api(req)
 
 
 # The built web/staff (AD-14), packaged as static/ next to this file by

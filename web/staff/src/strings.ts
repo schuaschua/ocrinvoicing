@@ -572,6 +572,39 @@ export const strings = {
     openInvoice: "Open invoice",
     readOnly: "Posted invoice",
   },
+  /** Story 5.6: Finance month (EXPERIENCE.md: per-supplier figures for the month and
+   * the straight-through share against the 90% target; CAP-18, Flow 7). */
+  financeMonth: {
+    month: "Month",
+    empty: "No posted invoices yet for this period.",
+    header: (pct: string, target: string) =>
+      `${pct} posted without an admin (target ${target})`,
+    met: "Target met.",
+    notMet: "Target not met.",
+    noShare: "No posted invoices yet",
+    posted: (posted: number, straight: number) =>
+      `${straight} of ${plural(posted, "posted invoice", "posted invoices")} needed no admin.`,
+    suppliersHeading: "Suppliers this month",
+    suppliersLabel: "Suppliers' figures for the month",
+    columns: {
+      supplier: "Supplier",
+      spend: "Spend",
+      priceRises: "Price-creep alerts",
+      flagged: "Flagged",
+      duplicates: "Duplicates",
+    },
+    unknownSupplier: "Unknown supplier",
+    note: "Spend is by the month invoices were posted, flags by the month they arrived, and price rises by invoice date.",
+    chartTitle: "Posted without an admin, by month",
+    monthColumn: "Month",
+    share: "Share",
+    shareSeries: "Posted without an admin",
+    targetSeries: "Target",
+    summary: (month: string, pct: string, target: string, met: boolean) =>
+      `${month}: ${pct} posted without an admin, ${met ? "meeting" : "below"} the ${target} target.`,
+    noMonthShare: (month: string, target: string) =>
+      `${month}: no posted invoices yet; the target is ${target}.`,
+  },
   /** Story 5.4: Watchlist (EXPERIENCE.md: watchlisted suppliers with their evidence
    * and ranked alternatives; CAP-15, CAP-16). */
   watchlist: {

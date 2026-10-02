@@ -1,7 +1,7 @@
 """Staff-api's dashboard data (Story 5.1, AD-13, AD-20, P-10): read-only, from the
 `analytics` schema the refresh job writes, never from the invoice tables. Stories 5.3
 to 5.6 add the methods their dashboards need; Story 5.3 serves Price comparison and
-Story 5.4 the Watchlist, Story 5.5 the supplier scorecard.
+Story 5.4 the Watchlist, Story 5.5 the supplier scorecard, Story 5.6 Finance month.
 
 Every method raises `DatabaseOfflineError` (domain/errors.py) when the database can't
 be reached at all (AD-7); a failing query raises as it is."""
@@ -101,6 +101,22 @@ class Scorecard:
     material_names: Mapping[UUID, str]
 
 
+@dataclass(frozen=True)
+class FinanceMonth:
+    """Everything Finance month shows (Story 5.6, CAP-18), in one snapshot: the
+    shown month, every month with any data up to the current one (newest first), that
+    month's supplier rows (by supplier id), its price-rise alerts per supplier (by the
+    current invoice's date), its straight-through share (None with nothing posted)
+    and the shares of the 24 months ending at it, oldest first."""
+
+    month: date
+    months: tuple[date, ...]
+    suppliers: tuple[SupplierMonthRow, ...]
+    price_rises: Mapping[UUID, int]
+    summary: MonthSummary | None
+    history: tuple[MonthSummary, ...]
+
+
 class DashboardReader(Protocol):
     """The dashboards' reads of `analytics` (staff-api, SELECT only)."""
 
@@ -140,4 +156,9 @@ class DashboardReader(Protocol):
 
     async def scorecard(self, supplier_id: UUID, since: date) -> Scorecard:
         """`supplier_id`'s scorecard with price points from `since` on (Story 5.5)."""
+        ...
+
+    async def finance_month(self, month: date | None, current: date) -> FinanceMonth:
+        """Finance month for `month`'s month; when None, the latest month with any
+        data up to `current`'s month, else `current`'s month (Story 5.6)."""
         ...

@@ -32,6 +32,19 @@ const SUPPLIER = {
   name: "Synthetic Alpha Building Supplies",
 };
 
+const FINANCE_MONTH = {
+  month: "2026-10",
+  months: [],
+  straight_through: {
+    share: null,
+    posted_count: 0,
+    straight_through_count: 0,
+    target: "0.9000",
+  },
+  history: [],
+  suppliers: [],
+};
+
 function signedInAs(...roles: string[]) {
   fetchMock.mockImplementation(async (input) =>
     // Story 2.8: the admin queue asks for its rows; an empty queue here.
@@ -56,7 +69,10 @@ function signedInAs(...roles: string[]) {
             })
           : String(input) === `/api/suppliers/${SUPPLIER.supplier_id}`
             ? answer(200, SUPPLIER)
-            : answer(200, { name: "Priya Tan", roles }),
+            : // Story 5.6: finance lands on Finance month; no data yet here.
+              String(input).startsWith("/api/finance-month")
+              ? answer(200, FINANCE_MONTH)
+              : answer(200, { name: "Priya Tan", roles }),
   );
 }
 
@@ -167,6 +183,12 @@ describe("2.7 staff sign in and see only their surfaces", () => {
         await screen.findByRole("heading", { level: 1, name: title });
         expect(window.location.pathname).toBe(path);
         expect(navLinks()).toHaveLength(links);
+        if (path === "/finance-month") {
+          // Story 5.6: finance lands on Finance month itself.
+          expect(
+            await screen.findByText(strings.financeMonth.empty),
+          ).toBeInTheDocument();
+        }
         if (path === "/suppliers") {
           // Story 4.4: procurement lands on the suppliers list itself.
           expect(await screen.findByTestId("supplier-row")).toHaveTextContent(

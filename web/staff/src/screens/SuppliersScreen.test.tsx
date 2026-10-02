@@ -1,4 +1,5 @@
 import {
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -126,5 +127,122 @@ describe("4.4 suppliers list and supplier page", () => {
       await screen.findByText(strings.suppliers.page.notFound),
     ).toBeInTheDocument();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+});
+
+describe("4.5 delivery dates on the supplier page", () => {
+  it("switches to Deliveries by arrow key and URL, words the gaps, and shows an empty state", async () => {
+    const late = {
+      po_number: "PO-45012",
+      delivery_no: 2,
+      promised_date: "2026-09-12",
+      delivered_date: "2026-09-14",
+      received_date: "2026-09-15",
+      days_late: 2,
+      days_to_receive: 1,
+      days_overall: 3,
+    };
+    const early = {
+      ...late,
+      delivery_no: 3,
+      delivered_date: "2026-09-10",
+      received_date: "2026-09-12",
+      days_late: -2,
+      days_to_receive: 2,
+      days_overall: 0,
+    };
+    const pending = {
+      ...late,
+      po_number: "PO-45017",
+      delivery_no: 1,
+      received_date: null,
+      days_late: 1,
+      days_to_receive: null,
+      days_overall: null,
+    };
+    const GAMMA = "01a0c450-73d0-7ee3-94ca-ef9fef9d793d";
+    let alphaCalls = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === `/api/suppliers/${ALPHA}`) return answer(ALPHA_ROW);
+      if (path === `/api/suppliers/${BETA}`) return answer(BETA_ROW);
+      if (path === `/api/suppliers/${GAMMA}`) {
+        return answer({ supplier_id: GAMMA, name: "Synthetic Gamma" });
+      }
+      if (path === `/api/suppliers/${ALPHA}/deliveries`) {
+        alphaCalls += 1;
+        // The first call fails; the retry has more than the server sends.
+        return alphaCalls === 1
+          ? answer({ code: "INTERNAL", message: "Failed." }, 500)
+          : answer({ items: [pending, late, early], truncated: true });
+      }
+      if (path === `/api/suppliers/${GAMMA}/deliveries`) {
+        return answer({ code: "NOT_FOUND", message: "Not found." }, 404);
+      }
+      return answer({ items: [], truncated: false });
+    });
+    window.history.replaceState(null, "", `/suppliers/${ALPHA}`);
+    const page = render(<SupplierScreen supplierId={ALPHA} />);
+    const scorecard = await screen.findByRole("tab", {
+      name: strings.suppliers.page.tabs.scorecard,
+    });
+
+    // --- Arrow right selects Deliveries, in the URL, and loads the table.
+    scorecard.focus();
+    fireEvent.keyDown(scorecard, { key: "ArrowRight" });
+    const deliveriesTab = screen.getByRole("tab", {
+      name: strings.suppliers.page.tabs.deliveries,
+    });
+    expect(deliveriesTab).toHaveAttribute("aria-selected", "true");
+    expect(deliveriesTab).toHaveFocus();
+    expect(window.location.search).toBe("?tab=deliveries");
+    // --- A failed load: the alert, then Try again asks again and shows the rows.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      strings.errors.generic,
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: strings.errors.tryAgain }),
+    );
+    const rows = await screen.findAllByTestId("delivery-row");
+    expect(alphaCalls).toBe(2);
+    expect(
+      screen.getByText(strings.suppliers.deliveries.truncated(3)),
+    ).toBeInTheDocument();
+    expect(requested().at(-1)?.pathname).toBe(
+      `/api/suppliers/${ALPHA}/deliveries`,
+    );
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "PO 45017#12026-09-122026-09-14—1 day late——",
+      "PO 45012#22026-09-122026-09-142026-09-152 days late1 day3 days late",
+      "PO 45012#32026-09-122026-09-102026-09-122 days early2 daysOn time",
+    ]);
+
+    // --- Back to Scorecard: the shell stays, the URL drops the tab.
+    fireEvent.click(scorecard);
+    expect(window.location.search).toBe("");
+    expect(
+      screen.getByRole("heading", { level: 1, name: ALPHA_ROW.name }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("delivery-row")).not.toBeInTheDocument();
+    page.unmount();
+
+    // --- Opened at ?tab=deliveries with none: the empty state, no "could-have".
+    window.history.replaceState(null, "", `/suppliers/${BETA}?tab=deliveries`);
+    render(<SupplierScreen supplierId={BETA} />);
+    expect(
+      await screen.findByText(strings.suppliers.deliveries.none),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/could/i);
+    cleanup();
+
+    // --- The supplier is gone by the time Deliveries loads: not found, no retry.
+    window.history.replaceState(null, "", `/suppliers/${GAMMA}?tab=deliveries`);
+    render(<SupplierScreen supplierId={GAMMA} />);
+    expect(
+      await screen.findByText(strings.suppliers.page.notFound),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: strings.errors.tryAgain }),
+    ).not.toBeInTheDocument();
   });
 });

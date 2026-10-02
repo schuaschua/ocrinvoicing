@@ -112,3 +112,6 @@
 - source_plan: `_bmad-output/implementation-artifacts/plan-4-4-suppliers-list.md`
   summary: The Suppliers and Invoices search results are not announced to screen readers (no live region on the result count).
   evidence: Both screens render the count in a plain paragraph; fix both together.
+- source_plan: `_bmad-output/implementation-artifacts/plan-4-5-delivery-dates.md`
+  summary: `PurchasingPort.supplier_delivery_dates` is not in the purchasing contract suite, and same-day delivery ordering is untested.
+  evidence: Only the sim adapter exists and the staff-api test pins its behaviour; add the contract method when the real purchasing adapter starts.

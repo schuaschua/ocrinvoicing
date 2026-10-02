@@ -551,9 +551,37 @@ export const strings = {
       tabsLabel: "Supplier details",
       tabs: {
         scorecard: "Scorecard",
+        deliveries: "Deliveries",
       },
       scorecardComing:
         "The scorecard is coming: on-time rate and price trend per material.",
+    },
+    /** Story 4.5: the Deliveries tab (CAP-19): where a supplier's delays come from. */
+    deliveries: {
+      tableLabel: "Deliveries",
+      none: "No deliveries in the last 12 months.",
+      truncated: (n: number) => `Showing the newest ${n} deliveries.`,
+      columns: {
+        po: "PO",
+        delivery: "Delivery",
+        promised: "Promised",
+        delivered: "Delivered",
+        received: "Received",
+        late: "Delivered vs promised",
+        toReceive: "Delivered to received",
+        overall: "Received vs promised",
+      },
+      deliveryNo: (n: number) => `#${n}`,
+      /** A date or gap the server doesn't have yet (not received). */
+      missing: "—",
+      /** Delivered or received against promised: positive is late. */
+      lateness: (days: number) =>
+        days > 0
+          ? `${plural(days, "day", "days")} late`
+          : days < 0
+            ? `${plural(-days, "day", "days")} early`
+            : "On time",
+      days: (days: number) => plural(days, "day", "days"),
     },
   },
   /** Screens not built yet show their heading and this line. */
